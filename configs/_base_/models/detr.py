@@ -1,5 +1,8 @@
+link = 'https://download.openmmlab.com/mmdetection/v2.0/detr/detr_r50_8x2_150e_coco/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
+
 model = dict(
     detector=dict(
+    init_cfg=dict(type='Pretrained', checkpoint=link),
     type='DETR',
     backbone=dict(
         type='ResNet',

@@ -1,17 +1,13 @@
 _base_ = [
     '../../_base_/models/detr.py',
-    '../../_base_/datasets/mot_challenge.py', '../../_base_/default_runtime.py'
+    '../../_base_/datasets/mot15-full.py', 
+    '../../_base_/default_runtime.py'
 ]
 
-link = 'https://download.openmmlab.com/mmdetection/v2.0/detr/detr_r50_8x2_150e_coco/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
+#link = 'https://download.openmmlab.com/mmdetection/v2.0/detr/detr_r50_8x2_150e_coco/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
 
 model = dict(
     type='DeepSORT',
-    detector=dict(
-        init_cfg=dict(
-            type='Pretrained',
-            checkpoint=link
-        )),
     motion=dict(type='KalmanFilter', center_only=False),
     tracker=dict(
         type='SortTracker', obj_score_thr=0.9, match_iou_thr=0.5, reid=None))

@@ -2,10 +2,13 @@
 
 #img_scale = (416, 416)
 
+link = 'https://download.openmmlab.com/mmdetection/v2.0/yolo/yolov3_mobilenetv2_mstrain-416_300e_coco/yolov3_mobilenetv2_mstrain-416_300e_coco_20210718_010823-f68a07b3.pth'
+
 # model settings
 model = dict(
 detector=dict(
     type='YOLOV3',
+    init_cfg=dict(type='Pretrained', checkpoint=link),
     backbone=dict(
         type='MobileNetV2',
         out_indices=(2, 4, 6),

@@ -1,18 +1,24 @@
 _base_ = [
-    '../../_base_/models/yolov3.py',
+    '../../_base_/models/detr.py',
     '../../_base_/datasets/mot_challenge.py', '../../_base_/default_runtime.py'
 ]
-link = 'https://download.openmmlab.com/mmdetection/v2.0/yolo/yolov3_mobilenetv2_mstrain-416_300e_coco/yolov3_mobilenetv2_mstrain-416_300e_coco_20210718_010823-f68a07b3.pth'
+
+custom_imports = dict(imports=['mmtrack.models.mot.kf'], allow_failed_imports=False)
+
+link = 'https://download.openmmlab.com/mmdetection/v2.0/detr/detr_r50_8x2_150e_coco/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
+
 model = dict(
-    type='DeepSORT',
+    type='KFSORT',
     detector=dict(
         init_cfg=dict(
             type='Pretrained',
-            checkpoint=link
-        )),
-    motion=dict(type='KalmanFilter', center_only=False),
-    tracker=dict(
-        type='SortTracker', obj_score_thr=0.3, match_iou_thr=0.3, reid=None))
+            checkpoint=link,
+    ),
+    ),
+    score_thres=0.9,
+    iou_thres=0.3,
+)
+
 # learning policy
 lr_config = dict(
     policy='step',
