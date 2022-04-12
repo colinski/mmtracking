@@ -2,7 +2,6 @@ _base_ = [
     # '../../_base_/datasets/mot_challenge.py', 
     '../../_base_/models/deformable_detr.py',
      '../../_base_/datasets/mot15-half.py', 
-    '../../_base_/default_runtime.py'
 ]
 custom_imports = dict(
             imports=['mmtrack.models.mot.trackformer'],
@@ -137,9 +136,48 @@ data = dict(
         # img_prefix=data_root + 'train',
         # ref_img_sampler=None,
         # pipeline=test_pipeline))
-optimizer_config = dict(
-    _delete_=True, grad_clip=dict(max_norm=35, norm_type=2))
-lr_config = dict(policy='step', step=[3])
+
+optimizer = dict(
+    type='AdamW',
+    lr=2e-4,
+    weight_decay=0.0001,
+    paramwise_cfg=dict(
+        custom_keys={
+            'backbone': dict(lr_mult=0.1),
+            'sampling_offsets': dict(lr_mult=0.1),
+            'reference_points': dict(lr_mult=0.1)
+        }))
+
+#optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
+# learning policy
+optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
+lr_config = dict(policy='step', step=[4])
+#runner = dict(type='EpochBasedRunner', max_epochs=5)
+total_epochs = 5
+
+# optimizer_config = dict(
+    # _delete_=True, grad_clip=dict(max_norm=35, norm_type=2))
+# lr_config = dict(policy='step', step=[3])
 # runtime settings
-total_epochs = 4
+# total_epochs = 4
 evaluation = dict(metric=['bbox', 'track'], interval=1)
+find_unused_parameters = True
+checkpoint_config = dict(interval=1)
+# yapf:disable
+log_config = dict(
+    interval=50,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        # dict(type='TensorboardLoggerHook')
+    ])
+# yapf:enable
+dist_params = dict(backend='nccl')
+log_level = 'INFO'
+load_from = None
+resume_from = None
+workflow = [('train', 1)]
+
+# disable opencv multithreading to avoid system being overloaded
+opencv_num_threads = 0
+# set multi-process start method as `fork` to speed up the training
+mp_start_method = 'fork'
