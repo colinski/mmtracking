@@ -192,6 +192,7 @@ class Trackformer(BaseMultiObjectTracker):
         #calc loss round 2
         num_bboxes = len(ref_bbox_pred)
         num_tracks = len(track_embeds)
+        num_query = num_bboxes - num_tracks
         labels = gt_bboxes[0].new_ones(num_bboxes).long() * bbox_head.num_classes
         label_weights = gt_bboxes[0].new_ones(num_bboxes)
         bbox_targets = torch.zeros_like(ref_bbox_pred)
@@ -202,7 +203,8 @@ class Trackformer(BaseMultiObjectTracker):
             # mask[gt_match_indices[0]] = 1 
 
 
-        if len(gt_bboxes[0]) == len(ref_gt_bboxes[0]):
+        #if len(gt_bboxes[0]) == len(ref_gt_bboxes[0]):
+        if False:
             #ref_bbox = ref_gt_bboxes[0][gt_match_indices[0]]
             labels[-num_tracks:] = ref_gt_labels[0]
             bbox_weights[-num_tracks:] = 1.0
@@ -220,7 +222,8 @@ class Trackformer(BaseMultiObjectTracker):
             losses['ref.loss_bbox'] = loss_bbox
             losses['ref.loss_iou'] = loss_iou
         
-        if len(gt_bboxes[0]) > len(ref_gt_bboxes[0]):
+        #if len(gt_bboxes[0]) > len(ref_gt_bboxes[0]):
+        if False:
             idx = gt_match_indices[0] == -1
             ref_bbox = ref_gt_bboxes[0][gt_match_indices[0]]
             ref_labels = ref_gt_labels[0][gt_match_indices[0]]
@@ -244,6 +247,68 @@ class Trackformer(BaseMultiObjectTracker):
             losses['ref.loss_cls'] = loss_cls
             losses['ref.loss_bbox'] = loss_bbox
             losses['ref.loss_iou'] = loss_iou
+        
+        #if len(gt_bboxes[0]) < len(ref_gt_bboxes[0]):
+        if True:
+            idx = gt_match_indices[0]
+            ref_bboxes = ref_gt_bboxes[0]
+            ref_labels = ref_gt_labels[0]
+
+            cont_bboxes = ref_bboxes[idx]
+            cont_labels = ref_labels[idx]
+            cont_bboxes[idx == -1] = 0
+            cont_labels[idx == -1] = bbox_head.num_classes
+
+            bbox_targets[num_query:] = bbox_xyxy_to_cxcywh(cont_bboxes / factor)
+            labels[num_query:] = cont_labels
+            
+            # full_idx = torch.arange(len(ref_bboxes)).to(ref_bboxes.device)
+           
+            cont_idx = idx[idx != -1]
+            new_idx = [i for i in range(len(ref_bboxes)) if i not in cont_idx]
+            new_idx = ref_bboxes.new(new_idx).long()
+            new_bboxes = ref_bboxes[new_idx]
+            new_labels = ref_labels[new_idx]
+
+            query_bbox_pred = ref_bbox_pred[0:num_query]
+            query_cls_score  = ref_cls_score[0:num_query]
+
+            assign_result = bbox_head.assigner.assign(
+                query_bbox_pred, query_cls_score, 
+                new_bboxes, new_labels,
+                img_metas[0],
+            )
+            sampling_result = bbox_head.sampler.sample(
+                assign_result, query_bbox_pred, new_bboxes
+            )
+            pos_inds = sampling_result.pos_inds
+            neg_inds = sampling_result.neg_inds
+            
+            new_gt_bbox = sampling_result.pos_gt_bboxes / factor
+            new_gt_bbox = bbox_xyxy_to_cxcywh(new_gt_bbox)
+            bbox_targets[pos_inds] = new_gt_bbox #only works with tracks at end
+            labels[pos_inds] = ref_labels[sampling_result.pos_assigned_gt_inds]
+
+            non_zero = bbox_targets.sum(dim=-1) != 0
+            bbox_weights[non_zero] = 1.0
+            num_pos = non_zero.sum()
+            num_neg = num_bboxes - num_pos
+
+            targets = (labels, label_weights, bbox_targets, bbox_weights, 
+                num_pos, num_neg)
+            loss_cls, loss_bbox, loss_iou = self.loss_single(bbox_head,
+                targets, ref_cls_score.unsqueeze(0), ref_bbox_pred.unsqueeze(0),
+                ref_bboxes, ref_labels, img_metas
+            )
+            losses['ref.loss_cls'] = loss_cls
+            losses['ref.loss_bbox'] = loss_bbox
+            losses['ref.loss_iou'] = loss_iou
+
+            #bbox_targets[pos_inds] = pos_gt_bboxes_targets
+
+            # over_idx = idx[idx == -1]
+            # if len(over_idx) > 0:
+            #import ipdb; ipdb.set_trace() # noqa
 
         # if len(gt_bboxes[0]) < len(ref_gt_bboxes[0]):
             # mask = ref_gt_bboxes[0].new_zeros(len(ref_gt_bboxes[0])).bool()
