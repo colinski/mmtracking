@@ -16,7 +16,6 @@ class Trackformer(BaseMultiObjectTracker):
                  track_head=None,
                  tracker=None,
                  learn_track_pos=False,
-                 query_dropout_rate=0.0,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -28,10 +27,7 @@ class Trackformer(BaseMultiObjectTracker):
 
         if tracker is not None:
             self.tracker = build_tracker(tracker)
-        
-        self.qdropout = None 
-        if query_dropout_rate > 0.0:
-            self.qdropout = torch.nn.Dropout(query_dropout_rate)
+
         
         self.track_pos = None
         if learn_track_pos:
@@ -107,26 +103,23 @@ class Trackformer(BaseMultiObjectTracker):
 
         ###################################################################
         #backbone forward pass with both imgs in a batch
-        #imgs = torch.cat([img, ref_img], dim=0)
-        #all_feats = self.detector.extract_feat(imgs)[0]
-        #all_feats = [feat.split(len(imgs) // 2, dim=0) for feat in all_feats]
-        feats = self.detector.extract_feat(img)[0]
-        ref_feats = self.detector.extract_feat(ref_img)[0]
+        imgs = torch.cat([img, ref_img], dim=0)
+        all_feats = self.detector.extract_feat(imgs)
+        all_feats = [feat.split(len(imgs) // 2, dim=0) for feat in all_feats]
+        feats = [feat[0] for feat in all_feats]
+        ref_feats = [feat[1] for feat in all_feats]
         ###################################################################
         
        
         ###################################################################
         #transformer and output heads using first frame (img)
         query_embeds = bbox_head.query_embedding.weight 
-        query_embeds = bbox_head.forward_transformer(
+        query_embeds, init_ref, inter_ref = bbox_head.forward_transformer(
             feats, query_embeds, img_metas
         )
-        cls_scores = bbox_head.fc_cls(query_embeds)
-        bbox_preds = bbox_head.fc_reg(bbox_head.activate(bbox_head.reg_ffn(query_embeds))).sigmoid()
-
-        # cls_scores, bbox_preds = bbox_head.forward_output_heads(
-            # query_embeds, init_ref, inter_ref
-        # )
+        cls_scores, bbox_preds = bbox_head.forward_output_heads(
+            query_embeds, init_ref, inter_ref
+        )
         query_embeds = query_embeds[-1].squeeze()
         cls_score = cls_scores[-1].squeeze()
         bbox_pred = bbox_preds[-1].squeeze()
@@ -175,28 +168,22 @@ class Trackformer(BaseMultiObjectTracker):
         #track embeds are copies of matched query embeds
         #append corresponding positional encodings 
         track_embeds = query_embeds[pred_idx]
-        # query_pos, _ = torch.split(bbox_head.query_embedding.weight, track_embeds.shape[-1], dim=1)
-        # if self.track_pos is not None:
-            # track_pos = query_pos[pred_idx]
-            # track_pos += self.track_pos.expand(len(track_embeds), -1)
-        # else:
-            # track_pos = query_pos[pred_idx]
-        # track_embeds  = torch.cat([track_pos, track_embeds], dim=-1)
+        query_pos, _ = torch.split(bbox_head.query_embedding.weight, track_embeds.shape[-1], dim=1)
+        if self.track_pos is not None:
+            track_pos = query_pos[pred_idx]
+            track_pos += self.track_pos.expand(len(track_embeds), -1)
+        else:
+            track_pos = query_pos[pred_idx]
+        track_embeds  = torch.cat([track_pos, track_embeds], dim=-1)
 
         #concat all embeds and run through transformer and output heads
         all_embeds = torch.cat([bbox_head.query_embedding.weight, track_embeds], dim=0)
-        if self.qdropout is not None:
-            all_embeds = self.qdropout(all_embeds)
-
-        all_embeds = bbox_head.forward_transformer(
+        all_embeds, init_ref, inter_ref = bbox_head.forward_transformer(
             ref_feats, all_embeds, img_metas
         )
-        ref_cls_scores = bbox_head.fc_cls(all_embeds)
-        ref_bbox_preds = bbox_head.fc_reg(bbox_head.activate(bbox_head.reg_ffn(all_embeds))).sigmoid()
-
-        # ref_cls_scores, ref_bbox_preds = bbox_head.forward_output_heads(
-            # all_embeds, init_ref, inter_ref
-        # )
+        ref_cls_scores, ref_bbox_preds = bbox_head.forward_output_heads(
+            all_embeds, init_ref, inter_ref
+        )
         ref_cls_score = ref_cls_scores[-1].squeeze()
         ref_bbox_pred = ref_bbox_preds[-1].squeeze()
         ###################################################################
