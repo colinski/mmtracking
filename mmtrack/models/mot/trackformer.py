@@ -161,7 +161,8 @@ class Trackformer(BaseMultiObjectTracker):
             cls_score.unsqueeze(0), bbox_pred.unsqueeze(0),
             labels, label_weights,
             bbox_targets, bbox_weights,
-            num_pos, num_neg, img_metas
+            num_pos, num_neg, bbox_head.bg_cls_weight,
+            img_metas
         )
         losses = {
             'curr.loss_cls': loss_cls,
@@ -257,6 +258,7 @@ class Trackformer(BaseMultiObjectTracker):
         #these are ignored in the loss
         non_zero = bbox_targets.sum(dim=-1) != 0
         bbox_weights[non_zero] = 1.0
+        # bbox_weights[pred_idx] = 2.0
         num_pos = non_zero.sum().item()
         num_neg = num_bboxes - num_pos
         
@@ -264,7 +266,7 @@ class Trackformer(BaseMultiObjectTracker):
             ref_cls_score.unsqueeze(0), ref_bbox_pred.unsqueeze(0),
             labels, label_weights,
             bbox_targets, bbox_weights,
-            num_pos, num_neg, img_metas
+            num_pos, num_neg, bbox_head.bg_cls_weight, img_metas
         )
 
         losses['ref.loss_cls'] = loss_cls
@@ -276,14 +278,15 @@ class Trackformer(BaseMultiObjectTracker):
                     labels, label_weights,
                     bbox_targets, bbox_weights,
                     num_total_pos, num_total_neg,
-                    img_metas):
+                    bg_cls_weight=1.0,
+                    img_metas=None):
         bbox_head = self.detector.bbox_head
 
         # classification loss
         # construct weighted avg_factor to match with the official DETR repo
         cls_scores = cls_scores.reshape(-1, bbox_head.cls_out_channels)
         cls_avg_factor = num_total_pos * 1.0
-        cls_avg_factor += num_total_neg * bbox_head.bg_cls_weight
+        cls_avg_factor += num_total_neg * bg_cls_weight
         if bbox_head.sync_cls_avg_factor:
             cls_avg_factor = reduce_mean(cls_scores.new_tensor([cls_avg_factor]))
         cls_avg_factor = max(cls_avg_factor, 1)
