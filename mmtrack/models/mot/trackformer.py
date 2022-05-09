@@ -13,31 +13,25 @@ from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
 class Trackformer(BaseMultiObjectTracker):
     def __init__(self,
                  detector=None,
-                 track_head=None,
-                 tracker=None,
-                 learn_track_pos=False,
-                 query_dropout_rate=0.0,
+                 thres_new=0.5,
+                 thres_cont=0.5,
+                 thres_reid=5,
+                 max_age=1,
+                 min_hits=0,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
         if detector is not None:
             self.detector = build_detector(detector)
-
-        if track_head is not None:
-            self.track_head = build_head(track_head)
-
-        if tracker is not None:
-            self.tracker = build_tracker(tracker)
-        
-        self.qdropout = None 
-        if query_dropout_rate > 0.0:
-            self.qdropout = torch.nn.Dropout(query_dropout_rate)
-        
-        self.track_pos = None
-        if learn_track_pos:
-            pos = self.detector.bbox_head.query_embedding.weight[:, 0:256]
-            self.track_pos = pos.mean(dim=0, keepdims=True).detach()
-            self.track_pos = torch.nn.Parameter(self.track_pos)
+        self.tracks = []
+        self.sleeping_tracks = []
+        self.num_queries = self.detector.bbox_head.query_embedding.weight.shape[0]
+        self.thres_new = thres_new
+        self.thres_cont = thres_cont
+        self.thres_reid = thres_reid
+        self.max_age = max_age
+        self.min_hits = min_hits
+        self.frame_count = 0
 
         
     def forward_train(self,
@@ -100,7 +94,6 @@ class Trackformer(BaseMultiObjectTracker):
         ref_gt_labels = ref_gt_labels[0]
         gt_match_indices = gt_match_indices[0]
 
-        #import ipdb; ipdb.set_trace() # noqa
 
         H, W , _ = img_metas[0]['img_shape']
         factor = gt_bboxes.new_tensor([W, H, W, H]).unsqueeze(0)
@@ -176,18 +169,9 @@ class Trackformer(BaseMultiObjectTracker):
         #track embeds are copies of matched query embeds
         #append corresponding positional encodings 
         track_embeds = query_embeds[pred_idx]
-        # query_pos, _ = torch.split(bbox_head.query_embedding.weight, track_embeds.shape[-1], dim=1)
-        # if self.track_pos is not None:
-            # track_pos = query_pos[pred_idx]
-            # track_pos += self.track_pos.expand(len(track_embeds), -1)
-        # else:
-            # track_pos = query_pos[pred_idx]
-        # track_embeds  = torch.cat([track_pos, track_embeds], dim=-1)
 
         #concat all embeds and run through transformer and output heads
         all_embeds = torch.cat([bbox_head.query_embedding.weight, track_embeds], dim=0)
-        if self.qdropout is not None:
-            all_embeds = self.qdropout(all_embeds)
 
         all_embeds = bbox_head.forward_transformer(
             ref_feats, all_embeds, img_metas
@@ -195,9 +179,6 @@ class Trackformer(BaseMultiObjectTracker):
         ref_cls_scores = bbox_head.fc_cls(all_embeds)
         ref_bbox_preds = bbox_head.fc_reg(bbox_head.activate(bbox_head.reg_ffn(all_embeds))).sigmoid()
 
-        # ref_cls_scores, ref_bbox_preds = bbox_head.forward_output_heads(
-            # all_embeds, init_ref, inter_ref
-        # )
         ref_cls_score = ref_cls_scores[-1].squeeze()
         ref_bbox_pred = ref_bbox_preds[-1].squeeze()
         ###################################################################
@@ -258,10 +239,10 @@ class Trackformer(BaseMultiObjectTracker):
         #these are ignored in the loss
         non_zero = bbox_targets.sum(dim=-1) != 0
         bbox_weights[non_zero] = 1.0
-        # bbox_weights[pred_idx] = 2.0
         num_pos = non_zero.sum().item()
         num_neg = num_bboxes - num_pos
         
+        # label_weights[0:num_query] = 0.1
         loss_cls, loss_bbox, loss_iou = self.detr_loss(
             ref_cls_score.unsqueeze(0), ref_bbox_pred.unsqueeze(0),
             labels, label_weights,
@@ -351,4 +332,156 @@ class Trackformer(BaseMultiObjectTracker):
         Returns:
             dict[str : Tensor]: Track results.
         """
-        return dict()
+        assert img_metas[0]['frame_id'] == self.frame_count
+        img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        feats = self.detector.extract_feat(img)
+
+        track_embeds = img.new_empty(0, 256)
+        if len(self.tracks) > 0:
+            track_embeds = torch.cat([t.state for t in self.tracks], dim=0)  
+        
+        self.bbox_head = self.detector.bbox_head
+        query_embeds = torch.cat([
+            self.bbox_head.query_embedding.weight, 
+            track_embeds
+        ], dim=0)
+        
+        #if self.frame_count > 0:
+        #    track_embeds = tracker.qdropout.eval()(track_embeds)
+            
+        query_embeds  = self.bbox_head.forward_transformer(
+            feats[0], query_embeds, img_metas
+        )
+        cls_scores = self.bbox_head.fc_cls(query_embeds)
+        bbox_preds = self.bbox_head.fc_reg(self.bbox_head.activate(self.bbox_head.reg_ffn(query_embeds))).sigmoid()
+        query_embeds = query_embeds[-1].squeeze()
+        cls_score = torch.softmax(cls_scores[-1].squeeze(), dim=-1)
+        bbox_pred = bbox_preds[-1].squeeze()
+
+        #isolate preds from existing tracks
+        track_score = cls_score[self.num_queries:]
+        track_embeds = query_embeds[self.num_queries:]
+        track_bbox_pred = bbox_pred[self.num_queries:]
+        
+        #check if alive or should be put to sleep
+        alive_mask = track_score[:, 0] >= self.thres_cont
+        alive_idx = torch.arange(len(alive_mask))[alive_mask]
+        sleep_idx = torch.arange(len(alive_mask))[~alive_mask]
+        
+        for idx in sleep_idx:
+            self.sleeping_tracks.append(self.tracks[idx])
+        
+        #update alive tracks
+        for idx in alive_idx:
+            self.tracks[idx].update(track_embeds[idx], track_bbox_pred[idx], track_score[idx][0])
+        self.tracks = [t for i, t in enumerate(self.tracks) if i in alive_idx] #remove sleeping tracks
+        
+        #check for new detections
+        new_mask  = cls_score[0:self.num_queries, 0] >= self.thres_new #person class probability
+        new_idx = torch.arange(len(new_mask))[new_mask]
+        new_embeds = query_embeds[0:self.num_queries][new_idx]
+        new_bbox_preds = bbox_pred[0:self.num_queries][new_idx]
+        new_cls_score = cls_score[0:self.num_queries][new_idx]
+
+        #new detections may be sleeping objects
+        sleeping_embeds = new_embeds.new_empty(0, 256)
+        if len(self.sleeping_tracks) > 0:
+            sleeping_embeds = torch.cat([t.embed for t in self.sleeping_tracks])
+            
+                
+        dists = torch.cdist(new_embeds, sleeping_embeds) #num_new x num_sleep
+        sleep_rm_idx = []
+        for i in range(len(new_embeds)):
+            matched = False
+            for j in range(len(sleeping_embeds)):
+                dist = dists[i, j]
+                if dist <= self.thres_reid and j not in sleep_rm_idx:
+                    old_track = self.sleeping_tracks[j]
+                    old_track.update(new_embeds[i], new_bbox_preds[i], new_cls_score[i][0])
+                    self.tracks.append(old_track)
+                    matched = True
+                    sleep_rm_idx.append(j)
+                    break
+            if not matched:
+                new_embed = query_embeds[0:self.num_queries][new_idx[i]]
+                new_bbox_pred = bbox_pred[0:self.num_queries][new_idx[i]]
+                new_score = bbox_pred[0:self.num_queries][new_idx[i]][0]
+                new_track = Track(new_embed, new_bbox_pred, new_score)
+                self.tracks.append(new_track)
+        
+        self.sleeping_tracks = [t for i, t in enumerate(self.sleeping_tracks) if i not in sleep_rm_idx]
+        # track_bboxes = torch.cat([t.bbox.unsqueeze(0) for t in self.tracks])
+        # track_ages = torch.tensor([t.age for t in self.tracks]).long().cuda()
+        # selected_idx = nms(track_bboxes, -track_ages)
+        # self.tracks = [t for i, t in enumerate(self.tracks) if i in selected_idx]
+        
+        bboxes, ids, scores = [bbox_preds.new_empty(0,4)], [], []
+        for track in self.tracks:
+            onstreak = track.hit_streak >= self.min_hits
+            #warmingup = self.frame_count <= self.min_hits
+            #if track.wasupdated and (onstreak or warmingup):
+            if onstreak:
+                bbox = bbox_cxcywh_to_xyxy(track.bbox)#.unsqueeze(0)
+                bboxes.append(bbox)
+                scores.append(track.score)
+                ids.append(track.id)
+
+        bboxes = torch.cat(bboxes, dim=0)
+        scores = bboxes.new_tensor(scores).unsqueeze(1)
+        ids = torch.tensor(ids)
+
+        H, W , _ = img_metas[0]['ori_shape']
+        factor = bboxes.new_tensor([W, H, W, H]).unsqueeze(0)
+        bboxes = bboxes * factor
+        bboxes = torch.cat([bboxes, scores], dim=-1)
+
+        # if len(torch.unique(ids)) != len(ids):
+            # import ipdb; ipdb.set_trace() # noqa
+        labels = ids.new_zeros(ids.shape)
+        track_res = outs2results(bboxes=bboxes, labels=labels, ids=ids, num_classes=1)
+        det_res = outs2results(bboxes=bboxes, labels=labels, ids=None, num_classes=1)
+        self.frame_count += 1
+        results = dict(
+            det_bboxes=det_res['bbox_results'],
+            track_bboxes=track_res['bbox_results']
+        )
+        # results = dict(
+            # track_bboxes=[bboxes.cpu()],
+            # track_ids=[ids.cpu()],
+            # track_labels=[labels.cpu()]
+        # )
+
+        return results
+
+class Track:
+    count = 0
+    def __init__(self, embed, bbox, score):
+        self.embed = embed.unsqueeze(0)
+        self.bbox = bbox.unsqueeze(0)
+        self.score = score.item()
+        self.id = Track.count
+        Track.count += 1
+        self.hit_streak = 0
+        self.age = 0
+        self.time_since_update = 1
+    
+    @property
+    def state(self):
+        return self.embed
+        #return torch.cat([self.pos, self.embed], dim=-1)
+    
+    @property
+    def pred(self):
+        return self.bbox
+    
+    def update(self, embed, bbox, score):
+        self.embed = embed.unsqueeze(0)
+        self.bbox = bbox.unsqueeze(0)
+        self.score = score.item()
+        self.time_since_update = 0
+        self.hit_streak += 1
+        self.age += 1
+        
+    @property
+    def wasupdated(self):
+        return self.time_since_update < 1
