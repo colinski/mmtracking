@@ -33,6 +33,10 @@ class Trackformer(BaseMultiObjectTracker):
         self.min_hits = min_hits
         self.frame_count = 0
 
+    def reset(self):
+        self.tracks = []
+        self.sleeping_tracks = []
+        self.frame_count = 0
         
     def forward_train(self,
                       img,
@@ -332,7 +336,9 @@ class Trackformer(BaseMultiObjectTracker):
         Returns:
             dict[str : Tensor]: Track results.
         """
-        assert img_metas[0]['frame_id'] == self.frame_count
+        if img_metas[0]['frame_id'] == 0:
+            self.reset()
+
         img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
         feats = self.detector.extract_feat(img)
 

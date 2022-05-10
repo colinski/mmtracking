@@ -70,10 +70,30 @@ test_pipeline = [
 ]
 
 trainsets = []
-# for vid in ['10']:
-for vid in ['02', '04', '05', '09', '10', '11', '13']:
-    data_root = 'data/MOT17-%s/' % vid
-    trainset = dict(type=dataset_type,
+# for vid in ['02', '04', '05', '09', '10', '11', '13']:
+    # data_root = 'data/MOT17-%s/' % vid
+    # trainset = dict(type=dataset_type,
+        # visibility_thr=-1,
+        # ann_file=data_root + 'annotations/train_cocoformat.json',
+        # img_prefix=data_root + 'train',
+        # ref_img_sampler=dict(
+            # num_ref_imgs=1,
+            # frame_range=2,
+            # filter_key_img=True,
+            # method='uniform'
+        # ),
+        # pipeline=train_pipeline
+    # )
+    # trainsets.append(trainset)
+
+
+
+data_root = 'data/MOT20/'
+
+data = dict(
+    samples_per_gpu=1,
+    workers_per_gpu=2,
+    train=dict(type=dataset_type,
         visibility_thr=-1,
         ann_file=data_root + 'annotations/train_cocoformat.json',
         img_prefix=data_root + 'train',
@@ -84,19 +104,7 @@ for vid in ['02', '04', '05', '09', '10', '11', '13']:
             method='uniform'
         ),
         pipeline=train_pipeline
-    )
-    trainsets.append(trainset)
-
-trainsets=trainsets[0:3]
-
-
-
-data_root = 'data/MOT17-%s/' % '02'
-
-data = dict(
-    samples_per_gpu=1,
-    workers_per_gpu=2,
-    train=trainsets,
+    ),
     val=dict(
         type=dataset_type,
         # ann_file=data_root + 'annotations/half-val_cocoformat.json',
@@ -128,7 +136,7 @@ optimizer = dict(
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 lr_config = dict(policy='step', step=[40])
 total_epochs = 50
-evaluation = dict(metric=['bbox', 'track'], interval=1)
+evaluation = dict(metric=['bbox', 'track'], interval=1000)
 
 # find_unused_parameters = True
 
