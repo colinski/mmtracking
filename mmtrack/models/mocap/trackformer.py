@@ -117,11 +117,12 @@ class Trackformer(BaseMultiObjectTracker):
         """
         img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
         bbox_head = self.detector.bbox_head
-        gt_coords = gt_bboxes[0][:, 0:2]
-        gt_labels = gt_labels[0]
-        ref_gt_coords = ref_gt_bboxes[0][:, 0:2]
-        ref_gt_labels = ref_gt_labels[0]
-        gt_match_indices = gt_match_indices[0]
+        gt_coords = [box[:, 0:2] for box in gt_bboxes]
+        ref_gt_coords = [box[:, 0:2] for box in ref_gt_bboxes]
+        # gt_labels = gt_labels[0]
+        # ref_gt_coords = ref_gt_bboxes[0][:, 0:2]
+        # ref_gt_labels = ref_gt_labels[0]
+        # gt_match_indices = gt_match_indices[0]
 
 
         # H, W , _ = img_metas[0]['img_shape']
@@ -134,7 +135,10 @@ class Trackformer(BaseMultiObjectTracker):
         #all_feats = [feat.split(len(imgs) // 2, dim=0) for feat in all_feats]
         #ref_feats = self.detector.extract_feat(ref_img)[0]
         ###################################################################
-        
+        img = torch.cat([img, ref_img], dim=0) 
+        gt_coords = gt_coords + ref_gt_coords
+        gt_coords = torch.cat(gt_coords, dim=0)
+        img_metas = img_metas + ref_img_metas
        
         ###################################################################
         #transformer and output heads using first frame (img)
@@ -149,8 +153,8 @@ class Trackformer(BaseMultiObjectTracker):
         #coord_preds = coord_preds[-1].mean(dim=1).sigmoid()
         coord_preds = coord_preds.mean(dim=0).mean(dim=1).sigmoid()
 
-        mse_loss = self.dist_fn(coord_preds, gt_coords)
-        losses = {'loss_mse': mse_loss.squeeze()}
+        mse_loss = self.dist_fn(coord_preds, gt_coords).mean()
+        losses = {'loss_mse': mse_loss}
         return losses
         import ipdb; ipdb.set_trace() # noqa
         # cls_scores = bbox_head.fc_cls(query_embeds)
