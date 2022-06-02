@@ -21,6 +21,7 @@ def linear_assignment(cost_matrix):
 class Trackformer(BaseMultiObjectTracker):
     def __init__(self,
                  detector=None,
+                 mode='loc',
                  thres_new=0.5,
                  thres_cont=0.5,
                  thres_reid=5,
@@ -41,28 +42,43 @@ class Trackformer(BaseMultiObjectTracker):
         self.min_hits = min_hits
         self.frame_count = 0
         self.dist_fn = torch.nn.PairwiseDistance(p=2, keepdim=True)
+
+        self.pool = torch.nn.AvgPool2d((50, 1))
         
         # self.fc_cls = torch.nn.Linear(256, 81)
         # self.fc_coord = torch.nn.Linear(256, 2)
-        self.mlp_coord = nn.Sequential(
+        self.ctn = nn.Sequential(
             nn.Linear(256, 256),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 2),
-            # nn.Sigmoid()
+            nn.GELU(),
         )
+        self.coord_pred_head = nn.Linear(256, 2)
+
+        self.ctns, self.pred_heads = {}, {}
+        for idx in range(1, 5):
+            node_name = 'node_%d' % idx
+            # self.ctns[node_name] = nn.Sequential(
+                # nn.Linear(256, 256),
+                # nn.ReLU(),
+                # nn.Linear(256, 256),
+                # nn.ReLU()
+            # )
+            self.pred_heads[node_name] = nn.Linear(256, 2)
         
+        self.pred_heads = nn.ModuleDict(self.pred_heads)
+        # self.ctns = nn.ModuleDict(self.ctns)
+
         # self.detector.bbox_head.fc_cls = torch.nn.Linear(256, 81)
         # self.detector.bbox_head.fc_reg = torch.nn.Linear(256, 4)
-        cls_weight = torch.tensor([1.0, 0.1])
-        self.nll_loss = torch.nn.NLLLoss(weight=cls_weight, reduction='none')
+        # cls_weight = torch.tensor([1.0, 0.1])
+        # self.nll_loss = torch.nn.NLLLoss(weight=cls_weight, reduction='none')
 
     def reset(self):
         self.tracks = []
         self.sleeping_tracks = []
         self.frame_count = 0
-        
+     
     def forward_train(self,
                       img,
                       img_metas,
@@ -78,47 +94,122 @@ class Trackformer(BaseMultiObjectTracker):
                       ref_gt_bboxes_ignore=None,
                       ref_gt_masks=None,
                       **kwargs):
-        """Forward function during training.
-
-         Args:
-            img (Tensor): of shape (N, C, H, W) encoding input images.
-                Typically these should be mean centered and std scaled.
-            img_metas (list[dict]): list of image info dict where each dict
-                has: 'img_shape', 'scale_factor', 'flip', and may also contain
-                'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'.
-            gt_bboxes (list[Tensor]): Ground truth bboxes of the image,
-                each item has a shape (num_gts, 4).
-            gt_labels (list[Tensor]): Ground truth labels of all images.
-                each has a shape (num_gts,).
-            gt_match_indices (list(Tensor)): Mapping from gt_instance_ids to
-                ref_gt_instance_ids of the same tracklet in a pair of images.
-            ref_img (Tensor): of shape (N, C, H, W) encoding input reference
-                images. Typically these should be mean centered and std scaled.
-            ref_img_metas (list[dict]): list of reference image info dict where
-                each dict has: 'img_shape', 'scale_factor', 'flip', and may
-                also contain 'filename', 'ori_shape', 'pad_shape',
-                and 'img_norm_cfg'.
-            ref_gt_bboxes (list[Tensor]): Ground truth bboxes of the
-                reference image, each item has a shape (num_gts, 4).
-            ref_gt_labels (list[Tensor]): Ground truth labels of all
-                reference images, each has a shape (num_gts,).
-            gt_masks (list[Tensor]) : Masks for each bbox, has a shape
-                (num_gts, h , w).
-            gt_bboxes_ignore (list[Tensor], None): Ground truth bboxes to be
-                ignored, each item has a shape (num_ignored_gts, 4).
-            ref_gt_bboxes_ignore (list[Tensor], None): Ground truth bboxes
-                of reference images to be ignored,
-                each item has a shape (num_ignored_gts, 4).
-            ref_gt_masks (list[Tensor]) : Masks for each reference bbox,
-                has a shape (num_gts, h , w).
-
-        Returns:
-            dict[str : Tensor]: All losses.
-        """
         img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
         bbox_head = self.detector.bbox_head
         gt_coords = [box[:, 0:2] for box in gt_bboxes]
         ref_gt_coords = [box[:, 0:2] for box in ref_gt_bboxes]
+        img = torch.cat([img, ref_img], dim=0) 
+        gt_coords = gt_coords + ref_gt_coords
+        # gt_coords = [gc.unsqueeze(0) for gc in gt_coords]
+        gt_coords = torch.cat(gt_coords, dim=0)
+        gt_coords = gt_coords.squeeze()
+        img_metas = img_metas + ref_img_metas
+       
+        query_embeds = bbox_head.query_embedding.weight 
+        with torch.no_grad():
+            feats = self.detector.extract_feat(img)[0]
+            query_embeds = bbox_head.forward_transformer(
+                feats, query_embeds, img_metas
+            )
+
+        # node_name = 'node_%s' % '1'
+        # ctn = self.ctns[node_name]
+        # pred_head = self.pred_heads[node_name]
+        # coord_preds = ctn(query_embeds)
+        # coord_preds = coord_preds.mean(dim=0)
+        # coord_preds = coord_preds.mean(dim=1)
+        # final_preds = pred_head(coord_preds).sigmoid()
+        # ctn = self.ctns[node_name]
+
+        coord_preds = self.ctn(query_embeds)
+        coord_preds = coord_preds.mean(dim=0)
+        coord_preds = coord_preds.mean(dim=1)
+
+        
+        final_preds = []
+        for idx, meta in enumerate(img_metas):
+            fname = meta['filename']
+            base = fname.split('/')[-1].split('.')[0]
+            node_id = base.split('_')[-1]
+            node_name = 'node_%s' % node_id
+            pred_head = self.pred_heads[node_name]
+            # ctn = self.ctns[node_name]
+
+            # coord_preds = ctn(query_embeds)
+            # coord_preds = coord_preds.mean(dim=0)
+            # coord_preds = coord_preds.mean(dim=1)
+            preds = pred_head(coord_preds[idx]).sigmoid()
+            final_preds.append(preds)
+        final_preds = torch.stack(final_preds)
+        
+        mse_loss = self.dist_fn(final_preds, gt_coords).mean()
+        losses = {'loss_mse': mse_loss}
+        return losses
+   
+    def forward_train__(self,
+                      img,
+                      img_metas,
+                      gt_bboxes,
+                      gt_labels,
+                      gt_match_indices=None,
+                      ref_img=None,
+                      ref_img_metas=None,
+                      ref_gt_bboxes=None,
+                      ref_gt_labels=None,
+                      gt_bboxes_ignore=None,
+                      gt_masks=None,
+                      ref_gt_bboxes_ignore=None,
+                      ref_gt_masks=None,
+                      **kwargs):
+        import ipdb; ipdb.set_trace() # noqa
+        img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        bbox_head = self.detector.bbox_head
+        gt_coords = [box[:, 0:2] for box in gt_bboxes]
+        ref_gt_coords = [box[:, 0:2] for box in ref_gt_bboxes]
+        img = torch.cat([img, ref_img], dim=0) 
+        gt_coords = gt_coords + ref_gt_coords
+        gt_coords = [gc.unsqueeze(0) for gc in gt_coords]
+        gt_coords = torch.cat(gt_coords, dim=0)
+        img_metas = img_metas + ref_img_metas
+       
+        with torch.no_grad():
+            feats = self.detector.extract_feat(img)[0]
+            query_embeds = bbox_head.query_embedding.weight 
+            query_embeds = bbox_head.forward_transformer(
+                feats, query_embeds, img_metas
+            )
+
+        coord_preds = self.mlp_coord(query_embeds)
+        
+        coord_preds = self.pool(coord_preds)
+        coord_preds = coord_preds.mean(dim=0).sigmoid()
+
+        mse_loss = self.dist_fn(coord_preds, gt_coords).mean()
+        losses = {'loss_mse': mse_loss}
+        return losses
+    
+    def forward_train_(self,
+                      img,
+                      img_metas,
+                      gt_bboxes,
+                      gt_labels,
+                      gt_match_indices=None,
+                      ref_img=None,
+                      ref_img_metas=None,
+                      ref_gt_bboxes=None,
+                      ref_gt_labels=None,
+                      gt_bboxes_ignore=None,
+                      gt_masks=None,
+                      ref_gt_bboxes_ignore=None,
+                      ref_gt_masks=None,
+                      **kwargs):
+        img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        bbox_head = self.detector.bbox_head
+        gt_coords = [box[:, 0:2] for box in gt_bboxes][0]
+        ref_gt_coords = [box[:, 0:2] for box in ref_gt_bboxes][0]
+        gt_match_indices = gt_match_indices[0]
+        assert gt_match_indices[0] == 0 and gt_match_indices[1] == 1
+
         # gt_labels = gt_labels[0]
         # ref_gt_coords = ref_gt_bboxes[0][:, 0:2]
         # ref_gt_labels = ref_gt_labels[0]
@@ -135,28 +226,45 @@ class Trackformer(BaseMultiObjectTracker):
         #all_feats = [feat.split(len(imgs) // 2, dim=0) for feat in all_feats]
         #ref_feats = self.detector.extract_feat(ref_img)[0]
         ###################################################################
-        img = torch.cat([img, ref_img], dim=0) 
-        gt_coords = gt_coords + ref_gt_coords
-        gt_coords = torch.cat(gt_coords, dim=0)
-        img_metas = img_metas + ref_img_metas
+        # img = torch.cat([img, ref_img], dim=0) 
+        # gt_coords = gt_coords + ref_gt_coords
+        # gt_coords = [gc.unsqueeze(0) for gc in gt_coords]
+        # gt_coords = torch.cat(gt_coords, dim=0)
+        # img_metas = img_metas + ref_img_metas
        
         ###################################################################
         #transformer and output heads using first frame (img)
         with torch.no_grad():
             feats = self.detector.extract_feat(img)[0]
-            query_embeds = bbox_head.query_embedding.weight 
-            query_embeds = bbox_head.forward_transformer(
-                feats, query_embeds, img_metas
-            )
+        query_embeds = bbox_head.query_embedding.weight 
+        query_embeds = bbox_head.forward_transformer(
+            feats, query_embeds, img_metas
+        )
 
-        coord_preds = self.mlp_coord(query_embeds)
-        #coord_preds = coord_preds[-1].mean(dim=1).sigmoid()
-        coord_preds = coord_preds.mean(dim=0).mean(dim=1).sigmoid()
-
+        coord_embeds = self.ctn(query_embeds)
+        coord_embeds = self.pool(query_embeds)
+        coord_embeds = coord_embeds.mean(dim=0) #bs x 2 x 256
+        B, Nq, D = coord_embeds.shape
+        coord_embeds = coord_embeds.reshape(B*Nq, D)
+        coord_preds = self.coord_pred_head(coord_embeds).sigmoid()
         mse_loss = self.dist_fn(coord_preds, gt_coords).mean()
-        losses = {'loss_mse': mse_loss}
+        losses = {'loss_mse_frame1': mse_loss}
+
+        with torch.no_grad():
+            feats = self.detector.extract_feat(ref_img)[0]
+        query_embeds = bbox_head.forward_transformer(
+            feats, coord_embeds, img_metas
+        )
+        
+        coord_embeds = self.ctn(query_embeds)
+        coord_embeds = coord_embeds.mean(dim=0) #bs x 2 x 256
+        coord_preds = self.coord_pred_head(coord_embeds).sigmoid()
+        mse_loss = self.dist_fn(coord_preds, ref_gt_coords).mean()
+        losses['loss_mse_frame2'] = mse_loss
+        # coord_preds = coord_preds.mean(dim=0).mean(dim=1).sigmoid()
+        
+
         return losses
-        import ipdb; ipdb.set_trace() # noqa
         # cls_scores = bbox_head.fc_cls(query_embeds)
         # bbox_preds = bbox_head.fc_reg(bbox_head.activate(bbox_head.reg_ffn(query_embeds))).sigmoid()
         
@@ -324,7 +432,7 @@ class Trackformer(BaseMultiObjectTracker):
         losses['ref.loss_bbox'] = loss_bbox
         losses['ref.loss_iou'] = loss_iou
         return losses
-    
+
     def detr_loss(self, cls_scores, bbox_preds,
                     labels, label_weights,
                     bbox_targets, bbox_weights,
