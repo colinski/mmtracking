@@ -3,6 +3,26 @@ from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
 
 from mmtrack.core import results2outs
+import numpy as np
+
+@PIPELINES.register_module()
+class LoadFromNumpyArray(object):
+    def __init__(self, force_float32=False):
+        self.force_float32 = force_float32
+
+    def __call__(self, array):
+        if self.force_float32:
+            array = array.astype(np.float32)
+        if len(array.shape) == 2: #add channel dimesion
+            array = array[:, :, np.newaxis]
+        array = np.nan_to_num(array, nan=0.0)
+        results = {
+            'img': array, 
+            'img_shape': array.shape,
+            'ori_shape': array.shape, 
+            'img_fields': ['img']
+        }
+        return results
 
 
 @PIPELINES.register_module()

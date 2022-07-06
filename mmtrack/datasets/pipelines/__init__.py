@@ -5,7 +5,7 @@ from .formatting import (CheckPadMaskValidity, ConcatSameTypeFrames,
                          ConcatVideoReferences, ReIDFormatBundle,
                          SeqDefaultFormatBundle, ToList, VideoCollect)
 from .loading import (LoadDetections, LoadMultiImagesFromFile,
-                      SeqLoadAnnotations)
+                      SeqLoadAnnotations, LoadFromNumpyArray)
 from .processing import MatchInstances, TridentSampling
 from .transforms import (SeqBboxJitter, SeqBlurAug, SeqBrightnessAug,
                          SeqColorAug, SeqCropLikeSiamFC, SeqCropLikeStark,

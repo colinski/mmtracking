@@ -23,6 +23,8 @@ from .uav123_dataset import UAV123Dataset
 from .vot_dataset import VOTDataset
 from .youtube_vis_dataset import YouTubeVISDataset
 
+from .pickle_dataset import PickleDataset
+
 __all__ = [
     'DATASETS', 'PIPELINES', 'build_dataloader', 'build_dataset', 'CocoVID',
     'CocoVideoDataset', 'ImagenetVIDDataset', 'MOTChallengeDataset',
@@ -30,5 +32,5 @@ __all__ = [
     'UAV123Dataset', 'TrackingNetDataset', 'OTB100Dataset',
     'YouTubeVISDataset', 'GOT10kDataset', 'VOTDataset', 'BaseSOTDataset',
     'SOTCocoDataset', 'SOTImageNetVIDDataset', 'RandomSampleConcatDataset',
-    'TaoDataset'
+    'TaoDataset', 'PickleDataset'
 ]
