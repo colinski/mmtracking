@@ -79,7 +79,7 @@ class Trackformer(BaseMultiObjectTracker):
         self.sleeping_tracks = []
         self.frame_count = 0
      
-    def forward_train(self,
+    def forward_train_(self,
                       img,
                       img_metas,
                       gt_bboxes,
@@ -188,6 +188,73 @@ class Trackformer(BaseMultiObjectTracker):
         losses = {'loss_mse': mse_loss}
         return losses
     
+    #two trucks!
+    def forward_train(self,
+                      img,
+                      img_metas,
+                      gt_bboxes,
+                      gt_labels,
+                      gt_match_indices=None,
+                      ref_img=None,
+                      ref_img_metas=None,
+                      ref_gt_bboxes=None,
+                      ref_gt_labels=None,
+                      gt_bboxes_ignore=None,
+                      gt_masks=None,
+                      ref_gt_bboxes_ignore=None,
+                      ref_gt_masks=None,
+                      **kwargs):
+        img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        bbox_head = self.detector.bbox_head
+        gt_coords = [box[:, 0:2] for box in gt_bboxes][0]
+        ref_gt_coords = [box[:, 0:2] for box in ref_gt_bboxes][0]
+        gt_match_indices = gt_match_indices[0]
+        assert gt_match_indices[0] == 0 and gt_match_indices[1] == 1
+
+        #transformer and output heads using first frame (img)
+        with torch.no_grad():
+            feats = self.detector.extract_feat(img)[0]
+        query_embeds = bbox_head.query_embedding.weight 
+        query_embeds = bbox_head.forward_transformer(
+            feats, query_embeds, img_metas
+        )
+
+        query_embeds = query_embeds.mean(dim=0).squeeze()
+        coord_embeds = self.ctn(query_embeds)
+        coord_preds = self.coord_pred_head(coord_embeds).sigmoid()
+        dists = self.dist_fn(coord_preds.unsqueeze(0), gt_coords.unsqueeze(1))
+        dists = dists.squeeze().t()
+        matches = linear_assignment(dists.detach().cpu().numpy()) 
+        
+        mse_loss_val = 0
+        for (pred_idx, gt_idx) in matches:
+            mse_loss_val += dists[pred_idx, gt_idx]
+        mse_loss_val = mse_loss_val / len(matches)
+
+        track_embeds = query_embeds[matches[:, 0]]
+        losses = {'loss_mse_frame1': mse_loss_val}
+        
+        with torch.no_grad():
+            feats = self.detector.extract_feat(ref_img)[0]
+        track_embeds = bbox_head.forward_transformer(
+            feats, track_embeds, img_metas
+        )
+        track_embeds = track_embeds.mean(dim=0).squeeze()
+        coord_embeds = self.ctn(track_embeds)
+        coord_preds = self.coord_pred_head(coord_embeds).sigmoid()
+
+        loss_val = 0
+        for idx, cp in enumerate(coord_preds):
+            dist = self.dist_fn(cp, ref_gt_coords[idx])
+            loss_val += dist
+        loss_val /= len(coord_preds)
+        # import ipdb; ipdb.set_trace() # noqa
+        # dists = self.dist_fn(coord_preds.unsqueeze(0), ref_gt_coords.unsqueeze(1))
+        # dists = torch.diag(dists.squeeze())
+
+        losses['loss_mse_frame2'] = loss_val
+        return losses
+
     def forward_train_(self,
                       img,
                       img_metas,

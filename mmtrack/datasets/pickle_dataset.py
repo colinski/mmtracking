@@ -46,8 +46,17 @@ class PickleDataset(Dataset, metaclass=ABCMeta):
         with open(self.fnames[ind], 'rb') as f:
             data = pickle.load(f)
         
+        mocap = data['mocap_data']
+        truck = {
+            'id': 1,
+            'type': 'truck',
+            'position': (mocap['Truck_1 X'], mocap['Truck_1 Y'], mocap['Truck_1 Z']),
+            'yaw': mocap['Truck_1 Yaw'],
+            'pitch': mocap['Truck_1 Pitch'],
+        }
+        import ipdb; ipdb.set_trace() # noqa
+        
         img = self.img_pipeline(data['zed']['left'])
         depth = self.depth_pipeline(data['zed']['depth'])
         azimuth = self.azimuth_pipeline(data['mmwave']['azimuth_static'])
         drange = self.range_pipeline(data['mmwave']['range_doppler'])
-        import ipdb; ipdb.set_trace() # noqa
