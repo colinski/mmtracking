@@ -13,6 +13,10 @@ from mmtrack.core.evaluation import eval_sot_ope
 from mmtrack.datasets import DATASETS
 import glob
 import pickle
+import cv2
+
+def parse(data, subkey):
+    pass
 
 @DATASETS.register_module()
 class PickleDataset(Dataset, metaclass=ABCMeta):
@@ -46,15 +50,54 @@ class PickleDataset(Dataset, metaclass=ABCMeta):
         with open(self.fnames[ind], 'rb') as f:
             data = pickle.load(f)
         
+        res = {}
+        objs = []
         mocap = data['mocap_data']
-        truck = {
-            'id': 1,
-            'type': 'truck',
-            'position': (mocap['Truck_1 X'], mocap['Truck_1 Y'], mocap['Truck_1 Z']),
-            'yaw': mocap['Truck_1 Yaw'],
-            'pitch': mocap['Truck_1 Pitch'],
-        }
+        obj_names = ['NOD_1', 'NOD_2', 'NOD_3', 'NOD_4',
+                'Truck_1', 'Truck_2']
+    
+        for on in obj_names:
+            obj_type, obj_id = on.split('_')
+            obj_type = 'node' if obj_type == 'NOD' else obj_type
+            obj = {
+                'id': len(objs),
+                'type': obj_type.lower(),
+                'position': np.array([mocap[f'{on} X'], mocap[f'{on} Y'], mocap[f'{on} Z']]),
+                'roll': mocap[f'{on} Roll'],
+                'yaw': mocap[f'{on} Yaw'],
+                'pitch': mocap[f'{on} Pitch'],
+                'residual': mocap[f'{on} Residual'],
+                'rotation': np.array([mocap[f'{on} Rot[{i}]'] for i in range(0, 9)]),
+                'timestamp': mocap['Time']
+            }
+            objs.append(obj)
+        res['objects'] = objs
+        res['capture_object_id'] = 0
+
+        res['camera'] = data['zed']
+
+        res['radar'] = data['mmwave']
+        res['radar']['azimuth_static'] = np.nan_to_num(res['radar']['azimuth_static']).astype(np.float32)
+        res['radar']['range_doppler'] = res['radar']['range_doppler'].astype(np.int16)
+        res['radar']['range_profile'] = np.array(res['radar']['range_profile'],  dtype=np.float32)
+        res['radar']['noise_profile'] = np.array(res['radar']['noise_profile'],  dtype=np.float32)
+
+        res['mic'] = {}
+        waveform = data['respeaker']['flac'].get_array_of_samples()
+        waveform = np.array(waveform)
+        waveform = waveform.reshape(-1, 6)
+        waveform = waveform[:, 1:5]
+        res['mic']['waveform'] = waveform
+        res['mic']['direction'] = data['respeaker']['direction']
+        res['mic']['direction_timestamp'] = data['respeaker']['direction_time']
+        res['mic']['waveform_timestamp'] = data['respeaker']['flac_time']
+
+        res['camera']['left'] = cv2.resize(res['camera']['left'], dsize=(480, 270))
+        res['camera']['right'] = cv2.resize(res['camera']['right'], dsize=(480, 270))
+        res['camera']['depth'] = cv2.resize(res['camera']['depth'], dsize=(480, 270))
+        
         import ipdb; ipdb.set_trace() # noqa
+        # waveform = waveform.reshape(1, -1, 4)
         
         img = self.img_pipeline(data['zed']['left'])
         depth = self.depth_pipeline(data['zed']['depth'])
