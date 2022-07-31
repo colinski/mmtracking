@@ -81,7 +81,7 @@ def train_model(model,
                 'Automatically set "samples_per_gpu"="imgs_per_gpu"='
                 f'{cfg.data.imgs_per_gpu} in this experiments')
         cfg.data.samples_per_gpu = cfg.data.imgs_per_gpu
-
+    
     data_loaders = [
         build_dataloader(
             ds,
@@ -91,6 +91,7 @@ def train_model(model,
             len(cfg.gpu_ids),
             samples_per_epoch=cfg.data.get('samples_per_epoch', None),
             dist=distributed,
+            shuffle=cfg.data.shuffle,
             seed=cfg.seed,
             persistent_workers=cfg.data.get('persistent_workers', False))
         for ds in dataset

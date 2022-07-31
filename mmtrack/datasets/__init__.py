@@ -24,6 +24,7 @@ from .vot_dataset import VOTDataset
 from .youtube_vis_dataset import YouTubeVISDataset
 
 from .pickle_dataset import PickleDataset
+from .hdf5_dataset import HDF5Dataset
 
 __all__ = [
     'DATASETS', 'PIPELINES', 'build_dataloader', 'build_dataset', 'CocoVID',

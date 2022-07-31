@@ -6,13 +6,19 @@ _base_ = [
 ]
 custom_imports = dict(
         imports=[
-            'mmtrack.models.mocap.base',
+            'mmtrack.models.mocap.trackformer',
             # 'mmtrack.models.trackers.trackformer_tracker'
         ],
         allow_failed_imports=False)
 
-model = dict(type='BaseMocapModel')
+model = dict(type='Trackformer', 
+    mode='track',
+    thres_reid=1,
+    thres_new=0.9,
+    thres_cont=0.5
+)
 
+dataset_type = 'PickleDataset'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 
@@ -39,12 +45,9 @@ train_pipeline = [
 
 depth_pipeline = [
     dict(type='LoadFromNumpyArray', force_float32=True),
-    dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', mean=[0], std=[20000], to_rgb=False),
-    dict(type='Pad', size_divisor=32),
-    dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img']),
-    # dict(type='ImageToTensor', keys=['img']),
+    # dict(type='Pad', size_divisor=32),
+    dict(type='ImageToTensor', keys=['img']),
 ]
 
 azimuth_pipeline = [
@@ -62,13 +65,9 @@ range_pipeline = [
 img_pipeline = [
     dict(type='LoadFromNumpyArray'),
     # dict(type='Resize', img_scale=(720, 1280), keep_ratio=True),
-    dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', **img_norm_cfg),
-    dict(type='Pad', size_divisor=32),
-    # dict(type='ImageToTensor', keys=['img']),
-    dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img']),
-
+    # dict(type='Pad', size_divisor=32),
+    dict(type='ImageToTensor', keys=['img']),
 ]
 
 
@@ -93,24 +92,22 @@ classes = ('car', )
 data = dict(
     samples_per_gpu=1,
     workers_per_gpu=0,
-    shuffle=False,
-    train=dict(type='HDF5Dataset',
-        hdf5_fname='/home/csamplawski/eight/iobt/data_624/data_624_node_1.hdf5',
-        # hdf5_fname='/home/csamplawski/eight/iobt/data_624/h5/data_624.hdf5',
+    train=dict(type=dataset_type,
+        file_prefix='data/iobt/data_624_tiny',
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline
     ),
-    val=dict(type='HDF5Dataset',
-        hdf5_fname='/home/csamplawski/eight/iobt/data_624/data_624_node_1.hdf5',
+    val=dict(type=dataset_type,
+        file_prefix='data/iobt/data_624_tiny',
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline
     ),
-    test=dict(type='HDF5Dataset',
-        hdf5_fname='/home/csamplawski/eight/iobt/data_624/data_624_node_1.hdf5',
+    test=dict(type=dataset_type,
+        file_prefix='data/iobt/data_624_tiny',
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,

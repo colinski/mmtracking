@@ -20,7 +20,9 @@ class LoadFromNumpyArray(object):
             'img': array, 
             'img_shape': array.shape,
             'ori_shape': array.shape, 
-            'img_fields': ['img']
+            'img_fields': ['img'],
+            'filename': 'placeholder.jpg',
+            'ori_filename': 'placeholder.jpg'
         }
         return results
 
