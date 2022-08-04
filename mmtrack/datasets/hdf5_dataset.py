@@ -33,7 +33,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  audio_pipeline=None,
                  test_mode=False,
                  **kwargs):
-        
         self.class2idx = {'truck': 1, 'node': 0}
         self.f = h5py.File(hdf5_fname, 'r')
         self.fps = fps
@@ -41,7 +40,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.keys = list(self.f.keys())
         self.keys = np.array(self.keys)
         sort_idx = np.argsort(self.keys)
-        self.keys = self.keys[sort_idx][100000:]
+        self.keys = self.keys[sort_idx]
 
         self.timesteps = torch.from_numpy(self.keys.astype(int))
 
@@ -71,7 +70,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         for key, val in self.buffer.items():
             if key == 'mocap':
                 mocap_data = json.loads(val[()])
-                positions = [d['position'] for d in mocap_data]
+                positions = [d['normalized_position'] for d in mocap_data]
                 labels = [self.class2idx[d['type']] for d in mocap_data]
                 ids = [d['id'] for d in mocap_data]
                 self.buffer[key] = {

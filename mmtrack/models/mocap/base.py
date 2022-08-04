@@ -16,9 +16,16 @@ from ..builder import MODELS, build_tracker
 from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
 import copy
 
+import torch.distributions as D
+
 def linear_assignment(cost_matrix):
+    cost_matrix = cost_matrix.cpu().detach().numpy()
     _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
-    return np.array([[y[i], i] for i in x if i >= 0])
+    assign_idx = np.array([[y[i], i] for i in x if i >= 0])
+    sort_idx = np.argsort(assign_idx[:, 1])
+    assign_idx = assign_idx[sort_idx]
+    assign_idx = torch.from_numpy(assign_idx)
+    return assign_idx.long()
 
 @MODELS.register_module()
 class BaseMocapModel(BaseModule):
@@ -38,10 +45,23 @@ class BaseMocapModel(BaseModule):
             nn.Linear(256, 256),
             nn.GELU(),
         )
-        self.coord_pred_head = nn.Linear(256, 2)
+        self.mean_head = nn.Linear(256, 3)
+        self.cov_head = nn.Sequential(
+            nn.Linear(256, 3),
+            nn.Softplus()
+        )
+        
+        #truck, node, drone, no obj
+        self.num_classes = 3
+        self.cls_head = nn.Linear(256, self.num_classes)
+        
+        self.obj_head = nn.Linear(256, 2)
+
+        self.dist = D.Normal
 
 
     
+    #def forward(self, data, return_loss=True, **kwargs):
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
         on whether ``return_loss`` is ``True``.
@@ -64,6 +84,7 @@ class BaseMocapModel(BaseModule):
         img = data['zed_camera_left']['img']
         img_metas = data['zed_camera_left']['img_metas']
         img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        bs = img.shape[0]
         
         bbox_head = self.img_detector.bbox_head
         with torch.no_grad():
@@ -73,30 +94,88 @@ class BaseMocapModel(BaseModule):
             feats, query_embeds, img_metas
         ).mean(dim=0)
 
-        img = data['zed_camera_depth']['img']
-        img_metas = data['zed_camera_depth']['img_metas']
-        img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
-        img = img.expand(-1, 3, -1, -1)
-        
-        bbox_head = self.depth_detector.bbox_head
-        with torch.no_grad():
-            feats = self.depth_detector.extract_feat(img)[0]
-        query_embeds = bbox_head.query_embedding.weight 
-        query_embeds_depth = bbox_head.forward_transformer(
-            feats, query_embeds, img_metas
-        ).mean(dim=0)
 
-        final_embeds = torch.cat([query_embeds_img, query_embeds_depth], dim=1)
+        # img = data['zed_camera_depth']['img']
+        # img_metas = data['zed_camera_depth']['img_metas']
+        # img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        # img = img.expand(-1, 3, -1, -1)
         
+        # bbox_head = self.depth_detector.bbox_head
+        # with torch.no_grad():
+            # feats = self.depth_detector.extract_feat(img)[0]
+        # query_embeds = bbox_head.query_embedding.weight 
+        # query_embeds_depth = bbox_head.forward_transformer(
+            # feats, query_embeds, img_metas
+        # ).mean(dim=0)
 
-        preds = self.coord_pred_head(final_embeds)
+        # final_embeds = torch.cat([query_embeds_img, query_embeds_depth], dim=1)
+
+        final_embeds = query_embeds_img
+        final_embeds = self.ctn(final_embeds)
+
+        mean = self.mean_head(final_embeds)
+        cov = self.cov_head(final_embeds)
+        cls_logits = self.cls_head(final_embeds)
+        obj_logits = self.obj_head(final_embeds)
+
+        for i in range(bs):
+            gt_pos = data['mocap']['gt_positions'][i]
+            gt_labels = data['mocap']['gt_labels'][i]
+
+            dist = self.dist(mean[i], cov[i])
+            dist = D.Independent(dist, 1) #Nq independent Gaussians
+
+            pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
+            pos_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
+            
+            cls_log_probs = F.log_softmax(cls_logits[i], dim=-1) #Nq x num_classes
+            corr_log_probs = [cls_log_probs[:, label] for label in gt_labels]
+            corr_log_probs = -torch.stack(corr_log_probs, dim=-1) #Nq x num_objs
+
+            combined_probs = pos_log_probs + corr_log_probs
+
+            assign_idx = linear_assignment(combined_probs)
+            
+            pos_loss, cls_loss = 0, 0
+            for pred_idx, gt_idx in assign_idx:
+                pos_loss += pos_log_probs[pred_idx, gt_idx]
+                cls_loss += corr_log_probs[pred_idx, gt_idx]
+            pos_loss /= len(assign_idx)
+            cls_loss /= len(assign_idx)
+            
+            obj_probs = -F.log_softmax(obj_logits[i], dim=-1)
+            obj_targets = cls_log_probs.new_zeros(len(cls_log_probs)).long()
+            obj_targets[assign_idx[:, 0]] = 1
+
+            corr_probs = [obj_probs[idx, target] for idx, target in enumerate(obj_targets)] 
+            corr_probs = torch.stack(corr_probs)
+            obj_loss = corr_probs.mean()
+            
+            
+
+            loss = {
+                'pos_loss': pos_loss,
+                'cls_loss': cls_loss,
+                'obj_loss': obj_loss
+            }
+
+
+
+        # dists = self.dist(mean, cov)
+
+                
+        
+        # preds = self.coord_pred_head(final_embeds)
         # preds = preds.squeeze()
-        preds = preds.mean(dim=0).mean(dim=0)
+        # preds = preds.mean(dim=0).mean(dim=0)
     
-        gt_pos = data['mocap']['gt_positions'].squeeze()[-2][0:2]
+        # log_probs = dists.log_prob(gt_pos)
 
-        loss = (gt_pos - preds)**2
-        return {'loss': loss.mean()}
+
+        # loss = -(dists.log_prob(gt_pos))
+        # loss = (gt_pos - preds)**2
+        return loss
+        # return {'loss': loss.mean()}
         # gt_ids = data['mocap']['gt_ids'][-2]
         # gt_labels = data['mocap']['gt_labels'][-2]
 
