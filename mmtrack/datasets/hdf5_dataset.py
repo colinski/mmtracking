@@ -17,7 +17,26 @@ import cv2
 import h5py
 import torch
 import json
+import time
 import torchaudio
+
+
+def read_h5df(f):
+    data = {}
+    for ms in f.keys():
+        data[ms] = {}
+        for k, v in f[ms].items():
+            if k == 'mocap': #mocap or node_N
+                data[ms]['mocap'] = v[()]
+            else:
+                data[ms][k] = {}
+                for k2, v2 in f[ms][k].items():
+                    if k2 == 'detected_points':
+                        data[ms][k][k2] = v2[()]
+                    else:
+                        data[ms][k][k2] = v2[:]
+    return data
+
 
 @DATASETS.register_module()
 class HDF5Dataset(Dataset, metaclass=ABCMeta):
@@ -34,10 +53,14 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  test_mode=False,
                  **kwargs):
         self.class2idx = {'truck': 1, 'node': 0}
-        self.f = h5py.File(hdf5_fname, 'r')
+        # self.f = h5py.File(hdf5_fname, 'r')
+        self.fname = hdf5_fname
         self.fps = fps
+        
+        with h5py.File(self.fname, 'r') as f:
+            self.data = read_h5df(f)
             
-        self.keys = list(self.f.keys())
+        self.keys = list(self.data.keys())
         self.keys = np.array(self.keys)
         sort_idx = np.argsort(self.keys)
         self.keys = self.keys[sort_idx]
@@ -69,7 +92,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def parse_buffer(self):
         for key, val in self.buffer.items():
             if key == 'mocap':
-                mocap_data = json.loads(val[()])
+                mocap_data = json.loads(val)
                 positions = [d['normalized_position'] for d in mocap_data]
                 labels = [self.class2idx[d['type']] for d in mocap_data]
                 ids = [d['id'] for d in mocap_data]
@@ -80,22 +103,22 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 }
 
             if key == 'zed_camera_left':
-                img = cv2.imdecode(val[:], 1)
+                img = cv2.imdecode(val, 1)
                 self.buffer[key] = self.img_pipeline(img)
         
             if key == 'zed_camera_right':
-                img = cv2.imdecode(val[:], 1)
+                img = cv2.imdecode(val, 1)
                 self.buffer[key] = self.img_pipeline(img)
         
             if key == 'zed_camera_depth':
-                self.buffer[key] = self.depth_pipeline(val[:])
+                self.buffer[key] = self.depth_pipeline(val)
             
             if key == 'realsense_camera_img':
-                img = cv2.imdecode(val[:], 1)
+                img = cv2.imdecode(val, 1)
                 self.buffer[key] = self.img_pipeline(img)
 
             if key == 'realsense_camera_depth':
-                img = cv2.imdecode(val[:], 1)
+                img = cv2.imdecode(val, 1)
                 self.buffer[key] = self.img_pipeline(img)
 
             # if key == 'azimuth_static':
@@ -118,8 +141,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def fill_buffer(self, start_idx, end_time):
         start_idx = 0 
         for time in self.keys[start_idx:]:
-            data = self.f[time]
-            # print(time, data.keys())
+            data = self.data[time]
             if 'mocap' in data.keys():
                 self.buffer['mocap'] = data['mocap']
             if 'node_1' in data.keys():
@@ -132,7 +154,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 return
         
     def __getitem__(self, ind):
-        # print(ind)
         start = int(self.start_time + ind * self.frame_len) #start is N frames after start_time
         diffs = torch.abs(self.timesteps - start) #find closest time as it isnt frame perfect
         min_idx = torch.argmin(diffs).item()
@@ -140,9 +161,15 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.fill_buffer(min_idx, end) #run through data and fill buffer
         self.parse_buffer() #convert to arrays
         data = {k: v for k, v in self.buffer.items() if k in self.valid_keys}
+        data['ind'] = ind
         return data
 
         # img = self.img_pipeline(data['zed']['left'])
         # depth = self.depth_pipeline(data['zed']['depth'])
         # azimuth = self.azimuth_pipeline(data['mmwave']['azimuth_static'])
         # drange = self.range_pipeline(data['mmwave']['range_doppler'])
+
+
+    def evaluate(self, outputs, **eval_kwargs):
+        return {'acc': 0.0}
+        

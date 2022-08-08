@@ -133,7 +133,7 @@ optimizer = dict(
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 lr_config = dict(policy='step', step=[6])
 total_epochs = 10
-evaluation = dict(metric=['bbox', 'track'], interval=1e8)
+evaluation = dict(metric=['bbox', 'track'], interval=1)
 
 find_unused_parameters = True
 

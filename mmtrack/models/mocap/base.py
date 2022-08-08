@@ -17,6 +17,7 @@ from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
 import copy
 
 import torch.distributions as D
+import matplotlib.pyplot as plt
 
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
@@ -26,6 +27,25 @@ def linear_assignment(cost_matrix):
     assign_idx = assign_idx[sort_idx]
     assign_idx = torch.from_numpy(assign_idx)
     return assign_idx.long()
+
+# def init_fig():
+    # fig = plt.figure(figsize=(16,9))
+    # ax1 = plt.subplot2grid((3,4), (0,0))
+    # ax2 = plt.subplot2grid((3,4), (0,1))
+    # ax3 = plt.subplot2grid((3,4), (0,2))
+    # ax4 = plt.subplot2grid((3,4), (0,3), rowspan=2)
+    # ax5 = plt.subplot2grid((3,4), (1,0))
+    # ax6 = plt.subplot2grid((3,4), (1,1))
+    # ax7 = plt.subplot2grid((3,4), (1,2))
+    # ax8 = plt.subplot2grid((3,4), (2,0))
+    # ax9 = plt.subplot2grid((3,4), (2,1), projection='3d')
+    # ax10 = plt.subplot2grid((3,4), (2,2))
+    # ax11 = plt.subplot2grid((3,4), (2,3), projection='polar')
+    # fig.suptitle('Title', fontsize=16)
+    # fig.subplots_adjust(wspace=0, hspace=0)
+    # plt.tight_layout()
+
+
 
 @MODELS.register_module()
 class BaseMocapModel(BaseModule):
@@ -77,8 +97,50 @@ class BaseMocapModel(BaseModule):
         else:
             return self.forward_test(data, **kwargs)
 
-    def foreward_test(self, data, **kwargs):
-        pass
+
+    def _forward(self, data, **kwargs):
+        img = data['zed_camera_left']['img']
+        img_metas = data['zed_camera_left']['img_metas']
+        img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
+        bs = img.shape[0]
+        
+        bbox_head = self.img_detector.bbox_head
+        with torch.no_grad():
+            feats = self.img_detector.extract_feat(img)[0]
+        query_embeds = bbox_head.query_embedding.weight 
+        query_embeds_img = bbox_head.forward_transformer(
+            feats, query_embeds, img_metas
+        ).mean(dim=0)
+       
+        final_embeds = query_embeds_img
+        final_embeds = self.ctn(final_embeds)
+
+        mean = self.mean_head(final_embeds)
+        cov = self.cov_head(final_embeds)
+        cls_logits = self.cls_head(final_embeds)
+        obj_logits = self.obj_head(final_embeds)
+        return mean, cov, cls_logits, obj_logits
+
+
+    def forward_test(self, data, **kwargs):
+        mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
+        assert len(mean) == 1
+        mean, cov, cls_logits, obj_logits = mean[0], cov[0], cls_logits[0], obj_logits[0]
+        cls_probs = F.softmax(cls_logits, dim=-1)
+        obj_probs = F.softmax(obj_logits, dim=-1)
+
+        is_obj = obj_probs[:, 1] >= 0.0
+        cls_probs = cls_probs[is_obj]
+        mean = mean[is_obj]
+        cov = cov[is_obj]
+        dist = self.dist(mean, cov)
+        dist = D.Independent(dist, 1) #Nq independent Gaussians
+
+         
+        return {
+            'position': mean.cpu().detach().numpy(),
+            'cls_probs': cls_probs.cpu().detach().numpy()
+        }         
 
     def forward_train(self, data, **kwargs):
         img = data['zed_camera_left']['img']
@@ -149,7 +211,7 @@ class BaseMocapModel(BaseModule):
 
             corr_probs = [obj_probs[idx, target] for idx, target in enumerate(obj_targets)] 
             corr_probs = torch.stack(corr_probs)
-            obj_loss = corr_probs.mean()
+            obj_loss = corr_probs.sum() / len(assign_idx)
             
             
 
@@ -179,7 +241,6 @@ class BaseMocapModel(BaseModule):
         # gt_ids = data['mocap']['gt_ids'][-2]
         # gt_labels = data['mocap']['gt_labels'][-2]
 
-        import ipdb; ipdb.set_trace() # noqa
 
         query_embeds = query_embeds.mean(dim=0).squeeze()
         coord_embeds = self.ctn(query_embeds)
