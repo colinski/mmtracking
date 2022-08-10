@@ -160,7 +160,8 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
         dict[str, list]: The prediction results.
     """
     size = (1600, 900)
-    vid = cv2.VideoWriter('/tmp/vid.mp4', cv2.VideoWriter_fourcc(*'mp4v'), data_loader.dataset.fps, size)
+    fname = f'{tmpdir}/latest_vid.mp4'
+    vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), data_loader.dataset.fps, size)
     fig, axes = init_fig()
     model.eval()
     num_frames = 0

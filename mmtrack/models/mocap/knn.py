@@ -11,14 +11,22 @@ from mmtrack.core import outs2results, results2outs
 from mmcv.runner import BaseModule, auto_fp16
 from ..builder import MODELS, build_tracker
 from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
-
+from .base import BaseMocapModel
 
 @MODELS.register_module()
-class BaseMocapModel(BaseModule):
+class KNNMocapModel(BaseMocapModel):
     def __init__(self,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.dummy_param = nn.Parameter(torch.zeros(1))
+
+        self.buckets = {}
+        for i in range(100):
+            for j in range(100):
+                key = (i / 100, j / 100)
+                self.buckets[key] = []
 
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -38,10 +46,28 @@ class BaseMocapModel(BaseModule):
             return self.forward_test(data, **kwargs)
 
     def forward_test(self, data, **kwargs):
-        pass
+        results = []
+        img = data['zed_camera_left']['img'].data.cpu()
+        for k, v in self.buckets.items():
+            if len(v) == 0:
+                continue
+            imgs = torch.cat(v)
+            diffs = (imgs - img)**2
+            diffs = diffs.flatten(1)
+            mse = diffs.mean(axis=-1).mean()
+            results.append([k[0], k[1], 1, mse])
+        results = torch.tensor(results)
+        min_idx = torch.argmin(results[:, -1])
+        return {
+                'position': results[min_idx][0:3].unsqueeze(0).cpu().detach().numpy(),
+        }         
 
     def forward_train(self, data, **kwargs):
-        pass
+        x, y = data['mocap']['gt_positions'][0][-2][0:2]
+        x, y = round(x.item(), 2), round(y.item(), 2)
+        img = data['zed_camera_left']['img'].data.cpu()
+        self.buckets[(x, y)].append(img)
+        return {'dummy_loss': self.dummy_param}
 
     def simple_test(self, img, img_metas, rescale=False):
         pass

@@ -21,7 +21,7 @@ import time
 import torchaudio
 
 
-def read_h5df(f):
+def read_hdf5(f):
     data = {}
     for ms in f.keys():
         data[ms] = {}
@@ -45,11 +45,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  hdf5_fname,
                  fps=20,
                  valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth'],
-                 img_pipeline=None,
-                 depth_pipeline=None,
-                 azimuth_pipeline=None,
-                 range_pipeline=None,
-                 audio_pipeline=None,
+                 img_pipeline=[],
+                 depth_pipeline=[],
+                 azimuth_pipeline=[],
+                 range_pipeline=[],
+                 audio_pipeline=[],
                  test_mode=False,
                  **kwargs):
         self.class2idx = {'truck': 1, 'node': 0}
@@ -58,7 +58,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.fps = fps
         
         with h5py.File(self.fname, 'r') as f:
-            self.data = read_h5df(f)
+            self.data = read_hdf5(f)
             
         self.keys = list(self.data.keys())
         self.keys = np.array(self.keys)
@@ -66,12 +66,14 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.keys = self.keys[sort_idx]
 
         self.timesteps = torch.from_numpy(self.keys.astype(int))
-
-
+        
         self.img_pipeline = Compose(img_pipeline)
+
         self.depth_pipeline = Compose(depth_pipeline)
-        self.azimuth_pipeline = Compose(azimuth_pipeline)
-        self.range_pipeline = Compose(range_pipeline)
+
+        # if self.azimuth_pipeline is not None:
+            # self.azimuth_pipeline = Compose(self.azimuth_pipeline)
+        # self.range_pipeline = Compose(range_pipeline)
         self.test_mode = test_mode
         
         self.start_time = int(self.keys[0]) #+ (60*60*1000)

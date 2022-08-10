@@ -1,17 +1,17 @@
 _base_ = [
-    '../_base_/models/detr.py',
+    # '../_base_/models/detr.py',
     # '../../_base_/datasets/mot_challenge.py', 
     # '../../_base_/default_runtime.py',
      #'../../_base_/datasets/mot15-half.py', 
 ]
 custom_imports = dict(
         imports=[
-            'mmtrack.models.mocap.base',
+            'mmtrack.models.mocap.knn',
             # 'mmtrack.models.trackers.trackformer_tracker'
         ],
         allow_failed_imports=False)
 
-model = dict(type='BaseMocapModel')
+model = dict(type='KNNMocapModel')
 
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
@@ -95,7 +95,7 @@ data = dict(
     workers_per_gpu=0,
     shuffle=False,
     train=dict(type='HDF5Dataset',
-        hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
+        hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
@@ -132,8 +132,8 @@ optimizer = dict(
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 lr_config = dict(policy='step', step=[6])
-total_epochs = 10
-evaluation = dict(metric=['bbox', 'track'], interval=1)
+total_epochs = 1
+evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
 
 find_unused_parameters = True
 
