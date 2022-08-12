@@ -68,12 +68,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.timesteps = torch.from_numpy(self.keys.astype(int))
         
         self.img_pipeline = Compose(img_pipeline)
-
         self.depth_pipeline = Compose(depth_pipeline)
+        self.range_pipeline = Compose(range_pipeline)
+        self.azimuth_pipeline = Compose(azimuth_pipeline)
 
         # if self.azimuth_pipeline is not None:
             # self.azimuth_pipeline = Compose(self.azimuth_pipeline)
-        # self.range_pipeline = Compose(range_pipeline)
         self.test_mode = test_mode
         
         self.start_time = int(self.keys[0]) #+ (60*60*1000)
@@ -123,13 +123,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 img = cv2.imdecode(val, 1)
                 self.buffer[key] = self.img_pipeline(img)
 
-            # if key == 'azimuth_static':
-                # arr = val[:]
-                # arr = np.nan_to_num(arr)
-                # self.buffer[key] = arr
+            if key == 'azimuth_static':
+                arr = np.nan_to_num(val)
+                self.buffer[key] = self.azimuth_pipeline(arr)
                     
-            # if key == 'range_doppler':
-                # self.buffer[key] = val[:].T
+            if key == 'range_doppler':
+                self.buffer[key] = self.range_pipeline(val.T)
             
             # if key == 'mic_waveform':
                 # wave = val[:]
@@ -173,5 +172,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
 
     def evaluate(self, outputs, **eval_kwargs):
-        return {'acc': 0.0}
-        
+        pred_pos = np.array(outputs['pred_position'])
+        assert pred_pos.shape[1] == 1
+        pred_pos = pred_pos.squeeze()
+        gt_pos = np.array(outputs['gt_position'])
+        sq_err = (pred_pos - gt_pos)**2
+        return {'mse': sq_err.mean()}

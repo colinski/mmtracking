@@ -49,13 +49,18 @@ depth_pipeline = [
 
 azimuth_pipeline = [
     dict(type='LoadFromNumpyArray', force_float32=True),
-    dict(type='Resize', img_scale=(384, 384), keep_ratio=True),
-    dict(type='ImageToTensor', keys=['img']),
+    dict(type='RandomFlip', flip_ratio=0.0),
+    dict(type='DefaultFormatBundle'),
+    dict(type='Collect', keys=['img']),
 ]
 
 range_pipeline = [
     dict(type='LoadFromNumpyArray', force_float32=True),
-    dict(type='ImageToTensor', keys=['img']),
+    dict(type='RandomFlip', flip_ratio=0.0),
+    # dict(type='Normalize', mean=[0], std=[20000], to_rgb=False),
+    # dict(type='Pad', size_divisor=32),
+    dict(type='DefaultFormatBundle'),
+    dict(type='Collect', keys=['img']),
 ]
 
 
@@ -89,6 +94,12 @@ test_pipeline = [
 ]
 
 
+valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
+        'azimuth_static', 'range_doppler']
+
+# valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
+        # 'azimuth_static', 'range_doppler']
+
 classes = ('car', )
 data = dict(
     samples_per_gpu=1,
@@ -96,6 +107,7 @@ data = dict(
     shuffle=False,
     train=dict(type='HDF5Dataset',
         hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
+        valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
@@ -103,6 +115,7 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
+        valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
@@ -110,6 +123,7 @@ data = dict(
     ),
     test=dict(type='HDF5Dataset',
         hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
+        valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
@@ -133,7 +147,8 @@ optimizer = dict(
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 lr_config = dict(policy='step', step=[6])
 total_epochs = 1
-evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
+#evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
+evaluation = dict(metric=['bbox', 'track'], interval=1)
 
 find_unused_parameters = True
 

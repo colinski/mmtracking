@@ -160,7 +160,7 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
         dict[str, list]: The prediction results.
     """
     size = (1600, 900)
-    fname = f'{tmpdir}/latest_vid.mp4'
+    fname = f'/tmp/latest_vid.mp4'
     vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), data_loader.dataset.fps, size)
     fig, axes = init_fig()
     model.eval()
@@ -174,6 +174,9 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(data, return_loss=False)
+        
+        for k, v in result.items():
+            results[k].append(v)
 
         save_frame = False
         if 'mocap' in data.keys():
@@ -201,7 +204,7 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
                 # pos = obj['normalized_position']
                 axes['mocap'].scatter(pos[1], pos[0]) # to rotate, longer side to be y axis
 
-            for pos in result['position']:
+            for pos in result['pred_position']:
                 # pos = obj['position']
                 if pos[-1] == 0.0: #z == 0, ignore
                     continue
@@ -212,8 +215,7 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
         if 'zed_camera_left' in data.keys():
             axes['zed_camera_left'].clear()
             axes['zed_camera_left'].axis('off')
-            axes['zed_camera_left'].set_title("ZED Left Image")
-            # code = data['zed_camera_left'][:]
+            axes['zed_camera_left'].set_title("ZED Left Image") # code = data['zed_camera_left'][:]
             # img = cv2.imdecode(code, 1)
             # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = data['zed_camera_left']['img'].data[0].cpu().squeeze()
@@ -238,12 +240,25 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
             axes['zed_camera_depth'].axis('off')
             axes['zed_camera_depth'].set_title("ZED Depth Map")
             dmap = data['zed_camera_depth']['img'].data[0].cpu().squeeze()
-            axes['zed_camera_depth'].imshow(dmap, cmap='turbo', vmin=0, vmax=10000)
+            axes['zed_camera_depth'].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
+
+        if 'range_doppler' in data.keys():
+            axes['range_doppler'].clear()
+            axes['range_doppler'].axis('off')
+            axes['range_doppler'].set_title("Range Doppler")
+            img = data['range_doppler']['img'].data[0].cpu().squeeze().numpy()
+            axes['range_doppler'].imshow(img, cmap='turbo', aspect='auto')
+
+        if 'azimuth_static' in data.keys():
+            axes['azimuth_static'].clear()
+            axes['azimuth_static'].axis('off')
+            axes['azimuth_static'].set_title("Azimuth Static")
+            img = data['azimuth_static']['img'].data[0].cpu().squeeze().numpy()
+            axes['azimuth_static'].imshow(img, cmap='turbo', aspect='auto')
+
+
 
         
-        # for k, v in result.items():
-            # results[k].append(v)
-
         if rank == 0:
             # batch_size = data['img'][0].size(0)
             batch_size = len(data['mocap']['gt_positions'])
@@ -260,7 +275,6 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
             vid.write(data) 
 
     vid.release()
-    # collect results from all ranks
     if gpu_collect:
         raise NotImplementedError
     else:

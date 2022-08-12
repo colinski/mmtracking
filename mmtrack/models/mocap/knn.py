@@ -12,6 +12,7 @@ from mmcv.runner import BaseModule, auto_fp16
 from ..builder import MODELS, build_tracker
 from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
 from .base import BaseMocapModel
+from collections import defaultdict
 
 @MODELS.register_module()
 class KNNMocapModel(BaseMocapModel):
@@ -23,10 +24,11 @@ class KNNMocapModel(BaseMocapModel):
         self.dummy_param = nn.Parameter(torch.zeros(1))
 
         self.buckets = {}
-        for i in range(100):
-            for j in range(100):
-                key = (i / 100, j / 100)
-                self.buckets[key] = []
+        for x in range(100):
+            for y in range(100):
+                for z in range(100):
+                    key = (x / 100, y / 100, z / 100)
+                    self.buckets[key] = defaultdict(list)
 
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -45,9 +47,52 @@ class KNNMocapModel(BaseMocapModel):
         else:
             return self.forward_test(data, **kwargs)
 
+    def find_nearest(self, name, img):
+        results = []
+        for k, v in self.buckets.items():
+            if len(v.keys()) == 0 or name not in v.keys():
+                continue
+            imgs = torch.cat(v[name])
+            diffs = (img - imgs)**2
+            diffs = diffs.flatten(1)
+            mse = diffs.mean(dim=-1).mean()
+            results.append([k[0], k[1], k[2], mse])
+        results = torch.tensor(results)
+        min_idx = torch.argmin(results[:, -1])
+        return results[min_idx]
+        import ipdb; ipdb.set_trace() # noqa
+
+
     def forward_test(self, data, **kwargs):
         results = []
-        img = data['zed_camera_left']['img'].data.cpu()
+        for key, val in data.items():
+            if key == 'mocap' or key == 'ind':
+                continue
+            img = val['img'].data.cpu()
+            res = self.find_nearest(key, img)
+            results.append(res)
+        results = torch.stack(results)
+        pred = results.mean(dim=0)[0:3]
+        return {
+            'pred_position': pred.unsqueeze(0).cpu().detach().numpy(),
+            'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
+        }         
+
+            # for k, v in self.buckets.items():
+                # if len(v.keys()) == 0 or key not in v.keys():
+                    # continue
+                # imgs = torch.cat(v[key])
+                # diffs = (img - imgs)**2
+                # diffs = diffs.flatten(1)
+                # mse = diffs.mean(dim=-1).mean()
+                # import ipdb; ipdb.set_trace() # noqa
+        # if 'azimuth_static' not in data.keys():
+            # return {
+                # 'pred_position': np.zeros((1, 3)),
+                # 'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
+            # }         
+   
+        img = data['azimuth_static']['img'].data.cpu()
         for k, v in self.buckets.items():
             if len(v) == 0:
                 continue
@@ -55,18 +100,25 @@ class KNNMocapModel(BaseMocapModel):
             diffs = (imgs - img)**2
             diffs = diffs.flatten(1)
             mse = diffs.mean(axis=-1).mean()
-            results.append([k[0], k[1], 1, mse])
+            results.append([k[0], k[1], k[2], mse])
         results = torch.tensor(results)
         min_idx = torch.argmin(results[:, -1])
         return {
-                'position': results[min_idx][0:3].unsqueeze(0).cpu().detach().numpy(),
+            'pred_position': results[min_idx][0:3].unsqueeze(0).cpu().detach().numpy(),
+            'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
         }         
 
     def forward_train(self, data, **kwargs):
-        x, y = data['mocap']['gt_positions'][0][-2][0:2]
-        x, y = round(x.item(), 2), round(y.item(), 2)
-        img = data['zed_camera_left']['img'].data.cpu()
-        self.buckets[(x, y)].append(img)
+        x, y, z = data['mocap']['gt_positions'][0][-2]
+        x, y, z = round(x.item(), 2), round(y.item(), 2), round(z.item(), 2)
+        for key, val in data.items():
+            if key == 'mocap' or key == 'ind':
+                continue
+            img = val['img'].data.cpu()
+            self.buckets[(x, y, z)][key].append(img)
+        # if 'azimuth_static' in data.keys():
+            # img = data['azimuth_static']['img'].data.cpu()
+            # self.buckets[(x, y, z)].append(img)
         return {'dummy_loss': self.dummy_param}
 
     def simple_test(self, img, img_metas, rescale=False):
