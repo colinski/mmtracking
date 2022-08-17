@@ -226,15 +226,35 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
             img = img.astype(np.uint8)
             axes['zed_camera_left'].imshow(img)
         
-        # if 'zed_camera_right' in data.keys():
-            # ax2.clear()
-            # ax2.axis('off')
-            # ax2.set_title("ZED Right Image")
-            # code = data['zed_camera_right'][:]
+        if 'realsense_camera_img' in data.keys():
+            axes['realsense_camera_img'].clear()
+            axes['realsense_camera_img'].axis('off')
+            axes['realsense_camera_img'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
             # img = cv2.imdecode(code, 1)
             # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            # ax2.imshow(img)
-    
+            img = data['realsense_camera_img']['img'].data[0].cpu().squeeze()
+            mean = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['mean']
+            std = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['std']
+            img = img.permute(1, 2, 0).numpy()
+            img = (img * std) - mean
+            img = img.astype(np.uint8)
+            axes['realsense_camera_img'].imshow(img)
+
+        if 'realsense_camera_depth' in data.keys():
+            axes['realsense_camera_depth'].clear()
+            axes['realsense_camera_depth'].axis('off')
+            axes['realsense_camera_depth'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
+            # depth = cv2.imdecode(code, 1)
+            # depth = cv2.cvtColor(depth, cv2.COLOR_BGR2RGB)
+            depth = data['realsense_camera_depth']['img'].data[0].cpu().squeeze()
+            mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean']
+            std = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['std']
+            depth = depth.permute(1, 2, 0).numpy()
+            depth = (depth * std) - mean
+            depth = depth.astype(np.uint8)
+            axes['realsense_camera_depth'].imshow(depth)
+
+
         if 'zed_camera_depth' in data.keys():
             axes['zed_camera_depth'].clear()
             axes['zed_camera_depth'].axis('off')
@@ -255,6 +275,15 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
             axes['azimuth_static'].set_title("Azimuth Static")
             img = data['azimuth_static']['img'].data[0].cpu().squeeze().numpy()
             axes['azimuth_static'].imshow(img, cmap='turbo', aspect='auto')
+
+        if 'mic_waveform' in data.keys():
+            axes['mic_waveform'].clear()
+            axes['mic_waveform'].axis('off')
+            axes['mic_waveform'].set_title("Audio Spectrogram")
+            img = data['mic_waveform']['img'].data[0].cpu().squeeze().numpy()
+            C, H, W = img.shape
+            img = img.reshape(C*H, W)
+            axes['mic_waveform'].imshow(img, cmap='turbo', aspect='auto')
 
 
 

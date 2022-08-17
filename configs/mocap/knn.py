@@ -13,8 +13,10 @@ custom_imports = dict(
 
 model = dict(type='KNNMocapModel')
 
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+# img_norm_cfg = dict(
+    # mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+
+img_norm_cfg = dict(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], to_rgb=True)
 
 train_pipeline = [
     dict(type='LoadMultiImagesFromFile', to_float32=True),
@@ -63,39 +65,50 @@ range_pipeline = [
     dict(type='Collect', keys=['img']),
 ]
 
+audio_pipeline = [
+    dict(type='LoadAudio'),
+    dict(type='LoadFromNumpyArray'),
+    dict(type='RandomFlip', flip_ratio=0.0),
+    dict(type='DefaultFormatBundle'),
+    dict(type='Collect', keys=['img']),
+]
+
 
 img_pipeline = [
     dict(type='LoadFromNumpyArray'),
     # dict(type='Resize', img_scale=(720, 1280), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', **img_norm_cfg),
-    dict(type='Pad', size_divisor=32),
+    # dict(type='Pad', size_divisor=32),
     # dict(type='ImageToTensor', keys=['img']),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
-
 ]
 
+# test_pipeline = [
+    # dict(type='LoadImageFromFile'),
+    # dict(
+        # type='MultiScaleFlipAug',
+        # img_scale=(1280, 720),
+        # flip=False,
+        # transforms=[
+            # dict(type='Resize', keep_ratio=True),
+            # dict(type='RandomFlip'),
+            # dict(type='Normalize', **img_norm_cfg),
+            # dict(type='Pad', size_divisor=32),
+            # dict(type='ImageToTensor', keys=['img']),
+            # dict(type='VideoCollect', keys=['img'])
+        # ])
+# ]
 
-test_pipeline = [
-    dict(type='LoadImageFromFile'),
-    dict(
-        type='MultiScaleFlipAug',
-        img_scale=(1280, 720),
-        flip=False,
-        transforms=[
-            dict(type='Resize', keep_ratio=True),
-            dict(type='RandomFlip'),
-            dict(type='Normalize', **img_norm_cfg),
-            dict(type='Pad', size_divisor=32),
-            dict(type='ImageToTensor', keys=['img']),
-            dict(type='VideoCollect', keys=['img'])
-        ])
-]
 
+# valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
+        # 'range_doppler', 'mic_waveform', 'realsense_camera_depth',
+        # 'realsense_camera_img', 'azimuth_static']
 
 valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
-        'azimuth_static', 'range_doppler']
+        'range_doppler']
+
 
 # valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
         # 'azimuth_static', 'range_doppler']
@@ -111,7 +124,8 @@ data = dict(
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline
+        range_pipeline=range_pipeline,
+        audio_pipeline=audio_pipeline
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
@@ -119,7 +133,8 @@ data = dict(
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline
+        range_pipeline=range_pipeline,
+        audio_pipeline=audio_pipeline
     ),
     test=dict(type='HDF5Dataset',
         hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
@@ -127,7 +142,8 @@ data = dict(
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline
+        range_pipeline=range_pipeline,
+        audio_pipeline=audio_pipeline
     ),
 )
 

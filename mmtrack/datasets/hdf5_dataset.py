@@ -37,7 +37,6 @@ def read_hdf5(f):
                         data[ms][k][k2] = v2[:]
     return data
 
-
 @DATASETS.register_module()
 class HDF5Dataset(Dataset, metaclass=ABCMeta):
     CLASSES = None
@@ -71,6 +70,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.depth_pipeline = Compose(depth_pipeline)
         self.range_pipeline = Compose(range_pipeline)
         self.azimuth_pipeline = Compose(azimuth_pipeline)
+        self.audio_pipeline = Compose(audio_pipeline)
 
         # if self.azimuth_pipeline is not None:
             # self.azimuth_pipeline = Compose(self.azimuth_pipeline)
@@ -130,7 +130,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             if key == 'range_doppler':
                 self.buffer[key] = self.range_pipeline(val.T)
             
-            # if key == 'mic_waveform':
+            if key == 'mic_waveform':
+                val = val.T
+                val = val[1:5]
+                self.buffer[key] = self.audio_pipeline(val)
+
                 # wave = val[:]
                 # wave = torch.from_numpy(wave.T)
                 # spectro = torchaudio.transforms.Spectrogram()(wave)

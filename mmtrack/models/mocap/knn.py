@@ -52,16 +52,17 @@ class KNNMocapModel(BaseMocapModel):
         for k, v in self.buckets.items():
             if len(v.keys()) == 0 or name not in v.keys():
                 continue
-            imgs = torch.cat(v[name])
-            diffs = (img - imgs)**2
+            try:
+                imgs = torch.cat(v[name])
+                diffs = (img - imgs)**2
+            except:
+                continue
             diffs = diffs.flatten(1)
             mse = diffs.mean(dim=-1).mean()
             results.append([k[0], k[1], k[2], mse])
         results = torch.tensor(results)
         min_idx = torch.argmin(results[:, -1])
         return results[min_idx]
-        import ipdb; ipdb.set_trace() # noqa
-
 
     def forward_test(self, data, **kwargs):
         results = []
@@ -71,6 +72,12 @@ class KNNMocapModel(BaseMocapModel):
             img = val['img'].data.cpu()
             res = self.find_nearest(key, img)
             results.append(res)
+        if len(results) == 0:
+            return {
+                'pred_position': np.zeros((1, 3)),
+                'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
+            }         
+
         results = torch.stack(results)
         pred = results.mean(dim=0)[0:3]
         return {

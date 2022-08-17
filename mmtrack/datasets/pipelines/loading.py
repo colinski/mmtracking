@@ -4,6 +4,21 @@ from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
 
 from mmtrack.core import results2outs
 import numpy as np
+import torch
+import torchaudio
+
+@PIPELINES.register_module()
+class LoadAudio(object):
+    def __init__(self):
+        self.spectro = torchaudio.transforms.Spectrogram()
+
+    def __call__(self, array):
+        array = torch.from_numpy(array)
+        array = array.unsqueeze(0)
+        sgram = self.spectro(array)
+        sgram = sgram.squeeze()
+        sgram = sgram.permute(1, 2, 0)
+        return sgram.numpy()
 
 @PIPELINES.register_module()
 class LoadFromNumpyArray(object):
