@@ -13,9 +13,6 @@ from mmcv.image import tensor2imgs
 from mmcv.runner import get_dist_info
 from mmdet.core import encode_mask_results
 
-import cv2
-import matplotlib.pyplot as plt
-import numpy as np
 
 def single_gpu_test(model,
                     data_loader,
@@ -118,24 +115,6 @@ def single_gpu_test(model,
 
     return results
 
-def init_fig():
-    fig = plt.figure(figsize=(16,9))
-    axes = {}
-    axes['zed_camera_left'] = plt.subplot2grid((3,4), (0,0)) #ax1
-    axes['zed_camera_right'] = plt.subplot2grid((3,4), (0,1)) #ax2
-    axes['zed_camera_depth'] = plt.subplot2grid((3,4), (0,2))
-    axes['mocap'] = plt.subplot2grid((3,4), (0,3), rowspan=2)
-    axes['realsense_camera_img'] = plt.subplot2grid((3,4), (1,0))
-    axes['realsense_camera_depth'] = plt.subplot2grid((3,4), (1,1))
-    axes['azimuth_static'] = plt.subplot2grid((3,4), (1,2))
-    axes['range_doppler'] = plt.subplot2grid((3,4), (2,0))
-    axes['detected_points'] = plt.subplot2grid((3,4), (2,1), projection='3d')
-    axes['mic_waveform'] = plt.subplot2grid((3,4), (2,2))
-    axes['mic_direction'] = plt.subplot2grid((3,4), (2,3), projection='polar')
-    fig.suptitle('Title', fontsize=16)
-    fig.subplots_adjust(wspace=0, hspace=0)
-    plt.tight_layout()
-    return fig, axes
 
 
 def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
@@ -159,12 +138,7 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
     Returns:
         dict[str, list]: The prediction results.
     """
-    size = (1600, 900)
-    fname = f'/tmp/latest_vid.mp4'
-    vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), data_loader.dataset.fps, size)
-    fig, axes = init_fig()
     model.eval()
-    num_frames = 0
     results = defaultdict(list)
     dataset = data_loader.dataset
     rank, world_size = get_dist_info()
@@ -174,119 +148,12 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(data, return_loss=False)
-        
+        for key in result:
+            if 'mask' in key:
+                result[key] = encode_mask_results(result[key])
+
         for k, v in result.items():
             results[k].append(v)
-
-        save_frame = False
-        if 'mocap' in data.keys():
-            save_frame = True
-            num_frames += 1
-            axes['mocap'].clear()
-            # ax4.set_xlim(-3001,3001)
-            # ax4.set_ylim(-5001,5001)
-            # ax4.set_xticks([-3000, -2000, -1000, 0, 1000, 2000, 3000])
-            # ax4.set_xticklabels([-3, -2, -1, 0, 1, 2, 3])
-            # ax4.set_yticks([-5000, -4000, -3000, -2000, -1000, 0, 1000, 2000, 3000, 4000, 5000])
-            # ax4.set_yticklabels([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])
-            axes['mocap'].set_aspect('equal', adjustable='box')
-            axes['mocap'].grid(True, color="gray", linestyle="--")
-            axes['mocap'].set_xlabel("[m]")
-            axes['mocap'].set_ylabel("[m]")
-
-            # obj_str = data['mocap'][()]
-            # objs = json.loads(obj_str)
-            objs = data['mocap']['gt_positions'][0]
-            for pos in objs:
-                # pos = obj['position']
-                if pos[-1] == 0.0: #z == 0, ignore
-                    continue
-                # pos = obj['normalized_position']
-                axes['mocap'].scatter(pos[1], pos[0]) # to rotate, longer side to be y axis
-
-            for pos in result['pred_position']:
-                # pos = obj['position']
-                if pos[-1] == 0.0: #z == 0, ignore
-                    continue
-                # pos = obj['normalized_position']
-                axes['mocap'].scatter(pos[1], pos[0]) # to rotate, longer side to be y axis
-
-        
-        if 'zed_camera_left' in data.keys():
-            axes['zed_camera_left'].clear()
-            axes['zed_camera_left'].axis('off')
-            axes['zed_camera_left'].set_title("ZED Left Image") # code = data['zed_camera_left'][:]
-            # img = cv2.imdecode(code, 1)
-            # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = data['zed_camera_left']['img'].data[0].cpu().squeeze()
-            mean = data['zed_camera_left']['img_metas'].data[0][0]['img_norm_cfg']['mean']
-            std = data['zed_camera_left']['img_metas'].data[0][0]['img_norm_cfg']['std']
-            img = img.permute(1, 2, 0).numpy()
-            img = (img * std) - mean
-            img = img.astype(np.uint8)
-            axes['zed_camera_left'].imshow(img)
-        
-        if 'realsense_camera_img' in data.keys():
-            axes['realsense_camera_img'].clear()
-            axes['realsense_camera_img'].axis('off')
-            axes['realsense_camera_img'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
-            # img = cv2.imdecode(code, 1)
-            # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = data['realsense_camera_img']['img'].data[0].cpu().squeeze()
-            mean = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['mean']
-            std = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['std']
-            img = img.permute(1, 2, 0).numpy()
-            img = (img * std) - mean
-            img = img.astype(np.uint8)
-            axes['realsense_camera_img'].imshow(img)
-
-        if 'realsense_camera_depth' in data.keys():
-            axes['realsense_camera_depth'].clear()
-            axes['realsense_camera_depth'].axis('off')
-            axes['realsense_camera_depth'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
-            # depth = cv2.imdecode(code, 1)
-            # depth = cv2.cvtColor(depth, cv2.COLOR_BGR2RGB)
-            depth = data['realsense_camera_depth']['img'].data[0].cpu().squeeze()
-            mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean']
-            std = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['std']
-            depth = depth.permute(1, 2, 0).numpy()
-            depth = (depth * std) - mean
-            depth = depth.astype(np.uint8)
-            axes['realsense_camera_depth'].imshow(depth)
-
-
-        if 'zed_camera_depth' in data.keys():
-            axes['zed_camera_depth'].clear()
-            axes['zed_camera_depth'].axis('off')
-            axes['zed_camera_depth'].set_title("ZED Depth Map")
-            dmap = data['zed_camera_depth']['img'].data[0].cpu().squeeze()
-            axes['zed_camera_depth'].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
-
-        if 'range_doppler' in data.keys():
-            axes['range_doppler'].clear()
-            axes['range_doppler'].axis('off')
-            axes['range_doppler'].set_title("Range Doppler")
-            img = data['range_doppler']['img'].data[0].cpu().squeeze().numpy()
-            axes['range_doppler'].imshow(img, cmap='turbo', aspect='auto')
-
-        if 'azimuth_static' in data.keys():
-            axes['azimuth_static'].clear()
-            axes['azimuth_static'].axis('off')
-            axes['azimuth_static'].set_title("Azimuth Static")
-            img = data['azimuth_static']['img'].data[0].cpu().squeeze().numpy()
-            axes['azimuth_static'].imshow(img, cmap='turbo', aspect='auto')
-
-        if 'mic_waveform' in data.keys():
-            axes['mic_waveform'].clear()
-            axes['mic_waveform'].axis('off')
-            axes['mic_waveform'].set_title("Audio Spectrogram")
-            img = data['mic_waveform']['img'].data[0].cpu().squeeze().numpy()
-            C, H, W = img.shape
-            img = img.reshape(C*H, W)
-            axes['mic_waveform'].imshow(img, cmap='turbo', aspect='auto')
-
-
-
         
         if rank == 0:
             # batch_size = data['img'][0].size(0)
@@ -294,16 +161,6 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
             for _ in range(batch_size * world_size):
                 prog_bar.update()
         
-        factor = 100 // data_loader.dataset.fps
-        if save_frame:
-            fig.canvas.draw()
-            data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            data = cv2.resize(data, dsize=size)
-            data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
-            vid.write(data) 
-
-    vid.release()
     if gpu_collect:
         raise NotImplementedError
     else:

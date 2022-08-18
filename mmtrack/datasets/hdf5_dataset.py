@@ -19,7 +19,27 @@ import torch
 import json
 import time
 import torchaudio
+from tqdm import trange
+import matplotlib.pyplot as plt
 
+def init_fig():
+    fig = plt.figure(figsize=(16,9))
+    axes = {}
+    axes['zed_camera_left'] = plt.subplot2grid((3,4), (0,0)) #ax1
+    axes['zed_camera_right'] = plt.subplot2grid((3,4), (0,1)) #ax2
+    axes['zed_camera_depth'] = plt.subplot2grid((3,4), (0,2))
+    axes['mocap'] = plt.subplot2grid((3,4), (0,3), rowspan=2)
+    axes['realsense_camera_img'] = plt.subplot2grid((3,4), (1,0))
+    axes['realsense_camera_depth'] = plt.subplot2grid((3,4), (1,1))
+    axes['azimuth_static'] = plt.subplot2grid((3,4), (1,2))
+    axes['range_doppler'] = plt.subplot2grid((3,4), (2,0))
+    axes['detected_points'] = plt.subplot2grid((3,4), (2,1), projection='3d')
+    axes['mic_waveform'] = plt.subplot2grid((3,4), (2,2))
+    axes['mic_direction'] = plt.subplot2grid((3,4), (2,3), projection='polar')
+    fig.suptitle('Title', fontsize=16)
+    fig.subplots_adjust(wspace=0, hspace=0)
+    plt.tight_layout()
+    return fig, axes
 
 def read_hdf5(f):
     data = {}
@@ -50,11 +70,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  range_pipeline=[],
                  audio_pipeline=[],
                  test_mode=False,
+                 is_random=False,
                  **kwargs):
         self.class2idx = {'truck': 1, 'node': 0}
         # self.f = h5py.File(hdf5_fname, 'r')
         self.fname = hdf5_fname
         self.fps = fps
+        self.is_random = is_random
         
         with h5py.File(self.fname, 'r') as f:
             self.data = read_hdf5(f)
@@ -153,21 +175,24 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 data = data['node_1']
 
             for key, val in data.items():
-                self.buffer[key] = val
+                if key in self.valid_keys:
+                    self.buffer[key] = val
             
             if int(time) >= end_time:
                 return
         
     def __getitem__(self, ind):
+        if ind == 0 or self.is_random:
+            self.buffer = {}
         start = int(self.start_time + ind * self.frame_len) #start is N frames after start_time
         diffs = torch.abs(self.timesteps - start) #find closest time as it isnt frame perfect
         min_idx = torch.argmin(diffs).item()
         end = int(self.timesteps[min_idx] + self.frame_len) #one frame worth of data
         self.fill_buffer(min_idx, end) #run through data and fill buffer
+        # data = {k: v for k, v in self.buffer.items() if k in self.valid_keys}
         self.parse_buffer() #convert to arrays
-        data = {k: v for k, v in self.buffer.items() if k in self.valid_keys}
-        data['ind'] = ind
-        return data
+        # data['ind'] = ind
+        return self.buffer
 
         # img = self.img_pipeline(data['zed']['left'])
         # depth = self.depth_pipeline(data['zed']['depth'])
@@ -176,6 +201,112 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
 
     def evaluate(self, outputs, **eval_kwargs):
+        size = (1600, 900)
+        fname = f'/tmp/latest_vid.mp4'
+        vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
+        fig, axes = init_fig()
+        num_frames = 0
+
+        for i in trange(len(self)):
+            data = self[i]
+
+            save_frame = False
+            if 'mocap' in data.keys():
+                save_frame = True
+                num_frames += 1
+                axes['mocap'].clear()
+                
+                for pos in data['mocap']['gt_positions']:
+                    if pos[-1] == 0.0: #z == 0, ignore
+                        continue
+                    axes['mocap'].scatter(pos[1], pos[0])#, posmarker=',', color='k') # to rotate, longer side to be y axis
+
+                for pos in outputs['pred_position'][i]:
+                    if pos[-1] == 0.0: #z == 0, ignore
+                        continue
+                    axes['mocap'].scatter(pos[1], pos[0]) # to rotate, longer side to be y axis
+
+            if 'zed_camera_left' in data.keys():
+                axes['zed_camera_left'].clear()
+                axes['zed_camera_left'].axis('off')
+                axes['zed_camera_left'].set_title("ZED Left Image") # code = data['zed_camera_left'][:]
+                img = data['zed_camera_left']['img'].data.cpu().squeeze()
+                mean = data['zed_camera_left']['img_metas'].data['img_norm_cfg']['mean']
+                std = data['zed_camera_left']['img_metas'].data['img_norm_cfg']['std']
+                img = img.permute(1, 2, 0).numpy()
+                img = (img * std) - mean
+                img = img.astype(np.uint8)
+                axes['zed_camera_left'].imshow(img)
+            
+            if 'realsense_camera_img' in data.keys():
+                axes['realsense_camera_img'].clear()
+                axes['realsense_camera_img'].axis('off')
+                axes['realsense_camera_img'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
+                img = data['realsense_camera_img']['img'].data[0].cpu().squeeze()
+                mean = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['mean']
+                std = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['std']
+                img = img.permute(1, 2, 0).numpy()
+                img = (img * std) - mean
+                img = img.astype(np.uint8)
+                axes['realsense_camera_img'].imshow(img)
+
+            if 'realsense_camera_depth' in data.keys():
+                axes['realsense_camera_depth'].clear()
+                axes['realsense_camera_depth'].axis('off')
+                axes['realsense_camera_depth'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
+                depth = data['realsense_camera_depth']['img'].data[0].cpu().squeeze()
+                mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean']
+                std = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['std']
+                depth = depth.permute(1, 2, 0).numpy()
+                depth = (depth * std) - mean
+                depth = depth.astype(np.uint8)
+                axes['realsense_camera_depth'].imshow(depth)
+
+            if 'zed_camera_depth' in data.keys():
+                axes['zed_camera_depth'].clear()
+                axes['zed_camera_depth'].axis('off')
+                axes['zed_camera_depth'].set_title("ZED Depth Map")
+                dmap = data['zed_camera_depth']['img'].data[0].cpu().squeeze()
+                axes['zed_camera_depth'].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
+
+            if 'range_doppler' in data.keys():
+                axes['range_doppler'].clear()
+                axes['range_doppler'].axis('off')
+                axes['range_doppler'].set_title("Range Doppler")
+                img = data['range_doppler']['img'].data[0].cpu().squeeze().numpy()
+                axes['range_doppler'].imshow(img, cmap='turbo', aspect='auto')
+
+            if 'azimuth_static' in data.keys():
+                axes['azimuth_static'].clear()
+                axes['azimuth_static'].axis('off')
+                axes['azimuth_static'].set_title("Azimuth Static")
+                img = data['azimuth_static']['img'].data[0].cpu().squeeze().numpy()
+                axes['azimuth_static'].imshow(img, cmap='turbo', aspect='auto')
+
+            if 'mic_waveform' in data.keys():
+                axes['mic_waveform'].clear()
+                axes['mic_waveform'].axis('off')
+                axes['mic_waveform'].set_title("Audio Spectrogram")
+                img = data['mic_waveform']['img'].data[0].cpu().squeeze().numpy()
+                C, H, W = img.shape
+                img = img.reshape(C*H, W)
+                axes['mic_waveform'].imshow(img, cmap='turbo', aspect='auto')
+
+            
+            factor = 100 // self.fps
+            #if save_frame and num_frames % factor == 0:
+            if save_frame:
+                fig.canvas.draw()
+                data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+                data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                data = cv2.resize(data, dsize=size)
+                data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                vid.write(data) 
+
+        vid.release()
+
+
+        return {'mse': 0.0}
         pred_pos = np.array(outputs['pred_position'])
         assert pred_pos.shape[1] == 1
         pred_pos = pred_pos.squeeze()
