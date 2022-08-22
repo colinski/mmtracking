@@ -73,40 +73,29 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  is_random=False,
                  **kwargs):
         self.class2idx = {'truck': 1, 'node': 0}
-        # self.f = h5py.File(hdf5_fname, 'r')
         self.fname = hdf5_fname
         self.fps = fps
         self.is_random = is_random
-        
         with h5py.File(self.fname, 'r') as f:
             self.data = read_hdf5(f)
-            
         self.keys = list(self.data.keys())
         self.keys = np.array(self.keys)
         sort_idx = np.argsort(self.keys)
         self.keys = self.keys[sort_idx]
-
         self.timesteps = torch.from_numpy(self.keys.astype(int))
-        
         self.img_pipeline = Compose(img_pipeline)
         self.depth_pipeline = Compose(depth_pipeline)
         self.range_pipeline = Compose(range_pipeline)
         self.azimuth_pipeline = Compose(azimuth_pipeline)
         self.audio_pipeline = Compose(audio_pipeline)
-
-        # if self.azimuth_pipeline is not None:
-            # self.azimuth_pipeline = Compose(self.azimuth_pipeline)
         self.test_mode = test_mode
-        
         self.start_time = int(self.keys[0]) #+ (60*60*1000)
         self.end_time = int(self.keys[-1])
         elapsed_time = self.end_time - self.start_time
         self.num_frames = int(elapsed_time / 1000) * self.fps
         self.frame_len = int((1 / self.fps) * 1000)
         self.buffer = {}
-    
         self.flag = np.zeros(len(self), dtype=np.uint8) #ones?
-
         self.valid_keys = valid_keys
     
 
@@ -156,14 +145,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 val = val.T
                 val = val[1:5]
                 self.buffer[key] = self.audio_pipeline(val)
-
-                # wave = val[:]
-                # wave = torch.from_numpy(wave.T)
-                # spectro = torchaudio.transforms.Spectrogram()(wave)
-                # C, H, W = spectro.shape
-                # spectro = spectro.reshape(C*H, W)
-                # self.buffer[key] = spectro
-
+                
 
     def fill_buffer(self, start_idx, end_time):
         start_idx = 0 
@@ -189,23 +171,20 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         min_idx = torch.argmin(diffs).item()
         end = int(self.timesteps[min_idx] + self.frame_len) #one frame worth of data
         self.fill_buffer(min_idx, end) #run through data and fill buffer
-        # data = {k: v for k, v in self.buffer.items() if k in self.valid_keys}
         self.parse_buffer() #convert to arrays
-        # data['ind'] = ind
         return self.buffer
 
-        # img = self.img_pipeline(data['zed']['left'])
-        # depth = self.depth_pipeline(data['zed']['depth'])
-        # azimuth = self.azimuth_pipeline(data['mmwave']['azimuth_static'])
-        # drange = self.range_pipeline(data['mmwave']['range_doppler'])
-
-
     def evaluate(self, outputs, **eval_kwargs):
+        # pred_pos = np.array(outputs['pred_position'])
+        # pred_pos = pred_pos.squeeze()
+        # gt_pos = np.array(outputs['gt_position'])
+        # sq_err = (pred_pos - gt_pos)**2
+        mse = 0
+        
         size = (1600, 900)
         fname = f'/tmp/latest_vid.mp4'
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
         fig, axes = init_fig()
-        num_frames = 0
 
         for i in trange(len(self)):
             data = self[i]
@@ -213,18 +192,20 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             save_frame = False
             if 'mocap' in data.keys():
                 save_frame = True
-                num_frames += 1
                 axes['mocap'].clear()
                 
+                
+                for pos in outputs['pred_position'][i]:
+                    # if pos[-1] == 0.0: #z == 0, ignore
+                        # continue
+                    alpha = 0.5 if len(pos) > 1 else 1
+                    axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
+
                 for pos in data['mocap']['gt_positions']:
                     if pos[-1] == 0.0: #z == 0, ignore
                         continue
-                    axes['mocap'].scatter(pos[1], pos[0])#, posmarker=',', color='k') # to rotate, longer side to be y axis
+                    axes['mocap'].scatter(pos[1], pos[0], marker=',', color='k') # to rotate, longer side to be y axis
 
-                for pos in outputs['pred_position'][i]:
-                    if pos[-1] == 0.0: #z == 0, ignore
-                        continue
-                    axes['mocap'].scatter(pos[1], pos[0]) # to rotate, longer side to be y axis
 
             if 'zed_camera_left' in data.keys():
                 axes['zed_camera_left'].clear()
@@ -238,6 +219,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 img = img.astype(np.uint8)
                 axes['zed_camera_left'].imshow(img)
             
+            if 'zed_camera_depth' in data.keys():
+                axes['zed_camera_depth'].clear()
+                axes['zed_camera_depth'].axis('off')
+                axes['zed_camera_depth'].set_title("ZED Depth Map")
+                dmap = data['zed_camera_depth']['img'].data[0].cpu().squeeze()
+                axes['zed_camera_depth'].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
+
             if 'realsense_camera_img' in data.keys():
                 axes['realsense_camera_img'].clear()
                 axes['realsense_camera_img'].axis('off')
@@ -261,14 +249,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 depth = (depth * std) - mean
                 depth = depth.astype(np.uint8)
                 axes['realsense_camera_depth'].imshow(depth)
-
-            if 'zed_camera_depth' in data.keys():
-                axes['zed_camera_depth'].clear()
-                axes['zed_camera_depth'].axis('off')
-                axes['zed_camera_depth'].set_title("ZED Depth Map")
-                dmap = data['zed_camera_depth']['img'].data[0].cpu().squeeze()
-                axes['zed_camera_depth'].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
-
+            
             if 'range_doppler' in data.keys():
                 axes['range_doppler'].clear()
                 axes['range_doppler'].axis('off')
@@ -292,9 +273,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 img = img.reshape(C*H, W)
                 axes['mic_waveform'].imshow(img, cmap='turbo', aspect='auto')
 
-            
-            factor = 100 // self.fps
-            #if save_frame and num_frames % factor == 0:
             if save_frame:
                 fig.canvas.draw()
                 data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -304,12 +282,5 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 vid.write(data) 
 
         vid.release()
-
-
-        return {'mse': 0.0}
-        pred_pos = np.array(outputs['pred_position'])
-        assert pred_pos.shape[1] == 1
-        pred_pos = pred_pos.squeeze()
-        gt_pos = np.array(outputs['gt_position'])
-        sq_err = (pred_pos - gt_pos)**2
-        return {'mse': sq_err.mean()}
+        return {'mse': mse}
+        

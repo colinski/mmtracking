@@ -95,10 +95,10 @@ class TransformerMocapModel(BaseMocapModel):
             bbox_head = self.img_detector.bbox_head
             with torch.no_grad():
                 feats = self.img_detector.extract_feat(img)[0]
-                query_embeds = bbox_head.query_embedding.weight 
-                query_embeds_img = bbox_head.forward_transformer(
-                    feats, query_embeds, img_metas
-                ).mean(dim=0)
+            query_embeds = bbox_head.query_embedding.weight 
+            query_embeds_img = bbox_head.forward_transformer(
+                feats, query_embeds, img_metas
+            ).mean(dim=0)
         else:
             print('using prior')
             bs = 1
@@ -130,10 +130,16 @@ class TransformerMocapModel(BaseMocapModel):
 
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
-        pred_pos = mean.mean(dim=1)
+        # pred_pos = mean.mean(dim=1)
+        dist = self.dist(mean[0][0], cov[0][0])
+        dist = D.Independent(dist, 1) #Nq independent Gaussians
+
+        pred_pos = dist.sample([100]).unsqueeze(0)
+
+
+        # pred_pos = mean[0][0].unsqueeze(0)
         result = {
             'pred_position': pred_pos.cpu().detach().numpy(),
-            'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
         }
         return result
 
@@ -206,14 +212,20 @@ class TransformerMocapModel(BaseMocapModel):
         # obj_logits = self.obj_head(final_embeds)
 
         bs = len(mean)
+
+        dist = self.dist(mean[0][0], cov[0][0])
+        dist = D.Independent(dist, 1) #Nq independent Gaussians
+
         gt_pos = data['mocap']['gt_positions'][0][-2].unsqueeze(0)
         gt_labels = data['mocap']['gt_labels'][0][-2].unsqueeze(0)
-        pred_pos = mean.mean(dim=1)
-        sq_diff = (gt_pos - pred_pos)**2
-        # print(pred_pos.detach(), gt_pos.detach(), sq_diff.mean())
-        return {
-            'pos_loss': sq_diff.mean()
-        }
+        neg_log_probs = -dist.log_prob(gt_pos) #B
+        return {'pos_loss': neg_log_probs.mean()}
+        
+        # pred_pos = mean.mean(dim=1)
+        # sq_diff = (gt_pos - pred_pos)**2
+        # return {
+            # 'pos_loss': sq_diff.mean()
+        # }
 
 
         bs = len(mean)

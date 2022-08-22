@@ -32,8 +32,7 @@ train_pipeline = [
     dict(type='MatchInstances', skip_nomatch=True),
     dict(
         type='VideoCollect',
-        keys=[
-            'img', 'gt_bboxes', 'gt_labels', 'gt_match_indices',
+        keys=[ 'img', 'gt_bboxes', 'gt_labels', 'gt_match_indices',
             'gt_instance_ids'
         ]),
     dict(type='SeqDefaultFormatBundle', ref_prefix='ref')
@@ -167,14 +166,14 @@ optimizer = dict(
         }))
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-lr_config = dict(policy='step', step=[6])
 total_epochs = 50
+lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
-evaluation = dict(metric=['bbox', 'track'], interval=1)
+evaluation = dict(metric=['bbox', 'track'], interval=5)
 
 find_unused_parameters = True
 
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(interval=10)
 log_config = dict(
     interval=50,
     hooks=[
