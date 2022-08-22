@@ -106,13 +106,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         for key, val in self.buffer.items():
             if key == 'mocap':
                 mocap_data = json.loads(val)
-                positions = [d['normalized_position'] for d in mocap_data]
-                labels = [self.class2idx[d['type']] for d in mocap_data]
-                ids = [d['id'] for d in mocap_data]
+                positions = torch.tensor([d['normalized_position'] for d in mocap_data])
+                labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
+                ids = torch.tensor([d['id'] for d in mocap_data])
+                z_is_zero = positions[:, -1] == 0.0
+                is_node = labels == self.class2idx['node']
+                final_mask = ~z_is_zero #& ~is_node
                 self.buffer[key] = {
-                    'gt_positions': torch.tensor(positions),
-                    'gt_labels': torch.tensor(labels).long(),
-                    'gt_ids': torch.tensor(ids).long()
+                    'gt_positions': positions[final_mask],
+                    'gt_labels': labels[final_mask].long(),
+                    'gt_ids': ids[final_mask].long()
                 }
 
             if key == 'zed_camera_left':

@@ -111,11 +111,12 @@ valid_keys=['mocap', 'zed_camera_left']
 # valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
         # 'azimuth_static', 'range_doppler']
 
-classes = ('car', )
+shuffle = True
+classes = ('truck', )
 data = dict(
     samples_per_gpu=1,
     workers_per_gpu=0,
-    shuffle=True,
+    shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         #hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
         hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
@@ -126,7 +127,7 @@ data = dict(
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        is_random=True
+        is_random=shuffle
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
@@ -155,8 +156,8 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    #lr=2e-4,
     lr=1e-4,
+    # lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={

@@ -131,10 +131,13 @@ class TransformerMocapModel(BaseMocapModel):
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
         # pred_pos = mean.mean(dim=1)
-        dist = self.dist(mean[0][0], cov[0][0])
+        #dist = self.dist(mean[0][0], cov[0][0])
+        # dist = D.Independent(dist, 1) #Nq independent Gaussians
+        
+        dist = self.dist(mean[0], cov[0])
         dist = D.Independent(dist, 1) #Nq independent Gaussians
 
-        pred_pos = dist.sample([100]).unsqueeze(0)
+        pred_pos = dist.sample([10])#.unsqueeze(0)
 
 
         # pred_pos = mean[0][0].unsqueeze(0)
@@ -212,14 +215,27 @@ class TransformerMocapModel(BaseMocapModel):
         # obj_logits = self.obj_head(final_embeds)
 
         bs = len(mean)
-
-        dist = self.dist(mean[0][0], cov[0][0])
+        dist = self.dist(mean[0], cov[0])
         dist = D.Independent(dist, 1) #Nq independent Gaussians
 
-        gt_pos = data['mocap']['gt_positions'][0][-2].unsqueeze(0)
-        gt_labels = data['mocap']['gt_labels'][0][-2].unsqueeze(0)
-        neg_log_probs = -dist.log_prob(gt_pos) #B
-        return {'pos_loss': neg_log_probs.mean()}
+        gt_pos = data['mocap']['gt_positions'][0]#[-2].unsqueeze(0)
+        gt_labels = data['mocap']['gt_labels'][0]#[-2].unsqueeze(0)
+        # neg_log_probs = -dist.log_prob(gt_pos) #B
+        
+        pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
+        pos_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
+        assign_idx = linear_assignment(pos_log_probs)
+
+        pos_loss, cls_loss = 0, 0
+        for pred_idx, gt_idx in assign_idx:
+            pos_loss += pos_log_probs[pred_idx, gt_idx]
+            # cls_loss += corr_log_probs[pred_idx, gt_idx]
+        pos_loss /= len(assign_idx)
+
+        # cls_loss /= len(assign_idx)
+
+
+        return {'pos_loss': pos_loss}
         
         # pred_pos = mean.mean(dim=1)
         # sq_diff = (gt_pos - pred_pos)**2
