@@ -18,6 +18,7 @@ import copy
 
 import torch.distributions as D
 from .base import BaseMocapModel
+from mmdet.models import build_loss
 
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
@@ -62,9 +63,16 @@ class TransformerMocapModel(BaseMocapModel):
         self.num_classes = 3
         self.cls_head = nn.Linear(256, self.num_classes)
         
-        self.obj_head = nn.Linear(256, 2)
+        self.obj_head = nn.Linear(256, 1)
 
         self.dist = D.Normal
+
+        focal_loss_cfg = dict(type='FocalLoss',
+            use_sigmoid=True, 
+            gamma=2.0, alpha=0.25, reduction='mean',
+            loss_weight=1.0, activated=False)
+
+        self.focal_loss = build_loss(focal_loss_cfg)
 
 
     
@@ -95,10 +103,10 @@ class TransformerMocapModel(BaseMocapModel):
             bbox_head = self.img_detector.bbox_head
             with torch.no_grad():
                 feats = self.img_detector.extract_feat(img)[0]
-            query_embeds = bbox_head.query_embedding.weight 
-            query_embeds_img = bbox_head.forward_transformer(
-                feats, query_embeds, img_metas
-            ).mean(dim=0)
+                query_embeds = bbox_head.query_embedding.weight 
+                query_embeds_img = bbox_head.forward_transformer(
+                    feats, query_embeds, img_metas
+                )
         else:
             print('using prior')
             bs = 1
@@ -119,7 +127,7 @@ class TransformerMocapModel(BaseMocapModel):
         # ).mean(dim=0)
        
         final_embeds = query_embeds_img
-        final_embeds = self.ctn(final_embeds)
+        final_embeds = self.ctn(final_embeds).mean(dim=0)
 
         mean = self.mean_head(final_embeds)
         cov = self.cov_head(final_embeds)
@@ -133,6 +141,11 @@ class TransformerMocapModel(BaseMocapModel):
         # pred_pos = mean.mean(dim=1)
         #dist = self.dist(mean[0][0], cov[0][0])
         # dist = D.Independent(dist, 1) #Nq independent Gaussians
+
+        obj_probs = F.sigmoid(obj_logits[0]).squeeze()
+        is_obj = obj_probs >= 0.5
+        mean = mean[:, is_obj]
+        cov = cov[:, is_obj]
         
         dist = self.dist(mean[0], cov[0])
         dist = D.Independent(dist, 1) #Nq independent Gaussians
@@ -142,7 +155,8 @@ class TransformerMocapModel(BaseMocapModel):
 
         # pred_pos = mean[0][0].unsqueeze(0)
         result = {
-            'pred_position': pred_pos.cpu().detach().numpy(),
+            #'pred_position': pred_pos.cpu().detach().numpy(),
+            'pred_position': mean[0].cpu().detach().unsqueeze(0).numpy()
         }
         return result
 
@@ -187,7 +201,7 @@ class TransformerMocapModel(BaseMocapModel):
             # bs = 1
             # bbox_head = self.img_detector.bbox_head
             # query_embeds_img = bbox_head.query_embedding.weight.unsqueeze(0)
-
+        losses = {}
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
 
 
@@ -220,22 +234,62 @@ class TransformerMocapModel(BaseMocapModel):
 
         gt_pos = data['mocap']['gt_positions'][0]#[-2].unsqueeze(0)
         gt_labels = data['mocap']['gt_labels'][0]#[-2].unsqueeze(0)
+
+        is_node = gt_labels == 0
+        gt_pos = gt_pos[~is_node]
+        gt_labels = gt_labels[~is_node]
+        
+
         # neg_log_probs = -dist.log_prob(gt_pos) #B
         
         pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
-        pos_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
-        assign_idx = linear_assignment(pos_log_probs)
+        pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
+        assign_idx = linear_assignment(pos_neg_log_probs)
 
-        pos_loss, cls_loss = 0, 0
+        pos_loss = 0
         for pred_idx, gt_idx in assign_idx:
-            pos_loss += pos_log_probs[pred_idx, gt_idx]
+            pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
             # cls_loss += corr_log_probs[pred_idx, gt_idx]
         pos_loss /= len(assign_idx)
+        # pos_loss /= 100
+
+        # obj_neg_log_probs = -F.log_softmax(obj_logits[0], dim=-1)
+        low_end = 0.1
+        obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
+        obj_targets = obj_targets.float()
+        obj_targets[assign_idx[:, 0]] = 1.0 - low_end
+        obj_probs = F.sigmoid(obj_logits[0])
+        obj_log_probs = F.logsigmoid(obj_logits[0]).squeeze()
+
+        
+
+        bce_loss = torch.nn.BCELoss(reduction='none')
+        obj_loss_vals = bce_loss(obj_probs.squeeze(), obj_targets)
+        # obj_loss = obj_loss_vals[obj_targets == 0.2].mean() + obj_loss_vals[obj_targets == 0.8].mean()
+
+        losses['pos_obj_loss'] = obj_loss_vals[obj_targets == 1.0 - low_end].mean()
+        losses['neg_obj_loss'] = obj_loss_vals[obj_targets == low_end].mean()
+
+        # obj_loss = self.focal_loss(obj_logits[0], obj_targets)
+
+        # obj_loss = (obj_targets.float() - obj_probs.squeeze()).abs()
+        # obj_loss = obj_loss.mean()
+
+        # sum_obj_probs = obj_probs.sum()
+        # count_loss = (sum_obj_probs - len(gt_pos)).abs()
+
+
+        # corr_probs = [obj_neg_log_probs[idx, target] for idx, target in enumerate(obj_targets)] 
+        # corr_probs = torch.stack(corr_probs)
+        # obj_loss = corr_probs.sum() #/ len(pos_log_probs)#len(assign_idx)
 
         # cls_loss /= len(assign_idx)
 
 
-        return {'pos_loss': pos_loss}
+        #return {'pos_loss': pos_loss, 'obj_loss': obj_loss, 'count_loss': count_loss}
+        # return {'obj_loss': obj_loss}
+        losses['pos_loss'] = pos_loss
+        return losses
         
         # pred_pos = mean.mean(dim=1)
         # sq_diff = (gt_pos - pred_pos)**2

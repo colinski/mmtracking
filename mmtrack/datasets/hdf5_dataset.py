@@ -156,8 +156,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             data = self.data[time]
             if 'mocap' in data.keys():
                 self.buffer['mocap'] = data['mocap']
-            if 'node_1' in data.keys():
-                data = data['node_1']
+            if 'node_3' in data.keys():
+                data = data['node_3']
 
             for key, val in data.items():
                 if key in self.valid_keys:
