@@ -76,6 +76,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.fname = hdf5_fname
         self.fps = fps
         self.is_random = is_random
+        self.start_count = 0
         with h5py.File(self.fname, 'r') as f:
             self.data = read_hdf5(f)
         self.keys = list(self.data.keys())
@@ -156,8 +157,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             data = self.data[time]
             if 'mocap' in data.keys():
                 self.buffer['mocap'] = data['mocap']
-            if 'node_3' in data.keys():
-                data = data['node_3']
+            if 'node_1' in data.keys():
+                data = data['node_1']
 
             for key, val in data.items():
                 if key in self.valid_keys:
@@ -169,6 +170,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def __getitem__(self, ind):
         if ind == 0 or self.is_random:
             self.buffer = {}
+            self.start_count += 1
+        # if self.start_count % 2 == 0:
+            # ind = len(self) - ind
         start = int(self.start_time + ind * self.frame_len) #start is N frames after start_time
         diffs = torch.abs(self.timesteps - start) #find closest time as it isnt frame perfect
         min_idx = torch.argmin(diffs).item()

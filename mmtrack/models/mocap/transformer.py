@@ -51,7 +51,7 @@ class TransformerMocapModel(BaseMocapModel):
         # self.mean_head = nn.Linear(256, 3)
         self.mean_head = nn.Sequential(
             nn.Linear(256, 3),
-            # nn.Sigmoid()
+            #nn.Sigmoid()
         )
 
         self.cov_head = nn.Sequential(
@@ -144,6 +144,7 @@ class TransformerMocapModel(BaseMocapModel):
 
         obj_probs = F.sigmoid(obj_logits[0]).squeeze()
         is_obj = obj_probs >= 0.5
+        # print(obj_probs.min(), obj_probs.max(), obj_probs.mean(), is_obj.sum())
         mean = mean[:, is_obj]
         cov = cov[:, is_obj]
         
@@ -157,25 +158,27 @@ class TransformerMocapModel(BaseMocapModel):
         result = {
             #'pred_position': pred_pos.cpu().detach().numpy(),
             'pred_position': mean[0].cpu().detach().unsqueeze(0).numpy()
+            # 'pred_cov': cov[0].cpu().detach().unsqueeze(0).numpy()
+            #'pred_obj_prob': obj_probs.cpu().detach().unsqueeze(0).numpy()
         }
         return result
 
-        assert len(mean) == 1
-        mean, cov, cls_logits, obj_logits = mean[0], cov[0], cls_logits[0], obj_logits[0]
-        cls_probs = F.softmax(cls_logits, dim=-1)
-        obj_probs = F.softmax(obj_logits, dim=-1)
+        # assert len(mean) == 1
+        # mean, cov, cls_logits, obj_logits = mean[0], cov[0], cls_logits[0], obj_logits[0]
+        # cls_probs = F.softmax(cls_logits, dim=-1)
+        # obj_probs = F.softmax(obj_logits, dim=-1)
 
-        is_obj = obj_probs[:, 1] >= 0.0
-        cls_probs = cls_probs[is_obj]
-        mean = mean[is_obj]
-        cov = cov[is_obj]
-        dist = self.dist(mean, cov)
-        dist = D.Independent(dist, 1) #Nq independent Gaussians
+        # is_obj = obj_probs[:, 1] >= 0.0
+        # cls_probs = cls_probs[is_obj]
+        # mean = mean[is_obj]
+        # cov = cov[is_obj]
+        # dist = self.dist(mean, cov)
+        # dist = D.Independent(dist, 1) #Nq independent Gaussians
         
-        return {
-            'pred_position': mean.cpu().detach().numpy(),
-            'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
-        }         
+        # return {
+            # 'pred_position': mean.cpu().detach().numpy(),
+            # 'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
+        # }         
 
          
         # return {
@@ -238,10 +241,14 @@ class TransformerMocapModel(BaseMocapModel):
         is_node = gt_labels == 0
         gt_pos = gt_pos[~is_node]
         gt_labels = gt_labels[~is_node]
-        
 
-        # neg_log_probs = -dist.log_prob(gt_pos) #B
-        
+        def calc_mse(pred, gt):
+            return (pred - gt)**2
+
+        # pos_log_probs = [(mean[0] - pos)**2 for pos in gt_pos]
+        # pos_log_probs = torch.stack(pos_log_probs, dim=0).mean(dim=-1) #num_objs x Nq
+        # pos_neg_log_probs = pos_log_probs.t() #Nq x num_objs
+         
         pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
         pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
         assign_idx = linear_assignment(pos_neg_log_probs)
@@ -251,10 +258,10 @@ class TransformerMocapModel(BaseMocapModel):
             pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
             # cls_loss += corr_log_probs[pred_idx, gt_idx]
         pos_loss /= len(assign_idx)
-        # pos_loss /= 100
+        # pos_loss /= 10
 
         # obj_neg_log_probs = -F.log_softmax(obj_logits[0], dim=-1)
-        low_end = 0.1
+        low_end = 0.2
         obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
         obj_targets = obj_targets.float()
         obj_targets[assign_idx[:, 0]] = 1.0 - low_end
