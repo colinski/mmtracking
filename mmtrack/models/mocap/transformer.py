@@ -41,6 +41,8 @@ class TransformerMocapModel(BaseMocapModel):
             self.depth_detector = copy.deepcopy(self.img_detector)
             self.shared_head = copy.deepcopy(self.img_detector.bbox_head)
 
+        
+        self.pool = nn.AvgPool2d((20, 1))
         self.ctn = nn.Sequential(
             nn.Linear(256, 256),
             nn.GELU(),
@@ -107,6 +109,8 @@ class TransformerMocapModel(BaseMocapModel):
                 query_embeds_img = bbox_head.forward_transformer(
                     feats, query_embeds, img_metas
                 )
+                query_embeds_img = self.pool(query_embeds_img)
+                # query_embeds_img = query_embeds_img[:, :, 0:5]
         else:
             print('using prior')
             bs = 1

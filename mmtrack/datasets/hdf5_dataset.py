@@ -71,12 +71,14 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  audio_pipeline=[],
                  test_mode=False,
                  is_random=False,
+                 vid_path='/tmp',
                  **kwargs):
         self.class2idx = {'truck': 1, 'node': 0}
         self.fname = hdf5_fname
         self.fps = fps
         self.is_random = is_random
         self.start_count = 0
+        self.vid_path = vid_path
         with h5py.File(self.fname, 'r') as f:
             self.data = read_hdf5(f)
         self.keys = list(self.data.keys())
@@ -189,7 +191,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         mse = 0
         
         size = (1600, 900)
-        fname = f'/tmp/latest_vid.mp4'
+        fname = f'{self.vid_path}/latest_vid.mp4'
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
         fig, axes = init_fig()
 

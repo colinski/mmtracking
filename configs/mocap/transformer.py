@@ -119,7 +119,7 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         #hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
-        hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
+        hdf5_fname='data/1656096647489_1656096707489.hdf5',
         # hdf5_fname='/home/csamplawski/data/1656096767489_1656096827489.hdf5',
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
@@ -130,7 +130,7 @@ data = dict(
         is_random=shuffle
     ),
     val=dict(type='HDF5Dataset',
-        hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
+        hdf5_fname='data/1656096647489_1656096707489.hdf5',
         # hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
         # hdf5_fname='/home/csamplawski/data/1656096767489_1656096827489.hdf5',
         valid_keys=valid_keys,
@@ -138,10 +138,11 @@ data = dict(
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline
+        audio_pipeline=audio_pipeline,
+        vid_path='logs/'
     ),
     test=dict(type='HDF5Dataset',
-        hdf5_fname='/home/csamplawski/data/1656096647489_1656096707489.hdf5',
+        hdf5_fname='data/1656096647489_1656096707489.hdf5',
         # hdf5_fname='/home/csamplawski/data/1656096767489_1656096827489.hdf5',
         # hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
         valid_keys=valid_keys,
