@@ -16,7 +16,8 @@ img_backbone_cfg=dict(
     type='ResNet',
     depth=50,
     num_stages=4,
-    out_indices=(0,1,2,3),
+    #out_indices=(0,1,2,3),
+    out_indices=(3, ),
     frozen_stages=1,
     norm_cfg=dict(type='SyncBN', requires_grad=False),
     norm_eval=True,
@@ -24,15 +25,22 @@ img_backbone_cfg=dict(
     init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
 )
 
-img_neck_cfg=dict(
-    type='FPN',
-    in_channels=[256, 512, 1024, 2048],
-    # kernel_size=1,
-    out_channels=256//4,
-    # act_cfg=None,
-    # norm_cfg=dict(type='GN', num_groups=32),
-    num_outs=4
+# img_neck_cfg=dict(
+    # type='FPN',
+    # in_channels=[256, 512, 1024, 2048],
+    # out_channels=256//4,
+    # num_outs=4
+# )
+
+img_neck_cfg=dict(type='ChannelMapper',
+    in_channels=[2048],
+    kernel_size=1,
+    out_channels=256,
+    act_cfg=None,
+    norm_cfg=dict(type='BN'),
+    num_outs=1
 )
+
 
 model = dict(type='DecoderMocapModel',
     img_backbone_cfg=img_backbone_cfg,
@@ -140,8 +148,8 @@ valid_keys=['mocap', 'zed_camera_left']
 shuffle = True
 classes = ('truck', )
 data = dict(
-    samples_per_gpu=1,
-    workers_per_gpu=0,
+    samples_per_gpu=8,
+    workers_per_gpu=2,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         #hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
@@ -183,7 +191,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4,
+    lr=1e-4 ,
     # lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
@@ -197,11 +205,11 @@ optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 total_epochs = 100
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
-evaluation = dict(metric=['bbox', 'track'], interval=5)
+evaluation = dict(metric=['bbox', 'track'], interval=20)
 
 find_unused_parameters = True
 
-checkpoint_config = dict(interval=5)
+checkpoint_config = dict(interval=10)
 log_config = dict(
     interval=50,
     hooks=[

@@ -21,6 +21,7 @@ from .base import BaseMocapModel
 from mmdet.models import build_loss
 from cad.pos import AnchorEncoding
 from cad.attn import ResCrossAttn
+from collections import defaultdict
 
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
@@ -58,9 +59,12 @@ class DecoderMocapModel(BaseMocapModel):
         )
 
 
+        
+        self.img_neck = img_neck_cfg
+        if self.img_neck is not None:
+            self.img_neck = build_neck(img_neck_cfg)
 
         self.img_backbone = build_backbone(img_backbone_cfg)
-        self.img_neck = build_neck(img_neck_cfg)
 
         self.img_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
         self.global_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
@@ -98,10 +102,11 @@ class DecoderMocapModel(BaseMocapModel):
 
         focal_loss_cfg = dict(type='FocalLoss',
             use_sigmoid=True, 
-            gamma=2.0, alpha=0.25, reduction='mean',
-            loss_weight=1.0, activated=False)
+            gamma=2.0, alpha=0.25, reduction='none',
+            loss_weight=1.0, activated=True)
 
         self.focal_loss = build_loss(focal_loss_cfg)
+        self.bce_loss = nn.BCELoss(reduction='none')
 
 
     
@@ -131,52 +136,33 @@ class DecoderMocapModel(BaseMocapModel):
             
             # bbox_head = self.img_detector.bbox_head
             feats = self.img_backbone(img)
-            feats = self.img_neck(feats)
-            target_shape = (feats[2].shape[2], feats[2].shape[3])
-            feats = [F.interpolate(f, target_shape) for f in feats] 
-            feats = torch.cat(feats, dim=1)
+            if self.img_neck:
+                feats = self.img_neck(feats)
+            if len(feats) > 1:
+                target_shape = (feats[2].shape[2], feats[2].shape[3])
+                feats = [F.interpolate(f, target_shape) for f in feats] 
+                feats = torch.cat(feats, dim=1)
+            else:
+                feats = feats[0]
             feats = feats.permute(0, 2, 3, 1)
 
 
-            img_pos_embeds = self.img_pos_encoding(feats).unsqueeze(0)
+            img_pos_embeds = self.img_pos_encoding(None).unsqueeze(0)
+            img_pos_embeds = img_pos_embeds.expand(bs, -1, -1, -1)
             query_embeds_img = self.img_cross_attn(img_pos_embeds, feats)
-            # query_embeds_img = query_embeds_img.reshape(1, -1, 256)
 
             global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+            global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
 
             final_embeds = self.global_cross_attn(global_pos_embeds, query_embeds_img)
+            # final_embeds = self.global_cross_attn(global_pos_embeds, feats)
 
-            final_embeds = final_embeds.reshape(1, -1, 256)
+            final_embeds = final_embeds.reshape(bs, -1, 256)
 
 
-            # with torch.no_grad():
-                # feats = self.img_detector.extract_feat(img)[0]
-                # query_embeds = bbox_head.query_embedding.weight 
-                # query_embeds_img = bbox_head.forward_transformer(
-                    # feats, query_embeds, img_metas
-                # )
-                # query_embeds_img = self.pool(query_embeds_img)
-                # query_embeds_img = query_embeds_img[:, :, 0:5]
         else:
             assert 1==2
-            # print('using prior')
-            # bs = 1
-            # bbox_head = self.img_detector.bbox_head
-            # query_embeds_img = bbox_head.query_embedding.weight.unsqueeze(0).detach()
-
-        # img = data['zed_camera_left']['img']
-        # img_metas = data['zed_camera_left']['img_metas']
-        # img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
-        # bs = img.shape[0]
-        
-        # bbox_head = self.img_detector.bbox_head
-        # with torch.no_grad():
-            # feats = self.img_detector.extract_feat(img)[0]
-        # query_embeds = bbox_head.query_embedding.weight 
-        # query_embeds_img = bbox_head.forward_transformer(
-            # feats, query_embeds, img_metas
-        # ).mean(dim=0)
-       
+                   
         # final_embeds = query_embeds_img
         final_embeds = self.ctn(final_embeds)#.mean(dim=0)
 
@@ -189,276 +175,71 @@ class DecoderMocapModel(BaseMocapModel):
 
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
-        # pred_pos = mean.mean(dim=1)
-        #dist = self.dist(mean[0][0], cov[0][0])
-        # dist = D.Independent(dist, 1) #Nq independent Gaussians
-
         obj_probs = F.sigmoid(obj_logits[0]).squeeze()
         is_obj = obj_probs >= 0.5
-        # print(obj_probs.min(), obj_probs.max(), obj_probs.mean(), is_obj.sum())
         mean = mean[:, is_obj]
         cov = cov[:, is_obj]
         
-        dist = self.dist(mean[0], cov[0])
-        dist = D.Independent(dist, 1) #Nq independent Gaussians
+        # dist = self.dist(mean[0], cov[0])
+        # dist = D.Independent(dist, 1) #Nq independent Gaussians
 
-        pred_pos = dist.sample([10])#.unsqueeze(0)
+        # pred_pos = dist.sample([10])#.unsqueeze(0)
 
-
-        # pred_pos = mean[0][0].unsqueeze(0)
         result = {
-            #'pred_position': pred_pos.cpu().detach().numpy(),
             'pred_position': mean[0].cpu().detach().unsqueeze(0).numpy()
-            # 'pred_cov': cov[0].cpu().detach().unsqueeze(0).numpy()
-            #'pred_obj_prob': obj_probs.cpu().detach().unsqueeze(0).numpy()
         }
         return result
 
-        # assert len(mean) == 1
-        # mean, cov, cls_logits, obj_logits = mean[0], cov[0], cls_logits[0], obj_logits[0]
-        # cls_probs = F.softmax(cls_logits, dim=-1)
-        # obj_probs = F.softmax(obj_logits, dim=-1)
-
-        # is_obj = obj_probs[:, 1] >= 0.0
-        # cls_probs = cls_probs[is_obj]
-        # mean = mean[is_obj]
-        # cov = cov[is_obj]
-        # dist = self.dist(mean, cov)
-        # dist = D.Independent(dist, 1) #Nq independent Gaussians
-        
-        # return {
-            # 'pred_position': mean.cpu().detach().numpy(),
-            # 'gt_position': data['mocap']['gt_positions'][0][-2].cpu().numpy()
-        # }         
-
-         
-        # return {
-            # 'position': mean.cpu().detach().numpy(),
-            # 'cls_probs': cls_probs.cpu().detach().numpy()
-        # }         
-
     def forward_train(self, data, **kwargs):
-        # if 'zed_camera_left' in data.keys():
-            # img = data['zed_camera_left']['img']
-            # img_metas = data['zed_camera_left']['img_metas']
-            # img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
-            # bs = img.shape[0]
-            
-            # bbox_head = self.img_detector.bbox_head
-            # with torch.no_grad():
-                # feats = self.img_detector.extract_feat(img)[0]
-            # query_embeds = bbox_head.query_embedding.weight 
-            # query_embeds_img = bbox_head.forward_transformer(
-                # feats, query_embeds, img_metas
-            # ).mean(dim=0)
-        # else:
-            # bs = 1
-            # bbox_head = self.img_detector.bbox_head
-            # query_embeds_img = bbox_head.query_embedding.weight.unsqueeze(0)
-        losses = {}
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
 
 
-        # img = data['zed_camera_depth']['img']
-        # img_metas = data['zed_camera_depth']['img_metas']
-        # img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
-        # img = img.expand(-1, 3, -1, -1)
-        
-        # bbox_head = self.depth_detector.bbox_head
-        # with torch.no_grad():
-            # feats = self.depth_detector.extract_feat(img)[0]
-        # query_embeds = bbox_head.query_embedding.weight 
-        # query_embeds_depth = bbox_head.forward_transformer(
-            # feats, query_embeds, img_metas
-        # ).mean(dim=0)
-
-        # final_embeds = torch.cat([query_embeds_img, query_embeds_depth], dim=1)
-
-        # final_embeds = query_embeds_img
-        # final_embeds = self.ctn(final_embeds)
-
-        # mean = self.mean_head(final_embeds)
-        # cov = self.cov_head(final_embeds)
-        # cls_logits = self.cls_head(final_embeds)
-        # obj_logits = self.obj_head(final_embeds)
-
         bs = len(mean)
-        dist = self.dist(mean[0], cov[0])
-        dist = D.Independent(dist, 1) #Nq independent Gaussians
-
-        gt_pos = data['mocap']['gt_positions'][0]#[-2].unsqueeze(0)
-        gt_labels = data['mocap']['gt_labels'][0]#[-2].unsqueeze(0)
-
-        is_node = gt_labels == 0
-        gt_pos = gt_pos[~is_node]
-        gt_labels = gt_labels[~is_node]
-
-        def calc_mse(pred, gt):
-            return (pred - gt)**2
-
-        # pos_log_probs = [(mean[0] - pos)**2 for pos in gt_pos]
-        # pos_log_probs = torch.stack(pos_log_probs, dim=0).mean(dim=-1) #num_objs x Nq
-        # pos_neg_log_probs = pos_log_probs.t() #Nq x num_objs
-         
-        pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
-        pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
-        assign_idx = linear_assignment(pos_neg_log_probs)
-
-        pos_loss = 0
-        for pred_idx, gt_idx in assign_idx:
-            pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
-            # cls_loss += corr_log_probs[pred_idx, gt_idx]
-        pos_loss /= len(assign_idx)
-        # pos_loss /= 10
-
-        # obj_neg_log_probs = -F.log_softmax(obj_logits[0], dim=-1)
-        low_end = 0.2
-        obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
-        obj_targets = obj_targets.float()
-        obj_targets[assign_idx[:, 0]] = 1.0 - low_end
-        obj_probs = F.sigmoid(obj_logits[0])
-        obj_log_probs = F.logsigmoid(obj_logits[0]).squeeze()
-
         
-
-        bce_loss = torch.nn.BCELoss(reduction='none')
-        obj_loss_vals = bce_loss(obj_probs.squeeze(), obj_targets)
-        # obj_loss = obj_loss_vals[obj_targets == 0.2].mean() + obj_loss_vals[obj_targets == 0.8].mean()
-
-        losses['pos_obj_loss'] = obj_loss_vals[obj_targets == 1.0 - low_end].mean()
-        losses['neg_obj_loss'] = obj_loss_vals[obj_targets == low_end].mean()
-
-        # obj_loss = self.focal_loss(obj_logits[0], obj_targets)
-
-        # obj_loss = (obj_targets.float() - obj_probs.squeeze()).abs()
-        # obj_loss = obj_loss.mean()
-
-        # sum_obj_probs = obj_probs.sum()
-        # count_loss = (sum_obj_probs - len(gt_pos)).abs()
-
-
-        # corr_probs = [obj_neg_log_probs[idx, target] for idx, target in enumerate(obj_targets)] 
-        # corr_probs = torch.stack(corr_probs)
-        # obj_loss = corr_probs.sum() #/ len(pos_log_probs)#len(assign_idx)
-
-        # cls_loss /= len(assign_idx)
-
-
-        #return {'pos_loss': pos_loss, 'obj_loss': obj_loss, 'count_loss': count_loss}
-        # return {'obj_loss': obj_loss}
-        losses['pos_loss'] = pos_loss
-        return losses
-        
-        # pred_pos = mean.mean(dim=1)
-        # sq_diff = (gt_pos - pred_pos)**2
-        # return {
-            # 'pos_loss': sq_diff.mean()
-        # }
-
-
-        bs = len(mean)
+        losses = defaultdict(float)
         for i in range(bs):
-            gt_pos = data['mocap']['gt_positions'][i][-2].unsqueeze(0)
-            gt_labels = data['mocap']['gt_labels'][i][-2].unsqueeze(0)
 
             dist = self.dist(mean[i], cov[i])
             dist = D.Independent(dist, 1) #Nq independent Gaussians
 
+            gt_pos = data['mocap']['gt_positions'][i]#[-2].unsqueeze(0)
+            gt_labels = data['mocap']['gt_labels'][i]#[-2].unsqueeze(0)
+
+            is_node = gt_labels == 0
+            gt_pos = gt_pos[~is_node]
+            gt_labels = gt_labels[~is_node]
+
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
-            pos_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
-            
-            cls_log_probs = F.log_softmax(cls_logits[i], dim=-1) #Nq x num_classes
-            corr_log_probs = [cls_log_probs[:, label] for label in gt_labels]
-            corr_log_probs = -torch.stack(corr_log_probs, dim=-1) #Nq x num_objs
+            pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
+            assign_idx = linear_assignment(pos_neg_log_probs)
 
-            combined_probs = pos_log_probs + corr_log_probs
-
-            assign_idx = linear_assignment(combined_probs)
-            
-            pos_loss, cls_loss = 0, 0
+            pos_loss = 0
             for pred_idx, gt_idx in assign_idx:
-                pos_loss += pos_log_probs[pred_idx, gt_idx]
-                cls_loss += corr_log_probs[pred_idx, gt_idx]
+                pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
             pos_loss /= len(assign_idx)
-            cls_loss /= len(assign_idx)
+            pos_loss /= 10
+
+            low_end = 0.2
+            obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
+            obj_targets = obj_targets.float()
+            obj_targets[assign_idx[:, 0]] = 1.0 - low_end
             
-            obj_probs = -F.log_softmax(obj_logits[i], dim=-1)
-            obj_targets = cls_log_probs.new_zeros(len(cls_log_probs)).long()
-            obj_targets[assign_idx[:, 0]] = 1
-
-            corr_probs = [obj_probs[idx, target] for idx, target in enumerate(obj_targets)] 
-            corr_probs = torch.stack(corr_probs)
-            obj_loss = corr_probs.sum() #/ len(pos_log_probs)#len(assign_idx)
-
-            obj_probs = F.softmax(obj_logits[i], dim=-1)
-            sum_obj_probs = obj_probs[:, 1].sum()
-
-            count_loss = (sum_obj_probs - len(gt_pos))**2
+            obj_probs = F.sigmoid(obj_logits[i])
             
-            loss = {
-                'pos_loss': pos_loss,
-                # 'cls_loss': cls_loss,
-                # 'obj_loss': obj_loss,
-                # 'count_loss': count_loss
-            }
+            # obj_loss_vals = self.focal_loss(obj_probs, obj_targets.long())
+            # losses['pos_obj_loss'] = obj_loss_vals[obj_targets == 1].mean()
+            # losses['neg_obj_loss'] = obj_loss_vals[obj_targets == 0].mean()
 
 
+            obj_loss_vals = self.bce_loss(obj_probs.squeeze(), obj_targets)
+            losses['pos_obj_loss'] += obj_loss_vals[obj_targets == 1.0 - low_end].mean()
+            losses['neg_obj_loss'] += obj_loss_vals[obj_targets == low_end].mean()
 
-        # dists = self.dist(mean, cov)
+            losses['pos_loss'] += pos_loss
 
-                
-        
-        # preds = self.coord_pred_head(final_embeds)
-        # preds = preds.squeeze()
-        # preds = preds.mean(dim=0).mean(dim=0)
-    
-        # log_probs = dists.log_prob(gt_pos)
-
-
-        # loss = -(dists.log_prob(gt_pos))
-        # loss = (gt_pos - preds)**2
-        return loss
-        # return {'loss': loss.mean()}
-        # gt_ids = data['mocap']['gt_ids'][-2]
-        # gt_labels = data['mocap']['gt_labels'][-2]
-
-
-        query_embeds = query_embeds.mean(dim=0).squeeze()
-        coord_embeds = self.ctn(query_embeds)
-        coord_preds = self.coord_pred_head(coord_embeds).sigmoid()
-        dists = self.dist_fn(coord_preds.unsqueeze(0), gt_coords.unsqueeze(1))
-        dists = dists.squeeze().t()
-        matches = linear_assignment(dists.detach().cpu().numpy()) 
-        
-        mse_loss_val = 0
-        for (pred_idx, gt_idx) in matches:
-            mse_loss_val += dists[pred_idx, gt_idx]
-        mse_loss_val = mse_loss_val / len(matches)
-
-        track_embeds = query_embeds[matches[:, 0]]
-        losses = {'loss_mse_frame1': mse_loss_val}
-        
-        with torch.no_grad():
-            feats = self.detector.extract_feat(ref_img)[0]
-        track_embeds = bbox_head.forward_transformer(
-            feats, track_embeds, img_metas
-        )
-        track_embeds = track_embeds.mean(dim=0).squeeze()
-        coord_embeds = self.ctn(track_embeds)
-        coord_preds = self.coord_pred_head(coord_embeds).sigmoid()
-
-        loss_val = 0
-        for idx, cp in enumerate(coord_preds):
-            dist = self.dist_fn(cp, ref_gt_coords[idx])
-            loss_val += dist
-        loss_val /= len(coord_preds)
-        # import ipdb; ipdb.set_trace() # noqa
-        # dists = self.dist_fn(coord_preds.unsqueeze(0), ref_gt_coords.unsqueeze(1))
-        # dists = torch.diag(dists.squeeze())
-
-        losses['loss_mse_frame2'] = loss_val
+        losses = {k: v / bs for k, v in losses.items()}
         return losses
-
+        
 
     def simple_test(self, img, img_metas, rescale=False):
         pass
