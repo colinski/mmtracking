@@ -37,16 +37,9 @@ class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
                  img_backbone_cfg=None,
                  img_neck_cfg=None,
-                 # detector=None,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        # if detector is not None:
-
-            # self.img_detector = build_detector(detector)
-            # self.depth_detector = copy.deepcopy(self.img_detector)
-            # self.shared_head = copy.deepcopy(self.img_detector.bbox_head)
-        
         cross_attn_cfg = dict(type='QKVAttention',
                  qk_dim=256,
                  num_heads=8, 
@@ -57,8 +50,6 @@ class DecoderMocapModel(BaseMocapModel):
                  return_weights=False,
                  v_dim=None
         )
-
-
         
         self.img_neck = img_neck_cfg
         if self.img_neck is not None:
@@ -68,7 +59,6 @@ class DecoderMocapModel(BaseMocapModel):
 
         self.img_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
         self.global_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
-
 
         self.img_cross_attn = ResCrossAttn(cross_attn_cfg)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
@@ -107,7 +97,6 @@ class DecoderMocapModel(BaseMocapModel):
 
         self.focal_loss = build_loss(focal_loss_cfg)
         self.bce_loss = nn.BCELoss(reduction='none')
-
 
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -156,14 +145,13 @@ class DecoderMocapModel(BaseMocapModel):
 
             final_embeds = self.global_cross_attn(global_pos_embeds, query_embeds_img)
             # final_embeds = self.global_cross_attn(global_pos_embeds, feats)
-
             final_embeds = final_embeds.reshape(bs, -1, 256)
 
 
         else:
-            assert 1==2
+            global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+            final_embeds = global_pos_embeds.reshape(1, -1, 256)
                    
-        # final_embeds = query_embeds_img
         final_embeds = self.ctn(final_embeds)#.mean(dim=0)
 
         mean = self.mean_head(final_embeds)
@@ -180,24 +168,20 @@ class DecoderMocapModel(BaseMocapModel):
         mean = mean[:, is_obj]
         cov = cov[:, is_obj]
         
-        # dist = self.dist(mean[0], cov[0])
-        # dist = D.Independent(dist, 1) #Nq independent Gaussians
-
-        # pred_pos = dist.sample([10])#.unsqueeze(0)
-
         result = {
             'pred_position': mean[0].cpu().detach().unsqueeze(0).numpy()
         }
         return result
 
     def forward_train(self, data, **kwargs):
-        mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
-
-
-        bs = len(mean)
+        losses = defaultdict(list)
         
-        losses = defaultdict(float)
+        mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
+        bs = len(mean)
         for i in range(bs):
+            is_missing = data['missing']['zed_camera_left'][i]
+            if is_missing:
+                continue
 
             dist = self.dist(mean[i], cov[i])
             dist = D.Independent(dist, 1) #Nq independent Gaussians
@@ -218,6 +202,7 @@ class DecoderMocapModel(BaseMocapModel):
                 pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
             pos_loss /= len(assign_idx)
             pos_loss /= 10
+            losses['pos_loss'].append(pos_loss)
 
             low_end = 0.2
             obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
@@ -230,14 +215,11 @@ class DecoderMocapModel(BaseMocapModel):
             # losses['pos_obj_loss'] = obj_loss_vals[obj_targets == 1].mean()
             # losses['neg_obj_loss'] = obj_loss_vals[obj_targets == 0].mean()
 
-
             obj_loss_vals = self.bce_loss(obj_probs.squeeze(), obj_targets)
-            losses['pos_obj_loss'] += obj_loss_vals[obj_targets == 1.0 - low_end].mean()
-            losses['neg_obj_loss'] += obj_loss_vals[obj_targets == low_end].mean()
+            losses['pos_obj_loss'].append(obj_loss_vals[obj_targets == 1.0 - low_end].mean())
+            losses['neg_obj_loss'].append(obj_loss_vals[obj_targets == low_end].mean())
 
-            losses['pos_loss'] += pos_loss
-
-        losses = {k: v / bs for k, v in losses.items()}
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
         
 

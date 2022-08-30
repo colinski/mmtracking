@@ -109,7 +109,7 @@ audio_pipeline = [
 
 img_pipeline = [
     dict(type='LoadFromNumpyArray'),
-    # dict(type='Resize', img_scale=(720, 1280), keep_ratio=True),
+    dict(type='Resize', img_scale=(270, 480), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', **img_norm_cfg),
     # dict(type='Pad', size_divisor=32),
@@ -145,16 +145,22 @@ valid_keys=['mocap', 'zed_camera_left']
 # valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
         # 'azimuth_static', 'range_doppler']
 
+hdf5_fnames = ['1656096647489_1656096707489.hdf5',
+               '1656096767489_1656096827489.hdf5',
+               #'1656096827489_1656096887489.hdf5'
+               # '1656096887489_1656096947489.hdf5'
+               '1656096467489_1656096527489.hdf5']
+
 shuffle = True
 classes = ('truck', )
 data = dict(
     samples_per_gpu=8,
-    workers_per_gpu=2,
+    workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
-        #hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
-        hdf5_fname='data/1656096647489_1656096707489.hdf5',
-        # hdf5_fname='/home/csamplawski/data/1656096767489_1656096827489.hdf5',
+        hdf5_fname='data/node_1_debug.hdf5',
+        start_time=1656096536271,
+        end_time=1656096626261,
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -164,9 +170,9 @@ data = dict(
         is_random=shuffle
     ),
     val=dict(type='HDF5Dataset',
-        hdf5_fname='data/1656096647489_1656096707489.hdf5',
-        # hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
-        # hdf5_fname='/home/csamplawski/data/1656096767489_1656096827489.hdf5',
+        hdf5_fname='data/node_1_debug.hdf5',
+        start_time=1656096735894,
+        end_time=1656096825884,
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -176,9 +182,7 @@ data = dict(
         vid_path='logs/'
     ),
     test=dict(type='HDF5Dataset',
-        hdf5_fname='data/1656096647489_1656096707489.hdf5',
-        # hdf5_fname='/home/csamplawski/data/1656096767489_1656096827489.hdf5',
-        # hdf5_fname='/home/csamplawski/data/1656096707489_1656096767489.hdf5',
+        hdf5_fname='data/hdf5/' + hdf5_fnames[-1],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -191,7 +195,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4 ,
+    lr=1e-4,
     # lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
@@ -209,7 +213,7 @@ evaluation = dict(metric=['bbox', 'track'], interval=20)
 
 find_unused_parameters = True
 
-checkpoint_config = dict(interval=10)
+checkpoint_config = dict(interval=100)
 log_config = dict(
     interval=50,
     hooks=[

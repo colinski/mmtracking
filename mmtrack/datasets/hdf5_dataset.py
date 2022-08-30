@@ -19,8 +19,9 @@ import torch
 import json
 import time
 import torchaudio
-from tqdm import trange
+from tqdm import trange, tqdm
 import matplotlib.pyplot as plt
+import copy
 
 def init_fig():
     fig = plt.figure(figsize=(16,9))
@@ -41,9 +42,10 @@ def init_fig():
     plt.tight_layout()
     return fig, axes
 
-def read_hdf5(f):
+def read_hdf5(f, keys):
     data = {}
-    for ms in f.keys():
+    #for ms in tqdm(f.keys()):
+    for ms in tqdm(keys):
         data[ms] = {}
         for k, v in f[ms].items():
             if k == 'mocap': #mocap or node_N
@@ -57,6 +59,7 @@ def read_hdf5(f):
                         data[ms][k][k2] = v2[:]
     return data
 
+
 @DATASETS.register_module()
 class HDF5Dataset(Dataset, metaclass=ABCMeta):
     CLASSES = None
@@ -64,49 +67,93 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  hdf5_fname,
                  fps=20,
                  valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth'],
+                 start_time=1656096536271,
+                 end_time=1656096626261,
                  img_pipeline=[],
                  depth_pipeline=[],
                  azimuth_pipeline=[],
                  range_pipeline=[],
                  audio_pipeline=[],
                  test_mode=False,
-                 is_random=False,
                  vid_path='/tmp',
                  **kwargs):
+
+        self.MODALITIES = ['zed_camera_left', 'zed_camera_right', 'zed_camera_depth',
+                           'realsense_camera_img', 'realsense_camera_depth',
+                           'range_doppler', 'azimuth_static', 'mic_waveform']
+        self.valid_keys = valid_keys
         self.class2idx = {'truck': 1, 'node': 0}
         self.fname = hdf5_fname
         self.fps = fps
-        self.is_random = is_random
-        self.start_count = 0
         self.vid_path = vid_path
         with h5py.File(self.fname, 'r') as f:
-            self.data = read_hdf5(f)
-        self.keys = list(self.data.keys())
-        self.keys = np.array(self.keys)
-        sort_idx = np.argsort(self.keys)
-        self.keys = self.keys[sort_idx]
-        self.timesteps = torch.from_numpy(self.keys.astype(int))
+            keys = list(f.keys())
+            keys = np.array(keys).astype(int)
+            
+            #find closest keys to start and end times
+            diffs = (keys - start_time)**2
+            start_idx = np.argmin(diffs)
+            diffs = (keys - end_time)**2
+            end_idx = np.argmin(diffs)
+
+            keys = keys[start_idx:end_idx]
+            keys = list(keys.astype(str))
+            data = read_hdf5(f, keys)
+            self.buffers = self.fill_buffers(data)
+
         self.img_pipeline = Compose(img_pipeline)
         self.depth_pipeline = Compose(depth_pipeline)
         self.range_pipeline = Compose(range_pipeline)
         self.azimuth_pipeline = Compose(azimuth_pipeline)
         self.audio_pipeline = Compose(audio_pipeline)
         self.test_mode = test_mode
-        self.start_time = int(self.keys[0]) #+ (60*60*1000)
-        self.end_time = int(self.keys[-1])
-        elapsed_time = self.end_time - self.start_time
-        self.num_frames = int(elapsed_time / 1000) * self.fps
-        self.frame_len = int((1 / self.fps) * 1000)
-        self.buffer = {}
         self.flag = np.zeros(len(self), dtype=np.uint8) #ones?
-        self.valid_keys = valid_keys
     
 
     def __len__(self):
-        return self.num_frames
+        return len(self.buffers)
+    
+    def init_buffer(self):
+        buff = {}
+        buff['zed_camera_left'] = np.zeros((10, 10, 3)).astype(np.uint8) #will be resized
+        buff['zed_camera_left'] = cv2.imencode('.jpg', buff['zed_camera_left'])[1] #save compressed
+        buff = {k: v for k, v in buff.items() if k in self.valid_keys}
+        buff['missing'] = {}
+        for mod in self.MODALITIES:
+            buff['missing'][mod] = True
+        return buff
 
-    def parse_buffer(self):
-        for key, val in self.buffer.items():
+    def fill_buffers(self, all_data):
+        buffers = []
+        buff = self.init_buffer()
+        factor = 100 // self.fps
+        num_frames = 0
+        for time in tqdm(all_data.keys()):
+            save_frame = False
+            data = all_data[time]
+            if 'mocap' in data.keys():
+                buff['mocap'] = data['mocap']
+                num_frames += 1
+                save_frame = True
+            if 'node_1' in data.keys():
+                data = data['node_1']
+
+            for key, val in data.items():
+                if key in self.valid_keys:
+                    buff[key] = val
+                    buff['missing'][key] = False
+            
+            if save_frame and num_frames % factor == 0:
+                new_buff = copy.deepcopy(buff)
+                buffers.append(new_buff)
+                # buff = self.init_buffer()
+
+        return buffers
+
+    
+    def parse_buffer(self, buff):
+        new_buff = {'missing': buff['missing']}
+        for key, val in buff.items():
             if key == 'mocap':
                 mocap_data = json.loads(val)
                 positions = torch.tensor([d['normalized_position'] for d in mocap_data])
@@ -114,82 +161,26 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 ids = torch.tensor([d['id'] for d in mocap_data])
                 z_is_zero = positions[:, -1] == 0.0
                 is_node = labels == self.class2idx['node']
-                final_mask = ~z_is_zero #& ~is_node
-                self.buffer[key] = {
+                final_mask = ~z_is_zero | is_node
+                new_buff[key] = {
                     'gt_positions': positions[final_mask],
                     'gt_labels': labels[final_mask].long(),
                     'gt_ids': ids[final_mask].long()
                 }
 
-            if key == 'zed_camera_left':
+            if key == 'zed_camera_left': #and not buff['missing'][key]:
                 img = cv2.imdecode(val, 1)
-                self.buffer[key] = self.img_pipeline(img)
+                new_buff[key] = self.img_pipeline(img)
         
-            if key == 'zed_camera_right':
-                img = cv2.imdecode(val, 1)
-                self.buffer[key] = self.img_pipeline(img)
-        
-            if key == 'zed_camera_depth':
-                self.buffer[key] = self.depth_pipeline(val)
-            
-            if key == 'realsense_camera_img':
-                img = cv2.imdecode(val, 1)
-                self.buffer[key] = self.img_pipeline(img)
-
-            if key == 'realsense_camera_depth':
-                img = cv2.imdecode(val, 1)
-                self.buffer[key] = self.img_pipeline(img)
-
-            if key == 'azimuth_static':
-                arr = np.nan_to_num(val)
-                self.buffer[key] = self.azimuth_pipeline(arr)
-                    
-            if key == 'range_doppler':
-                self.buffer[key] = self.range_pipeline(val.T)
-            
-            if key == 'mic_waveform':
-                val = val.T
-                val = val[1:5]
-                self.buffer[key] = self.audio_pipeline(val)
-                
-
-    def fill_buffer(self, start_idx, end_time):
-        start_idx = 0 
-        for time in self.keys[start_idx:]:
-            data = self.data[time]
-            if 'mocap' in data.keys():
-                self.buffer['mocap'] = data['mocap']
-            if 'node_1' in data.keys():
-                data = data['node_1']
-
-            for key, val in data.items():
-                if key in self.valid_keys:
-                    self.buffer[key] = val
-            
-            if int(time) >= end_time:
-                return
-        
+        return new_buff
+    
     def __getitem__(self, ind):
-        if ind == 0 or self.is_random:
-            self.buffer = {}
-            self.start_count += 1
-        # if self.start_count % 2 == 0:
-            # ind = len(self) - ind
-        start = int(self.start_time + ind * self.frame_len) #start is N frames after start_time
-        diffs = torch.abs(self.timesteps - start) #find closest time as it isnt frame perfect
-        min_idx = torch.argmin(diffs).item()
-        end = int(self.timesteps[min_idx] + self.frame_len) #one frame worth of data
-        self.fill_buffer(min_idx, end) #run through data and fill buffer
-        self.parse_buffer() #convert to arrays
-        return self.buffer
+        buff = self.buffers[ind]
+        new_buff = self.parse_buffer(buff)
+        return new_buff
 
     def evaluate(self, outputs, **eval_kwargs):
-        # pred_pos = np.array(outputs['pred_position'])
-        # pred_pos = pred_pos.squeeze()
-        # gt_pos = np.array(outputs['gt_position'])
-        # sq_err = (pred_pos - gt_pos)**2
         mse = 0
-        
         size = (1600, 900)
         fname = f'{self.vid_path}/latest_vid.mp4'
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
@@ -252,7 +243,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 axes['realsense_camera_depth'].axis('off')
                 axes['realsense_camera_depth'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
                 depth = data['realsense_camera_depth']['img'].data[0].cpu().squeeze()
-                mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean']
+                mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean'] 
                 std = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['std']
                 depth = depth.permute(1, 2, 0).numpy()
                 depth = (depth * std) - mean
