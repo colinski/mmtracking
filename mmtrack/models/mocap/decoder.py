@@ -189,9 +189,14 @@ class DecoderMocapModel(BaseMocapModel):
             gt_pos = data['mocap']['gt_positions'][i]#[-2].unsqueeze(0)
             gt_labels = data['mocap']['gt_labels'][i]#[-2].unsqueeze(0)
 
+            z_is_zero = gt_pos[:, -1] == 0.0
+
             is_node = gt_labels == 0
-            gt_pos = gt_pos[~is_node]
-            gt_labels = gt_labels[~is_node]
+            final_mask = ~z_is_zero & ~is_node
+            gt_pos = gt_pos[final_mask]
+            gt_labels = gt_labels[final_mask]
+
+            
 
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
             pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
