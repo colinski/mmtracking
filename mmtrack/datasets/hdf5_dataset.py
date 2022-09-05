@@ -22,6 +22,7 @@ import torchaudio
 from tqdm import trange, tqdm
 import matplotlib.pyplot as plt
 import copy
+from mmcv.runner import get_dist_info
 
 def init_fig():
     fig = plt.figure(figsize=(16,9))
@@ -67,8 +68,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  hdf5_fname,
                  fps=20,
                  valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth'],
-                 start_time=1656096536271,
-                 end_time=1656096626261,
+                 start_times=[1656096536271, 1656096636977],
+                 end_times=[1656096626261, 1656096726967],
                  img_pipeline=[],
                  depth_pipeline=[],
                  azimuth_pipeline=[],
@@ -83,12 +84,19 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                            'range_doppler', 'azimuth_static', 'mic_waveform']
         self.valid_keys = valid_keys
         self.class2idx = {'truck': 1, 'node': 0}
+        
+        rank, ws = get_dist_info()
+
         self.fname = hdf5_fname
         self.fps = fps
         self.vid_path = vid_path
+
         with h5py.File(self.fname, 'r') as f:
             keys = list(f.keys())
             keys = np.array(keys).astype(int)
+
+            start_time = start_times[rank]
+            end_time = end_times[rank]
             
             #find closest keys to start and end times
             diffs = (keys - start_time)**2
@@ -162,6 +170,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 z_is_zero = positions[:, -1] == 0.0
                 is_node = labels == self.class2idx['node']
                 final_mask = ~z_is_zero | is_node
+                final_mask = positions[:, -1] >= 0.0
                 new_buff[key] = {
                     'gt_positions': positions[final_mask],
                     'gt_labels': labels[final_mask].long(),

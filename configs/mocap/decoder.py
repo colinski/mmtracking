@@ -151,6 +151,9 @@ hdf5_fnames = ['1656096647489_1656096707489.hdf5',
                # '1656096887489_1656096947489.hdf5'
                '1656096467489_1656096527489.hdf5']
 
+start_times = [1656096536271, 1656096636977, 1656096735894, 1656096834093, 1656096932467, 1656097031849, 1656097129679, 1656097228149]
+end_times   = [1656096626261, 1656096726967, 1656096825884, 1656096924083, 1656097022457, 1656097121839, 1656097219669, 1656097318139]
+
 shuffle = True
 classes = ('truck', )
 data = dict(
@@ -159,8 +162,10 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_time=1656096536271,
-        end_time=1656096626261,
+        # start_time=1656096536271,
+        # end_time=1656096626261,
+        start_times=start_times,
+        end_times=end_times,
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -171,8 +176,10 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_time=1656096735894,
-        end_time=1656096825884,
+        start_times=start_times,
+        end_times=end_times,
+        # start_time=1656096735894,
+        # end_time=1656096825884,
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -195,7 +202,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4,
+    lr=1e-4 * 8,
     # lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
