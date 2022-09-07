@@ -20,7 +20,7 @@ import torch.distributions as D
 from .base import BaseMocapModel
 from mmdet.models import build_loss
 from cad.pos import AnchorEncoding
-from cad.attn import ResCrossAttn
+from cad.attn import ResCrossAttn, ResSelfAttn
 from collections import defaultdict
 
 def linear_assignment(cost_matrix):
@@ -37,6 +37,8 @@ class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
                  img_backbone_cfg=None,
                  img_neck_cfg=None,
+                 depth_backbone_cfg=None,
+                 depth_neck_cfg=None,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,18 +52,41 @@ class DecoderMocapModel(BaseMocapModel):
                  return_weights=False,
                  v_dim=None
         )
+
+        self_attn_cfg = dict(type='QKVAttention',
+                 qk_dim=1,
+                 num_heads=1, 
+                 in_proj=True, 
+                 out_proj=True,
+                 attn_drop=0.0, 
+                 seq_drop=0.0,
+                 return_weights=False,
+                 v_dim=None
+        )
+
         
         self.img_neck = img_neck_cfg
         if self.img_neck is not None:
             self.img_neck = build_neck(img_neck_cfg)
 
+        self.depth_neck = depth_neck_cfg
+        if self.depth_neck is not None:
+            self.depth_neck = build_neck(depth_neck_cfg)
+
         self.img_backbone = build_backbone(img_backbone_cfg)
+        self.depth_backbone = build_backbone(img_backbone_cfg)
 
         self.img_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
+        self.depth_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
         self.global_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
 
         self.img_cross_attn = ResCrossAttn(cross_attn_cfg)
+        self.depth_cross_attn = ResCrossAttn(cross_attn_cfg)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
+        
+        self.self_attn = nn.Sequential(
+            ResSelfAttn(self_attn_cfg, out_norm_cfg=None, res_dropout_cfg=dict(type='DropPath', drop_prob=0.0))
+        )
 
         self.pool = nn.AvgPool2d((20, 1))
         self.ctn = nn.Sequential(
@@ -117,6 +142,31 @@ class DecoderMocapModel(BaseMocapModel):
 
 
     def _forward(self, data, **kwargs):
+        inter_embeds = []
+        if 'zed_camera_depth' in data.keys():
+            img = data['zed_camera_depth']['img']
+            img = img.expand(-1, 3, -1, -1)
+            feats = self.depth_backbone(img)
+            bs = img.shape[0]
+            if self.depth_neck:
+                feats = self.depth_neck(feats)
+            if len(feats) > 1:
+                target_shape = (feats[2].shape[2], feats[2].shape[3])
+                feats = [F.interpolate(f, target_shape) for f in feats] 
+                feats = torch.cat(feats, dim=1)
+            else:
+                feats = feats[0]
+            feats = feats.permute(0, 2, 3, 1)
+
+            depth_pos_embeds = self.depth_pos_encoding(None).unsqueeze(0)
+            depth_pos_embeds = depth_pos_embeds.expand(bs, -1, -1, -1)
+            query_embeds_depth = self.depth_cross_attn(depth_pos_embeds, feats)
+            query_embeds_depth = query_embeds_depth.reshape(bs, -1, 256)
+            inter_embeds.append(query_embeds_depth)
+
+            # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+            # global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
+
         if 'zed_camera_left' in data.keys():
             img = data['zed_camera_left']['img']
             img_metas = data['zed_camera_left']['img_metas']
@@ -139,31 +189,52 @@ class DecoderMocapModel(BaseMocapModel):
             img_pos_embeds = self.img_pos_encoding(None).unsqueeze(0)
             img_pos_embeds = img_pos_embeds.expand(bs, -1, -1, -1)
             query_embeds_img = self.img_cross_attn(img_pos_embeds, feats)
+            query_embeds_img = query_embeds_img.reshape(bs, -1, 256)
 
-            global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-            global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
+            inter_embeds.append(query_embeds_img)
 
-            final_embeds = self.global_cross_attn(global_pos_embeds, query_embeds_img)
-            # final_embeds = self.global_cross_attn(global_pos_embeds, feats)
-            final_embeds = final_embeds.reshape(bs, -1, 256)
+            # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+            # global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
+
+            # final_embeds = self.global_cross_attn(global_pos_embeds, query_embeds_img)
+            # final_embeds = final_embeds.reshape(bs, -1, 256)
 
 
-        else:
-            global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-            final_embeds = global_pos_embeds.reshape(1, -1, 256)
+        # else:
+            # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+            # final_embeds = global_pos_embeds.reshape(1, -1, 256)
+
+        if len(inter_embeds) == 0:
+            import ipdb; ipdb.set_trace() # noqa
+
+        inter_embeds = torch.cat(inter_embeds, dim=1)
+
+        global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+        global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
+
+        final_embeds = self.global_cross_attn(global_pos_embeds, inter_embeds)
+        final_embeds = final_embeds.reshape(bs, -1, 256)
+        
+        # final_embeds = self.self_attn(final_embeds)
                    
         final_embeds = self.ctn(final_embeds)#.mean(dim=0)
 
         mean = self.mean_head(final_embeds)
+        mean[:, :, 0] += self.global_pos_encoding.unscaled_params_x.flatten()
+        mean[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
+        mean = mean.sigmoid()
+
         cov = self.cov_head(final_embeds)
         cls_logits = self.cls_head(final_embeds)
         obj_logits = self.obj_head(final_embeds)
+        # obj_logits = self.self_attn(obj_logits)
         return mean, cov, cls_logits, obj_logits
 
 
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
         obj_probs = F.sigmoid(obj_logits[0]).squeeze()
+        # obj_probs = torch.softmax(obj_logits[0], dim=0).squeeze()
         is_obj = obj_probs >= 0.5
         mean = mean[:, is_obj]
         cov = cov[:, is_obj]
@@ -182,6 +253,10 @@ class DecoderMocapModel(BaseMocapModel):
             is_missing = data['missing']['zed_camera_left'][i]
             if is_missing:
                 continue
+            
+            # is_missing = data['missing']['zed_camera_depth'][i]
+            # if is_missing:
+                # continue
 
             dist = self.dist(mean[i], cov[i])
             dist = D.Independent(dist, 1) #Nq independent Gaussians
@@ -196,8 +271,6 @@ class DecoderMocapModel(BaseMocapModel):
             gt_pos = gt_pos[final_mask]
             gt_labels = gt_labels[final_mask]
 
-            
-
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
             pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
             assign_idx = linear_assignment(pos_neg_log_probs)
@@ -209,20 +282,23 @@ class DecoderMocapModel(BaseMocapModel):
             pos_loss /= 10
             losses['pos_loss'].append(pos_loss)
 
-            low_end = 0.2
+            low_end = 0.0
             obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
             obj_targets = obj_targets.float()
             obj_targets[assign_idx[:, 0]] = 1.0 - low_end
             
             obj_probs = F.sigmoid(obj_logits[i])
+            # obj_probs = torch.softmax(obj_logits[i], dim=0)
             
             # obj_loss_vals = self.focal_loss(obj_probs, obj_targets.long())
             # losses['pos_obj_loss'] = obj_loss_vals[obj_targets == 1].mean()
             # losses['neg_obj_loss'] = obj_loss_vals[obj_targets == 0].mean()
 
             obj_loss_vals = self.bce_loss(obj_probs.squeeze(), obj_targets)
-            losses['pos_obj_loss'].append(obj_loss_vals[obj_targets == 1.0 - low_end].mean())
-            losses['neg_obj_loss'].append(obj_loss_vals[obj_targets == low_end].mean())
+            pos_obj_loss = obj_loss_vals[obj_targets == 1.0 - low_end].mean()
+            neg_obj_loss = obj_loss_vals[obj_targets == low_end].mean() 
+            losses['pos_obj_loss'].append(pos_obj_loss)
+            losses['neg_obj_loss'].append(neg_obj_loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses

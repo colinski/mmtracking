@@ -25,13 +25,6 @@ img_backbone_cfg=dict(
     init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
 )
 
-# img_neck_cfg=dict(
-    # type='FPN',
-    # in_channels=[256, 512, 1024, 2048],
-    # out_channels=256//4,
-    # num_outs=4
-# )
-
 img_neck_cfg=dict(type='ChannelMapper',
     in_channels=[2048],
     kernel_size=1,
@@ -41,10 +34,33 @@ img_neck_cfg=dict(type='ChannelMapper',
     num_outs=1
 )
 
+depth_backbone_cfg=dict(
+    type='ResNet',
+    depth=50,
+    num_stages=4,
+    #out_indices=(0,1,2,3),
+    out_indices=(3, ),
+    frozen_stages=1,
+    norm_cfg=dict(type='SyncBN', requires_grad=False),
+    norm_eval=True,
+    style='pytorch',
+    init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
+)
+
+depth_neck_cfg=dict(type='ChannelMapper',
+    in_channels=[2048],
+    kernel_size=1,
+    out_channels=256,
+    act_cfg=None,
+    norm_cfg=dict(type='BN'),
+    num_outs=1
+)
 
 model = dict(type='DecoderMocapModel',
     img_backbone_cfg=img_backbone_cfg,
-    img_neck_cfg=img_neck_cfg
+    img_neck_cfg=img_neck_cfg,
+    depth_backbone_cfg=depth_backbone_cfg,
+    depth_neck_cfg=depth_neck_cfg
 )
 
 img_norm_cfg = dict(
@@ -52,31 +68,24 @@ img_norm_cfg = dict(
 
 # img_norm_cfg = dict(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], to_rgb=True)
 
-train_pipeline = [
-    dict(type='LoadMultiImagesFromFile', to_float32=True),
-    dict(type='SeqLoadAnnotations', with_bbox=True, with_track=True),
-    # dict(type='SeqLoadAnnotations', with_bbox=True),
-    # dict(type='SeqResize',
-        # img_scale=(800, 1333),
-        # share_params=True,
-        # keep_ratio=True,
-    # ),
-    dict(type='SeqNormalize', **img_norm_cfg),
-    dict(type='SeqPad', size_divisor=32),
-    dict(type='MatchInstances', skip_nomatch=True),
-    dict(
-        type='VideoCollect',
-        keys=[ 'img', 'gt_bboxes', 'gt_labels', 'gt_match_indices',
-            'gt_instance_ids'
-        ]),
-    dict(type='SeqDefaultFormatBundle', ref_prefix='ref')
+img_pipeline = [
+    dict(type='LoadFromNumpyArray'),
+    dict(type='Resize', img_scale=(270, 480), keep_ratio=True),
+    dict(type='RandomFlip', flip_ratio=0.0),
+    dict(type='Normalize', **img_norm_cfg),
+    # dict(type='Pad', size_divisor=32),
+    # dict(type='ImageToTensor', keys=['img']),
+    dict(type='DefaultFormatBundle'),
+    dict(type='Collect', keys=['img']),
 ]
+
 
 depth_pipeline = [
     dict(type='LoadFromNumpyArray', force_float32=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', mean=[0], std=[20000], to_rgb=False),
-    dict(type='Pad', size_divisor=32),
+    dict(type='Normalize', mean=[1], std=[0.5], to_rgb=False),
+    # dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
     # dict(type='ImageToTensor', keys=['img']),
@@ -107,16 +116,6 @@ audio_pipeline = [
 ]
 
 
-img_pipeline = [
-    dict(type='LoadFromNumpyArray'),
-    dict(type='Resize', img_scale=(270, 480), keep_ratio=True),
-    dict(type='RandomFlip', flip_ratio=0.0),
-    dict(type='Normalize', **img_norm_cfg),
-    # dict(type='Pad', size_divisor=32),
-    # dict(type='ImageToTensor', keys=['img']),
-    dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img']),
-]
 
 # test_pipeline = [
     # dict(type='LoadImageFromFile'),
@@ -139,6 +138,8 @@ img_pipeline = [
         # 'range_doppler', 'mic_waveform', 'realsense_camera_depth',
         # 'realsense_camera_img', 'azimuth_static']
 
+#valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth']
+# valid_keys=['mocap', 'zed_camera_depth']
 valid_keys=['mocap', 'zed_camera_left']
 
 
@@ -162,10 +163,8 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        # start_time=1656096536271,
-        # end_time=1656096626261,
-        start_times=start_times,
-        end_times=end_times,
+        start_times=[start_times[0]],
+        end_times=[end_times[0]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -176,8 +175,8 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=start_times,
-        end_times=end_times,
+        start_times=[start_times[1]],
+        end_times=[end_times[1]],
         # start_time=1656096735894,
         # end_time=1656096825884,
         valid_keys=valid_keys,
@@ -202,7 +201,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4 * 8,
+    lr=1e-4,
     # lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
