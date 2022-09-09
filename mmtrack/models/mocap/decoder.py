@@ -21,6 +21,7 @@ from .base import BaseMocapModel
 from mmdet.models import build_loss
 from cad.pos import AnchorEncoding
 from cad.attn import ResCrossAttn, ResSelfAttn
+from cad.models.detr import DETRDecoder
 from collections import defaultdict
 
 def linear_assignment(cost_matrix):
@@ -54,15 +55,24 @@ class DecoderMocapModel(BaseMocapModel):
         )
 
         self_attn_cfg = dict(type='QKVAttention',
-                 qk_dim=1,
+                 qk_dim=7,
                  num_heads=1, 
-                 in_proj=True, 
+                 in_proj=True,
                  out_proj=True,
                  attn_drop=0.0, 
                  seq_drop=0.0,
                  return_weights=False,
                  v_dim=None
         )
+
+        self.decoder = DETRDecoder(
+            num_layers=6,
+            self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+            cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+            ffn_cfg=dict(type='SLP', in_channels=256),
+            # shared_norm_cfg=dict(type='LN')
+        )
+   
 
         
         self.img_neck = img_neck_cfg
@@ -85,7 +95,13 @@ class DecoderMocapModel(BaseMocapModel):
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
         self.self_attn = nn.Sequential(
-            ResSelfAttn(self_attn_cfg, out_norm_cfg=None, res_dropout_cfg=dict(type='DropPath', drop_prob=0.0))
+            #ResSelfAttn(self_attn_cfg, out_norm_cfg=None, res_dropout_cfg=dict(type='DropPath', drop_prob=0.0))
+            ResSelfAttn(self_attn_cfg),
+            # ResSelfAttn(self_attn_cfg),
+            # ResSelfAttn(self_attn_cfg),
+            # ResSelfAttn(self_attn_cfg),
+            # ResSelfAttn(self_attn_cfg),
+            # ResSelfAttn(self_attn_cfg)
         )
 
         self.pool = nn.AvgPool2d((20, 1))
@@ -106,6 +122,8 @@ class DecoderMocapModel(BaseMocapModel):
             nn.Linear(256, 3),
             nn.Softplus()
         )
+
+        self.output_head = nn.Linear(256, 3+3+1)
         
         #truck, node, drone, no obj
         self.num_classes = 3
@@ -212,21 +230,30 @@ class DecoderMocapModel(BaseMocapModel):
         global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
         global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
 
+
         final_embeds = self.global_cross_attn(global_pos_embeds, inter_embeds)
+        # final_embeds = self.decoder(global_pos_embeds, None, inter_embeds, None)
         final_embeds = final_embeds.reshape(bs, -1, 256)
         
         # final_embeds = self.self_attn(final_embeds)
                    
         final_embeds = self.ctn(final_embeds)#.mean(dim=0)
 
-        mean = self.mean_head(final_embeds)
+        output_vals = self.output_head(final_embeds)
+
+        output_vals = self.self_attn(output_vals)
+
+        # mean = self.mean_head(final_embeds)
+        mean = output_vals[..., 0:3]
         mean[:, :, 0] += self.global_pos_encoding.unscaled_params_x.flatten()
         mean[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
         mean = mean.sigmoid()
 
-        cov = self.cov_head(final_embeds)
+        # cov = self.cov_head(final_embeds)
+        cov = F.softplus(output_vals[..., 3:6])
         cls_logits = self.cls_head(final_embeds)
-        obj_logits = self.obj_head(final_embeds)
+        # obj_logits = self.obj_head(final_embeds)
+        obj_logits = output_vals[..., -1]
         # obj_logits = self.self_attn(obj_logits)
         return mean, cov, cls_logits, obj_logits
 
