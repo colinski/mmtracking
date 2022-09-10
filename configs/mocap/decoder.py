@@ -163,8 +163,8 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[start_times[0]],
-        end_times=[end_times[0]],
+        start_times=[1656098099061],
+        end_times=[1656098189051],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -175,10 +175,8 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[start_times[1]],
-        end_times=[end_times[1]],
-        # start_time=1656096735894,
-        # end_time=1656096825884,
+        start_times=[1656098197412],
+        end_times=[1656098287402],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -215,7 +213,7 @@ optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 total_epochs = 100
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
-evaluation = dict(metric=['bbox', 'track'], interval=50)
+evaluation = dict(metric=['bbox', 'track'], interval=20)
 
 find_unused_parameters = True
 
