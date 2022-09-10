@@ -40,9 +40,11 @@ class DecoderMocapModel(BaseMocapModel):
                  img_neck_cfg=None,
                  depth_backbone_cfg=None,
                  depth_neck_cfg=None,
+                 bce_target=0.99,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
+        self.bce_target = bce_target
         cross_attn_cfg = dict(type='QKVAttention',
                  qk_dim=256,
                  num_heads=8, 
@@ -309,10 +311,9 @@ class DecoderMocapModel(BaseMocapModel):
             pos_loss /= 10
             losses['pos_loss'].append(pos_loss)
 
-            low_end = 0.0
-            obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + low_end
+            obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + (1.0 - self.bce_target)
             obj_targets = obj_targets.float()
-            obj_targets[assign_idx[:, 0]] = 1.0 - low_end
+            obj_targets[assign_idx[:, 0]] = self.bce_target
             
             obj_probs = F.sigmoid(obj_logits[i])
             # obj_probs = torch.softmax(obj_logits[i], dim=0)
@@ -322,8 +323,8 @@ class DecoderMocapModel(BaseMocapModel):
             # losses['neg_obj_loss'] = obj_loss_vals[obj_targets == 0].mean()
 
             obj_loss_vals = self.bce_loss(obj_probs.squeeze(), obj_targets)
-            pos_obj_loss = obj_loss_vals[obj_targets == 1.0 - low_end].mean()
-            neg_obj_loss = obj_loss_vals[obj_targets == low_end].mean() 
+            pos_obj_loss = obj_loss_vals[obj_targets == self.bce_target].mean()
+            neg_obj_loss = obj_loss_vals[obj_targets == 1.0 - self.bce_target].mean() 
             losses['pos_obj_loss'].append(pos_obj_loss)
             losses['neg_obj_loss'].append(neg_obj_loss)
 
