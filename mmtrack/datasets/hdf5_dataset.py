@@ -23,6 +23,7 @@ from tqdm import trange, tqdm
 import matplotlib.pyplot as plt
 import copy
 from mmcv.runner import get_dist_info
+from matplotlib.patches import Ellipse
 
 def init_fig():
     fig = plt.figure(figsize=(16,9))
@@ -207,12 +208,23 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 save_frame = True
                 axes['mocap'].clear()
                 
+                means = outputs['pred_position_mean'][i][0]
+                covs = outputs['pred_position_cov'][i][0]
+                for j in range(len(means)):
+                    mean = means[j]
+                    cov = covs[j]
+                    if len(mean) != 3 or len(cov) != 3:
+                        import ipdb; ipdb.set_trace() # noqa
+                    axes['mocap'].scatter(mean[1], mean[0])
+                    ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*3, height=cov[0]*3, 
+                                                    edgecolor='r', fc='None', lw=2)
+                    axes['mocap'].add_patch(ellipse)
                 
-                for pos in outputs['pred_position'][i]:
+                # for pos in outputs['pred_position_mean'][i]:
                     # if pos[-1] == 0.0: #z == 0, ignore
                         # continue
-                    alpha = 0.5 if len(pos) > 1 else 1
-                    axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
+                    # alpha = 0.5 if len(pos) > 1 else 1
+                    # axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
 
                 for pos in data['mocap']['gt_positions']:
                     if pos[-1] == 0.0: #z == 0, ignore
