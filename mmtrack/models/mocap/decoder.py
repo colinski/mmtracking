@@ -262,14 +262,18 @@ class DecoderMocapModel(BaseMocapModel):
 
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
+        assert len(mean) == 1 #assume batch size of 1
+        mean = mean[0] #Nq x 3 
+        cov = cov[0] #Nq x 3
         obj_probs = F.sigmoid(obj_logits[0]).squeeze()
         # obj_probs = torch.softmax(obj_logits[0], dim=0).squeeze()
         is_obj = obj_probs >= 0.5
-        mean = mean[:, is_obj]
-        cov = cov[:, is_obj]
+        mean = mean[is_obj]
+        cov = cov[is_obj]
         
         result = {
-            'pred_position': mean[0].cpu().detach().unsqueeze(0).numpy()
+            'pred_position_mean': mean.cpu().detach().unsqueeze(0).numpy(),
+            'pred_position_cov': cov.cpu().detach().unsqueeze(0).numpy()
         }
         return result
 
@@ -299,6 +303,7 @@ class DecoderMocapModel(BaseMocapModel):
             final_mask = ~z_is_zero & ~is_node
             gt_pos = gt_pos[final_mask]
             gt_labels = gt_labels[final_mask]
+
 
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
             pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
