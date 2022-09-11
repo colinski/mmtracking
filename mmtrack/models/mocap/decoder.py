@@ -41,6 +41,7 @@ class DecoderMocapModel(BaseMocapModel):
                  depth_backbone_cfg=None,
                  depth_neck_cfg=None,
                  bce_target=0.99,
+                 num_sa_layers=6,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -96,17 +97,9 @@ class DecoderMocapModel(BaseMocapModel):
         self.depth_cross_attn = ResCrossAttn(cross_attn_cfg)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
-        self.self_attn = nn.Sequential(
-            #ResSelfAttn(self_attn_cfg, out_norm_cfg=None, res_dropout_cfg=dict(type='DropPath', drop_prob=0.0))
-            ResSelfAttn(self_attn_cfg),
-            # ResSelfAttn(self_attn_cfg),
-            # ResSelfAttn(self_attn_cfg),
-            # ResSelfAttn(self_attn_cfg),
-            # ResSelfAttn(self_attn_cfg),
-            # ResSelfAttn(self_attn_cfg)
-        )
-
-        self.pool = nn.AvgPool2d((20, 1))
+        self.self_attn = [ResSelfAttn(self_attn_cfg) for _ in range(num_sa_layers)]
+        self.self_attn = nn.Sequential(*self.self_attn)
+        
         self.ctn = nn.Sequential(
             nn.Linear(256, 256),
             nn.GELU(),
@@ -273,8 +266,10 @@ class DecoderMocapModel(BaseMocapModel):
         
         result = {
             'pred_position_mean': mean.cpu().detach().unsqueeze(0).numpy(),
-            'pred_position_cov': cov.cpu().detach().unsqueeze(0).numpy()
+            'pred_position_cov': cov.cpu().detach().unsqueeze(0).numpy(),
+            'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy()
         }
+        print(result)
         return result
 
     def forward_train(self, data, **kwargs):
@@ -303,6 +298,9 @@ class DecoderMocapModel(BaseMocapModel):
             final_mask = ~z_is_zero & ~is_node
             gt_pos = gt_pos[final_mask]
             gt_labels = gt_labels[final_mask]
+
+            if len(gt_pos) == 0:
+                continue
 
 
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
