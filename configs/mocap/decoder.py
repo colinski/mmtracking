@@ -155,16 +155,61 @@ hdf5_fnames = ['1656096647489_1656096707489.hdf5',
 start_times = [1656096536271, 1656096636977, 1656096735894, 1656096834093, 1656096932467, 1656097031849, 1656097129679, 1656097228149]
 end_times   = [1656096626261, 1656096726967, 1656096825884, 1656096924083, 1656097022457, 1656097121839, 1656097219669, 1656097318139]
 
+chunks = [
+    (1656092267499, 1656092279279, 1179),
+    (1656093005110, 1656093016490, 1139),
+    (1656093841541, 1656093851531, 1000),
+    (1656094219359, 1656094229349, 1000),
+    (1656094457034, 1656094467024, 1000),
+    (1656094678719, 1656094688709, 1000),
+    (1656096536271, 1656096626261, 9000),
+    (1656096636977, 1656096726967, 9000),
+    (1656096735894, 1656096825884, 9000),
+    (1656096834093, 1656096924083, 9000),
+    (1656096932467, 1656097022457, 9000),
+    (1656097031849, 1656097121839, 9000),
+    (1656097129679, 1656097219669, 9000),
+    (1656097228149, 1656097318139, 9000),
+    (1656097329340, 1656097419330, 9000),
+    (1656097432033, 1656097522023, 9000),
+    (1656097532216, 1656097622206, 9000),
+    (1656097630102, 1656097720092, 9000),
+    (1656097741924, 1656097831914, 9000),
+    (1656097870762, 1656097960752, 9000),
+    (1656098036912, 1656098050262, 1336),
+    (1656098099061, 1656098189051, 9000),
+    (1656098197412, 1656098287402, 9000),
+    (1656098295730, 1656098385720, 9000),
+    (1656098396896, 1656098486886, 9000),
+    (1656098495878, 1656098585868, 9000),
+    (1656098594029, 1656098684019, 9000),
+    (1656098691980, 1656098781970, 9000),
+    (1656098793221, 1656098883211, 9000),
+    (1656098891303, 1656098981293, 9000),
+    (1656098990211, 1656099080201, 9000),
+    (1656099333415, 1656099423405, 9000),
+    (1656099433158, 1656099523148, 9000),
+    (1656099531139, 1656099621129, 9000),
+    (1656099629089, 1656099719079, 9000),
+    (1656099727383, 1656099817373, 9000),
+    (1656099825918, 1656099915908, 9000),
+    (1656099962435, 1656100052425, 9000),
+    (1656100060467, 1656100150457, 9000),
+    (1656100198993, 1656100288983, 9000),
+    (1656100296549, 1656100386539, 9000),
+    (1656100395475, 1656100485465, 9000),
+]
+
 shuffle = True
 classes = ('truck', )
 data = dict(
-    samples_per_gpu=8,
+    samples_per_gpu=32,
     workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[1656098099061],
-        end_times=[1656098189051],
+        start_times=[chunks[6][0]],
+        end_times=[chunks[6][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -175,8 +220,8 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[1656098197412],
-        end_times=[1656098287402],
+        start_times=[chunks[7][0]],
+        end_times=[chunks[7][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -186,20 +231,23 @@ data = dict(
         vid_path='logs/'
     ),
     test=dict(type='HDF5Dataset',
-        hdf5_fname='data/hdf5/' + hdf5_fnames[-1],
+        hdf5_fname='data/node_1_debug.hdf5',
+        start_times=[chunks[7][0]],
+        end_times=[chunks[7][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline
+        audio_pipeline=audio_pipeline,
+        vid_path='logs/'
     ),
 )
 
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4,
+    lr=1e-4*4,
     # lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
@@ -210,10 +258,10 @@ optimizer = dict(
         }))
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 100
+total_epochs = 50
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
-evaluation = dict(metric=['bbox', 'track'], interval=20)
+evaluation = dict(metric=['bbox', 'track'], interval=25)
 
 find_unused_parameters = True
 
