@@ -215,9 +215,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     cov = covs[j]
                     if len(mean) != 3 or len(cov) != 3:
                         import ipdb; ipdb.set_trace() # noqa
-                    axes['mocap'].scatter(mean[1], mean[0])
-                    ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*3, height=cov[0]*3, 
-                                                    edgecolor='r', fc='None', lw=2)
+                    axes['mocap'].scatter(mean[1], mean[0], color='blue')
+                    ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
+                                                    edgecolor='blue', fc='None', lw=2)
                     axes['mocap'].add_patch(ellipse)
                 
                 # for pos in outputs['pred_position_mean'][i]:
