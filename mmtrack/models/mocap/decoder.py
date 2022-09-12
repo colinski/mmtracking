@@ -42,9 +42,11 @@ class DecoderMocapModel(BaseMocapModel):
                  depth_neck_cfg=None,
                  bce_target=0.99,
                  num_sa_layers=6,
+                 remove_zero_at_train=True,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
+        self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
         cross_attn_cfg = dict(type='QKVAttention',
                  qk_dim=256,
@@ -292,10 +294,11 @@ class DecoderMocapModel(BaseMocapModel):
             gt_pos = data['mocap']['gt_positions'][i]#[-2].unsqueeze(0)
             gt_labels = data['mocap']['gt_labels'][i]#[-2].unsqueeze(0)
 
-            z_is_zero = gt_pos[:, -1] == 0.0
-
             is_node = gt_labels == 0
-            final_mask = ~z_is_zero & ~is_node
+            final_mask = ~is_node
+            if self.remove_zero_at_train:
+                z_is_zero = gt_pos[:, -1] == 0.0
+                final_mask = final_mask & ~z_is_zero
             gt_pos = gt_pos[final_mask]
             gt_labels = gt_labels[final_mask]
 
