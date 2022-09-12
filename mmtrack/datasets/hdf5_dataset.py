@@ -227,8 +227,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     # axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
 
                 for pos in data['mocap']['gt_positions']:
-                    if pos[-1] == 0.0: #z == 0, ignore
-                        continue
+                    # if pos[-1] == 0.0: #z == 0, ignore
+                        # continue
                     axes['mocap'].scatter(pos[1], pos[0], marker=',', color='k') # to rotate, longer side to be y axis
 
 
