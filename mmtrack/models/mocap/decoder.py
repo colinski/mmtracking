@@ -11,7 +11,7 @@ import torch.distributed as dist
 from mmtrack.core import outs2results, results2outs
 # from mmtrack.models.mot import BaseMultiObjectTracker
 from mmcv.runner import BaseModule, auto_fp16
-from ..builder import MODELS, build_tracker
+from ..builder import MODELS, build_tracker, build_model
 
 from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
 import copy
@@ -36,6 +36,7 @@ def linear_assignment(cost_matrix):
 @MODELS.register_module()
 class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
+                 img_model_cfg=None,
                  img_backbone_cfg=None,
                  img_neck_cfg=None,
                  depth_backbone_cfg=None,
@@ -46,6 +47,9 @@ class DecoderMocapModel(BaseMocapModel):
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
+        
+        self.img_model = build_model(img_model_cfg)
+            
         self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
         cross_attn_cfg = dict(type='QKVAttention',
@@ -70,15 +74,14 @@ class DecoderMocapModel(BaseMocapModel):
                  v_dim=None
         )
 
-        self.decoder = DETRDecoder(
-            num_layers=6,
-            self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
-            cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
-            ffn_cfg=dict(type='SLP', in_channels=256),
-            # shared_norm_cfg=dict(type='LN')
-        )
-   
+        # self.decoder = DETRDecoder(
+            # num_layers=6,
+            # self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+            # cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+            # ffn_cfg=dict(type='SLP', in_channels=256),
+        # )
 
+        self.active_modalities = []
         
         self.img_neck = img_neck_cfg
         if self.img_neck is not None:
@@ -159,54 +162,56 @@ class DecoderMocapModel(BaseMocapModel):
     def _forward(self, data, **kwargs):
         inter_embeds = []
         if 'zed_camera_depth' in data.keys():
-            img = data['zed_camera_depth']['img']
-            img = img.expand(-1, 3, -1, -1)
-            feats = self.depth_backbone(img)
-            bs = img.shape[0]
-            if self.depth_neck:
-                feats = self.depth_neck(feats)
-            if len(feats) > 1:
-                target_shape = (feats[2].shape[2], feats[2].shape[3])
-                feats = [F.interpolate(f, target_shape) for f in feats] 
-                feats = torch.cat(feats, dim=1)
-            else:
-                feats = feats[0]
-            feats = feats.permute(0, 2, 3, 1)
+            dmap = data['zed_camera_depth']['img']
+            depth_embeds = self.depth_model(dmap)
+            inter_embeds.append(depth_embeds)
 
-            depth_pos_embeds = self.depth_pos_encoding(None).unsqueeze(0)
-            depth_pos_embeds = depth_pos_embeds.expand(bs, -1, -1, -1)
-            query_embeds_depth = self.depth_cross_attn(depth_pos_embeds, feats)
-            query_embeds_depth = query_embeds_depth.reshape(bs, -1, 256)
-            inter_embeds.append(query_embeds_depth)
+            # img = data['zed_camera_depth']['img']
+            # img = img.expand(-1, 3, -1, -1)
+            # feats = self.depth_backbone(img)
+            # bs = img.shape[0]
+            # if self.depth_neck:
+                # feats = self.depth_neck(feats)
+            # if len(feats) > 1:
+                # target_shape = (feats[2].shape[2], feats[2].shape[3])
+                # feats = [F.interpolate(f, target_shape) for f in feats] 
+                # feats = torch.cat(feats, dim=1)
+            # else:
+                # feats = feats[0]
+            # feats = feats.permute(0, 2, 3, 1)
+
+            # depth_pos_embeds = self.depth_pos_encoding(None).unsqueeze(0)
+            # depth_pos_embeds = depth_pos_embeds.expand(bs, -1, -1, -1)
+            # query_embeds_depth = self.depth_cross_attn(depth_pos_embeds, feats)
+            # query_embeds_depth = query_embeds_depth.reshape(bs, -1, 256)
+            # inter_embeds.append(query_embeds_depth)
 
             # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
             # global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
 
         if 'zed_camera_left' in data.keys():
             img = data['zed_camera_left']['img']
-            img_metas = data['zed_camera_left']['img_metas']
-            img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
-            bs = img.shape[0]
+            img_embeds = self.img_model(img)
+            inter_embeds.append(img_embeds)
             
-            # bbox_head = self.img_detector.bbox_head
-            feats = self.img_backbone(img)
-            if self.img_neck:
-                feats = self.img_neck(feats)
-            if len(feats) > 1:
-                target_shape = (feats[2].shape[2], feats[2].shape[3])
-                feats = [F.interpolate(f, target_shape) for f in feats] 
-                feats = torch.cat(feats, dim=1)
-            else:
-                feats = feats[0]
-            feats = feats.permute(0, 2, 3, 1)
+            # feats = self.img_backbone(img)
+            # if self.img_neck:
+                # feats = self.img_neck(feats)
+            # if len(feats) > 1:
+                # target_shape = (feats[2].shape[2], feats[2].shape[3])
+                # feats = [F.interpolate(f, target_shape) for f in feats] 
+                # feats = torch.cat(feats, dim=1)
+            # else:
+                # feats = feats[0]
+            # feats = feats.permute(0, 2, 3, 1)
 
 
-            img_pos_embeds = self.img_pos_encoding(None).unsqueeze(0)
-            img_pos_embeds = img_pos_embeds.expand(bs, -1, -1, -1)
-            query_embeds_img = self.img_cross_attn(img_pos_embeds, feats)
-            query_embeds_img = query_embeds_img.reshape(bs, -1, 256)
+            # img_pos_embeds = self.img_pos_encoding(None).unsqueeze(0)
+            # img_pos_embeds = img_pos_embeds.expand(bs, -1, -1, -1)
+            # query_embeds_img = self.img_cross_attn(img_pos_embeds, feats)
+            # query_embeds_img = query_embeds_img.reshape(bs, -1, 256)
 
-            inter_embeds.append(query_embeds_img)
+            # inter_embeds.append(query_embeds_img)
 
             # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
             # global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
@@ -223,14 +228,15 @@ class DecoderMocapModel(BaseMocapModel):
             import ipdb; ipdb.set_trace() # noqa
 
         inter_embeds = torch.cat(inter_embeds, dim=1)
-
+        B, L, D = inter_embeds.shape
+        
         global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-        global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
+        global_pos_embeds = global_pos_embeds.expand(B, -1, -1, -1)
 
 
         final_embeds = self.global_cross_attn(global_pos_embeds, inter_embeds)
         # final_embeds = self.decoder(global_pos_embeds, None, inter_embeds, None)
-        final_embeds = final_embeds.reshape(bs, -1, 256)
+        final_embeds = final_embeds.reshape(B, -1, D)
         
         # final_embeds = self.self_attn(final_embeds)
                    

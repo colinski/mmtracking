@@ -7,6 +7,7 @@ _base_ = [
 custom_imports = dict(
         imports=[
             'mmtrack.models.mocap.decoder',
+            'mmtrack.models.mocap.single',
             # 'mmtrack.models.trackers.trackformer_tracker'
         ],
         allow_failed_imports=False)
@@ -57,6 +58,10 @@ depth_neck_cfg=dict(type='ChannelMapper',
 )
 
 model = dict(type='DecoderMocapModel',
+    img_model_cfg=dict(type='SingleModalityModel',
+        backbone_cfg=img_backbone_cfg,
+        neck_cfg=img_neck_cfg
+    ),
     img_backbone_cfg=img_backbone_cfg,
     img_neck_cfg=img_neck_cfg,
     depth_backbone_cfg=depth_backbone_cfg,
@@ -248,8 +253,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4*4 / 2,
-    # lr=1e-4,
+    lr=1e-4*4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={
