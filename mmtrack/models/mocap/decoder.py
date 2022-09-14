@@ -74,6 +74,8 @@ class DecoderMocapModel(BaseMocapModel):
                  v_dim=None
         )
 
+        self.mse_loss = nn.MSELoss(reduction='none')
+
         # self.decoder = DETRDecoder(
             # num_layers=6,
             # self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
@@ -311,17 +313,21 @@ class DecoderMocapModel(BaseMocapModel):
             if len(gt_pos) == 0:
                 continue
 
-
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
             pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
             assign_idx = linear_assignment(pos_neg_log_probs)
-
+            
+            mse_loss = 0
             pos_loss = 0
             for pred_idx, gt_idx in assign_idx:
                 pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                mse_loss += self.mse_loss(mean[i][pred_idx], gt_pos[gt_idx]).mean()
             pos_loss /= len(assign_idx)
             pos_loss /= 10
             losses['pos_loss'].append(pos_loss)
+
+            mse_loss /= len(assign_idx)
+            losses['mse_loss'].append(mse_loss)
 
             obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + (1.0 - self.bce_target)
             obj_targets = obj_targets.float()
