@@ -214,8 +214,8 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[6][0]],
-        end_times=[chunks[6][1]],
+        start_times=[chunks[25][0]],
+        end_times=[chunks[25][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -226,8 +226,8 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[7][0]],
-        end_times=[chunks[7][1]],
+        start_times=[chunks[28][0]],
+        end_times=[chunks[28][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -238,8 +238,8 @@ data = dict(
     ),
     test=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[7][0]],
-        end_times=[chunks[7][1]],
+        start_times=[chunks[28][0]],
+        end_times=[chunks[28][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -253,7 +253,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4*4,
+    lr=1e-4*4/2,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={
@@ -270,7 +270,7 @@ evaluation = dict(metric=['bbox', 'track'], interval=50)
 
 find_unused_parameters = True
 
-checkpoint_config = dict(interval=100)
+checkpoint_config = dict(interval=total_epochs)
 log_config = dict(
     interval=50,
     hooks=[

@@ -23,6 +23,9 @@ from cad.pos import AnchorEncoding
 from cad.attn import ResCrossAttn, ResSelfAttn
 from cad.models.detr import DETRDecoder
 from collections import defaultdict
+from mmtrack.models.mot.kalman_track import MocapTrack
+# from .hungarian import match
+import time
 
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
@@ -42,66 +45,45 @@ class DecoderMocapModel(BaseMocapModel):
                  depth_backbone_cfg=None,
                  depth_neck_cfg=None,
                  bce_target=0.99,
-                 num_sa_layers=6,
                  remove_zero_at_train=True,
+                 cross_attn_cfg=dict(type='QKVAttention',
+                     qk_dim=256,
+                     num_heads=8, 
+                     in_proj=True, 
+                     out_proj=True,
+                     attn_drop=0.1, 
+                     seq_drop=0.0,
+                     return_weights=False,
+                     v_dim=None
+                 ),
+                 num_sa_layers=6,
+                 self_attn_cfg=dict(type='QKVAttention',
+                     qk_dim=7,
+                     num_heads=1, 
+                     in_proj=True,
+                     out_proj=True,
+                     attn_drop=0.0, 
+                     seq_drop=0.0,
+                     return_weights=False,
+                     v_dim=None
+                 ),
+                 max_age=1,
+                 min_hits=3,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        
-        self.img_model = build_model(img_model_cfg)
-            
+        self.num_classes = 2
+        self.max_age = max_age
+        self.min_hits = min_hits
+        self.tracks = []
+        self.frame_count = 0 
+
         self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
-        cross_attn_cfg = dict(type='QKVAttention',
-                 qk_dim=256,
-                 num_heads=8, 
-                 in_proj=True, 
-                 out_proj=True,
-                 attn_drop=0.1, 
-                 seq_drop=0.0,
-                 return_weights=False,
-                 v_dim=None
-        )
-
-        self_attn_cfg = dict(type='QKVAttention',
-                 qk_dim=7,
-                 num_heads=1, 
-                 in_proj=True,
-                 out_proj=True,
-                 attn_drop=0.0, 
-                 seq_drop=0.0,
-                 return_weights=False,
-                 v_dim=None
-        )
-
-        self.mse_loss = nn.MSELoss(reduction='none')
-
-        # self.decoder = DETRDecoder(
-            # num_layers=6,
-            # self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
-            # cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
-            # ffn_cfg=dict(type='SLP', in_channels=256),
-        # )
-
-        self.active_modalities = []
         
-        self.img_neck = img_neck_cfg
-        if self.img_neck is not None:
-            self.img_neck = build_neck(img_neck_cfg)
-
-        self.depth_neck = depth_neck_cfg
-        if self.depth_neck is not None:
-            self.depth_neck = build_neck(depth_neck_cfg)
-
-        self.img_backbone = build_backbone(img_backbone_cfg)
-        self.depth_backbone = build_backbone(img_backbone_cfg)
-
-        self.img_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
-        self.depth_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
+        self.img_model = build_model(img_model_cfg)
+        self.mse_loss = nn.MSELoss(reduction='none')
         self.global_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
-
-        self.img_cross_attn = ResCrossAttn(cross_attn_cfg)
-        self.depth_cross_attn = ResCrossAttn(cross_attn_cfg)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
         self.self_attn = [ResSelfAttn(self_attn_cfg) for _ in range(num_sa_layers)]
@@ -114,33 +96,15 @@ class DecoderMocapModel(BaseMocapModel):
             nn.GELU(),
         )
         
-        # self.mean_head = nn.Linear(256, 3)
-        self.mean_head = nn.Sequential(
-            nn.Linear(256, 3),
-            #nn.Sigmoid()
-        )
-
-        self.cov_head = nn.Sequential(
-            nn.Linear(256, 3),
-            nn.Softplus()
-        )
 
         self.output_head = nn.Linear(256, 3+3+1)
-        
-        #truck, node, drone, no obj
-        self.num_classes = 3
-        self.cls_head = nn.Linear(256, self.num_classes)
-        
-        self.obj_head = nn.Linear(256, 1)
-
         self.dist = D.Normal
 
-        focal_loss_cfg = dict(type='FocalLoss',
-            use_sigmoid=True, 
-            gamma=2.0, alpha=0.25, reduction='none',
-            loss_weight=1.0, activated=True)
-
-        self.focal_loss = build_loss(focal_loss_cfg)
+        # focal_loss_cfg = dict(type='FocalLoss',
+            # use_sigmoid=True, 
+            # gamma=2.0, alpha=0.25, reduction='none',
+            # loss_weight=1.0, activated=True)
+        # self.focal_loss = build_loss(focal_loss_cfg)
         self.bce_loss = nn.BCELoss(reduction='none')
 
     
@@ -163,69 +127,18 @@ class DecoderMocapModel(BaseMocapModel):
 
     def _forward(self, data, **kwargs):
         inter_embeds = []
-        if 'zed_camera_depth' in data.keys():
-            dmap = data['zed_camera_depth']['img']
-            depth_embeds = self.depth_model(dmap)
-            inter_embeds.append(depth_embeds)
-
-            # img = data['zed_camera_depth']['img']
-            # img = img.expand(-1, 3, -1, -1)
-            # feats = self.depth_backbone(img)
-            # bs = img.shape[0]
-            # if self.depth_neck:
-                # feats = self.depth_neck(feats)
-            # if len(feats) > 1:
-                # target_shape = (feats[2].shape[2], feats[2].shape[3])
-                # feats = [F.interpolate(f, target_shape) for f in feats] 
-                # feats = torch.cat(feats, dim=1)
-            # else:
-                # feats = feats[0]
-            # feats = feats.permute(0, 2, 3, 1)
-
-            # depth_pos_embeds = self.depth_pos_encoding(None).unsqueeze(0)
-            # depth_pos_embeds = depth_pos_embeds.expand(bs, -1, -1, -1)
-            # query_embeds_depth = self.depth_cross_attn(depth_pos_embeds, feats)
-            # query_embeds_depth = query_embeds_depth.reshape(bs, -1, 256)
-            # inter_embeds.append(query_embeds_depth)
-
-            # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-            # global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
 
         if 'zed_camera_left' in data.keys():
             img = data['zed_camera_left']['img']
             img_embeds = self.img_model(img)
             inter_embeds.append(img_embeds)
-            
-            # feats = self.img_backbone(img)
-            # if self.img_neck:
-                # feats = self.img_neck(feats)
-            # if len(feats) > 1:
-                # target_shape = (feats[2].shape[2], feats[2].shape[3])
-                # feats = [F.interpolate(f, target_shape) for f in feats] 
-                # feats = torch.cat(feats, dim=1)
-            # else:
-                # feats = feats[0]
-            # feats = feats.permute(0, 2, 3, 1)
 
+        if 'zed_camera_depth' in data.keys():
+            dmap = data['zed_camera_depth']['img']
+            depth_embeds = self.depth_model(dmap)
+            inter_embeds.append(depth_embeds)
 
-            # img_pos_embeds = self.img_pos_encoding(None).unsqueeze(0)
-            # img_pos_embeds = img_pos_embeds.expand(bs, -1, -1, -1)
-            # query_embeds_img = self.img_cross_attn(img_pos_embeds, feats)
-            # query_embeds_img = query_embeds_img.reshape(bs, -1, 256)
-
-            # inter_embeds.append(query_embeds_img)
-
-            # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-            # global_pos_embeds = global_pos_embeds.expand(bs, -1, -1, -1)
-
-            # final_embeds = self.global_cross_attn(global_pos_embeds, query_embeds_img)
-            # final_embeds = final_embeds.reshape(bs, -1, 256)
-
-
-        # else:
-            # global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-            # final_embeds = global_pos_embeds.reshape(1, -1, 256)
-
+                    
         if len(inter_embeds) == 0:
             import ipdb; ipdb.set_trace() # noqa
 
@@ -235,18 +148,19 @@ class DecoderMocapModel(BaseMocapModel):
         global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
         global_pos_embeds = global_pos_embeds.expand(B, -1, -1, -1)
 
-
         final_embeds = self.global_cross_attn(global_pos_embeds, inter_embeds)
-        # final_embeds = self.decoder(global_pos_embeds, None, inter_embeds, None)
         final_embeds = final_embeds.reshape(B, -1, D)
         
-        # final_embeds = self.self_attn(final_embeds)
-                   
-        final_embeds = self.ctn(final_embeds)#.mean(dim=0)
+        final_embeds = self.ctn(final_embeds)
 
-        output_vals = self.output_head(final_embeds)
-
-        output_vals = self.self_attn(output_vals)
+        output_vals = self.output_head(final_embeds) #B L 7
+        
+        # for layer in self.self_attn:
+            # output_vals[:, :, 0] += self.global_pos_encoding.unscaled_params_x.flatten()
+            # output_vals[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
+            # output_vals = layer(output_vals)
+            
+        # output_vals = self.self_attn(output_vals)
 
         # mean = self.mean_head(final_embeds)
         mean = output_vals[..., 0:3]
@@ -256,12 +170,12 @@ class DecoderMocapModel(BaseMocapModel):
 
         # cov = self.cov_head(final_embeds)
         cov = F.softplus(output_vals[..., 3:6])
-        cls_logits = self.cls_head(final_embeds)
+        # cls_logits = self.cls_head(final_embeds)
         # obj_logits = self.obj_head(final_embeds)
         obj_logits = output_vals[..., -1]
         # obj_logits = self.self_attn(obj_logits)
-        return mean, cov, cls_logits, obj_logits
-
+        return mean, cov, None, obj_logits
+ 
 
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
@@ -269,7 +183,6 @@ class DecoderMocapModel(BaseMocapModel):
         mean = mean[0] #Nq x 3 
         cov = cov[0] #Nq x 3
         obj_probs = F.sigmoid(obj_logits[0]).squeeze()
-        # obj_probs = torch.softmax(obj_logits[0], dim=0).squeeze()
         is_obj = obj_probs >= 0.5
         mean = mean[is_obj]
         cov = cov[is_obj]
@@ -279,7 +192,93 @@ class DecoderMocapModel(BaseMocapModel):
             'pred_position_cov': cov.cpu().detach().unsqueeze(0).numpy(),
             'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy()
         }
-        print(result)
+        return result
+
+    def forward_test_(self, data, **kwargs):
+        means, covs, cls_logits, obj_logits = self._forward(data, **kwargs)
+        assert len(means) == 1 #assume batch size of 1
+        means = means[0] #Nq x 3 
+        covs = covs[0] #Nq x 3
+        obj_probs = F.sigmoid(obj_logits[0]).squeeze()
+        is_obj = obj_probs >= 0.5
+        means = means[is_obj]
+        covs = covs[is_obj]
+
+        self.frame_count += 1
+        
+        #get predictions from existing tracks
+        for track in self.tracks:
+            track.predict()
+        
+        # if len(self.tracks) != 0:
+        #collect all the new bbox predictions
+        # pred_means = torch.zeros(0, 3)
+        # pred_cov = torch.zeros(0, 3)
+        
+        probs = torch.zeros(len(self.tracks), len(means))
+        for i, track in enumerate(self.tracks):
+            # track_dist = self.dist(track.mean, track.cov)
+            # track_dist = D.Independent(pred_dist, 1)
+            for j, mean in enumerate(means):
+                pred_dist = self.dist(means[j], covs[j])
+                pred_dist = D.Independent(pred_dist, 1)
+                log_prob = pred_dist.log_prob(track.mean.cuda())
+                probs[i, j] = log_prob
+        
+        if len(probs) == 0: #no tracks yet
+            for j in range(len(means)):
+                new_track = MocapTrack(means[j], covs[j])
+                self.tracks.append(new_track)
+        else:
+            assign_idx = linear_assignment(-probs)
+            for t, d in assign_idx:
+                self.tracks[t].update(means[d], covs[d])
+
+
+        # if len(self.tracks) > 0:
+            # preds = [track.state for track in self.tracks]
+            # preds = torch.stack(preds, dim=0)
+        
+
+
+        # bbox = dets[:, 0:4]
+        # matches, unmatched_dets = match(bbox, preds, self.iou_thres)
+
+        # for d, t in matches:
+            # self.tracks[t].update(dets[d])
+
+        # for d in unmatched_dets:
+            # new_track = MocapTrack(dets[d])
+            # self.tracks.append(new_track)
+            
+        # states, ids = [torch.empty(0,4).cuda()], []
+        # labels, scores = [], []
+        
+        track_means, track_covs = [], []
+        for t, track in enumerate(self.tracks):
+            onstreak = track.hit_streak >= self.min_hits
+            warmingup = self.frame_count <= self.min_hits
+            if track.wasupdated and (onstreak or warmingup):
+                track_means.append(track.mean)
+                track_covs.append(track.cov.diag())
+        
+        track_means = torch.stack(track_means)
+        track_covs = torch.stack(track_covs)
+
+        print(track_means)
+        # states = torch.cat(states, dim=0)
+        # ids = torch.tensor(ids).cuda()
+        # labels = torch.tensor(labels).cuda()
+        # scores = torch.tensor(scores).cuda()
+        # ret = (states, labels, ids, scores)
+        # self.tracks = [track for track in self.tracks\
+                       # if track.time_since_update < self.max_age]
+
+        result = {
+            'pred_position_mean': track_means.detach().unsqueeze(0).cpu().numpy(),
+            'pred_position_cov': track_covs.detach().unsqueeze(0).cpu().numpy(),
+            'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy()
+        }
         return result
 
     def forward_train(self, data, **kwargs):
@@ -317,8 +316,7 @@ class DecoderMocapModel(BaseMocapModel):
             pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
             assign_idx = linear_assignment(pos_neg_log_probs)
             
-            mse_loss = 0
-            pos_loss = 0
+            mse_loss, pos_loss = 0, 0
             for pred_idx, gt_idx in assign_idx:
                 pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
                 mse_loss += self.mse_loss(mean[i][pred_idx], gt_pos[gt_idx]).mean()
@@ -327,7 +325,8 @@ class DecoderMocapModel(BaseMocapModel):
             losses['pos_loss'].append(pos_loss)
 
             mse_loss /= len(assign_idx)
-            losses['mse_loss'].append(mse_loss)
+            mse_loss /= 10
+            # losses['mse_loss'].append(mse_loss)
 
             obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + (1.0 - self.bce_target)
             obj_targets = obj_targets.float()
