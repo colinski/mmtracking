@@ -2,7 +2,6 @@
 import os.path as osp
 import random
 from abc import ABCMeta, abstractmethod
-
 import numpy as np
 from addict import Dict
 from mmcv.utils import print_log
@@ -216,10 +215,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             if 'mocap' in data.keys():
                 save_frame = True
                 axes['mocap'].clear()
-                
+                 
                 means = outputs['pred_position_mean'][i][0]
                 covs = outputs['pred_position_cov'][i][0]
-                ids = outputs['track_ids'][i][0]
+                ids = outputs['track_ids'][i][0].astype(int)
                 for j in range(len(means)):
                     mean = means[j]
                     cov = covs[j]

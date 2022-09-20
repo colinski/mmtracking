@@ -200,7 +200,8 @@ class DecoderMocapModel(BaseMocapModel):
         result = {
             'pred_position_mean': mean.cpu().detach().unsqueeze(0).numpy(),
             'pred_position_cov': cov.cpu().detach().unsqueeze(0).numpy(),
-            'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy()
+            'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy(),
+            'track_ids': np.zeros((1, len(mean)))
         }
         return result
 
@@ -268,18 +269,18 @@ class DecoderMocapModel(BaseMocapModel):
         # states, ids = [torch.empty(0,4).cuda()], []
         # labels, scores = [], []
         
-        track_means, track_covs = [], []
+        track_means, track_covs = [torch.empty(0,3)], [torch.empty(0,3)]
         track_ids = []
         for t, track in enumerate(self.tracks):
             onstreak = track.hit_streak >= self.min_hits
             warmingup = self.frame_count <= self.min_hits
             if track.wasupdated and (onstreak or warmingup):
-                track_means.append(track.mean)
-                track_covs.append(track.cov.diag())
+                track_means.append(track.mean.unsqueeze(0))
+                track_covs.append(track.cov.diag().unsqueeze(0))
                 track_ids.append(track.id)
         
-        track_means = torch.stack(track_means)
-        track_covs = torch.stack(track_covs)
+        track_means = torch.cat(track_means)
+        track_covs = torch.cat(track_covs)
         track_ids = torch.tensor(track_ids)
 
         print(track_means, track_ids)

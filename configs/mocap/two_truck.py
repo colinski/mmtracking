@@ -240,9 +240,9 @@ data = dict(
         vid_path='logs/two_trucks/'
     ),
     test=dict(type='HDF5Dataset',
-        hdf5_fname='/dev/shm/node_1_debug.hdf5',
-        start_times=[chunks[25][0]],
-        end_times=[chunks[25][1]],
+        hdf5_fname='data/node_1_debug.hdf5',
+        start_times=[chunks[28][0]],
+        end_times=[chunks[28][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
