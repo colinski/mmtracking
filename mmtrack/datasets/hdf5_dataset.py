@@ -77,6 +77,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  range_pipeline=[],
                  audio_pipeline=[],
                  test_mode=False,
+                 remove_first_frame=False,
+                 max_len=None,
                  vid_path='/tmp',
                  **kwargs):
 
@@ -109,6 +111,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             keys = list(keys.astype(str))
             data = read_hdf5(f, keys)
             self.buffers = self.fill_buffers(data)
+            if remove_first_frame:
+                self.buffers = self.buffers[1:]
+            if max_len is not None:
+                self.buffers = self.buffers[0:max_len]
 
         self.img_pipeline = Compose(img_pipeline)
         self.depth_pipeline = Compose(depth_pipeline)
@@ -200,6 +206,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
         fig, axes = init_fig()
 
+        colors = ['red', 'blue', 'green', 'yellow', 'black']
+        markers = [',', 'o', ',', 'o', ',', 'o', ',', 'o']
+
         for i in trange(len(self)):
             data = self[i]
 
@@ -210,14 +219,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 
                 means = outputs['pred_position_mean'][i][0]
                 covs = outputs['pred_position_cov'][i][0]
+                ids = outputs['track_ids'][i][0]
                 for j in range(len(means)):
                     mean = means[j]
                     cov = covs[j]
+                    ID = ids[j]
                     if len(mean) != 3 or len(cov) != 3:
                         import ipdb; ipdb.set_trace() # noqa
-                    axes['mocap'].scatter(mean[1], mean[0], color='blue')
+                    axes['mocap'].scatter(mean[1], mean[0], color=colors[ID])
                     ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
-                                                    edgecolor='blue', fc='None', lw=2)
+                                                    edgecolor=colors[ID], fc='None', lw=2)
                     axes['mocap'].add_patch(ellipse)
                 
                 # for pos in outputs['pred_position_mean'][i]:
@@ -225,11 +236,20 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         # continue
                     # alpha = 0.5 if len(pos) > 1 else 1
                     # axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
-
-                for pos in data['mocap']['gt_positions']:
+                gt_pos = data['mocap']['gt_positions']
+                gt_ids = data['mocap']['gt_ids']
+                gt_labels = data['mocap']['gt_labels']
+                # for pos in data['mocap']['gt_positions']:
+                for j in range(len(gt_pos)):
+                    pos = gt_pos[j]
+                    ID = gt_ids[j]
+                    if gt_labels[j] == 0:
+                        marker = ','
+                    else:
+                        marker = markers[ID]
                     # if pos[-1] == 0.0: #z == 0, ignore
                         # continue
-                    axes['mocap'].scatter(pos[1], pos[0], marker=',', color='k') # to rotate, longer side to be y axis
+                    axes['mocap'].scatter(pos[1], pos[0], marker=marker, color='k') # to rotate, longer side to be y axis
 
 
             if 'zed_camera_left' in data.keys():
