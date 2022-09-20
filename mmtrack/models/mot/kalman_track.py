@@ -82,7 +82,7 @@ class KalmanTrack(torch.nn.Module):
 
 class MocapTrack(torch.nn.Module):
     count = 0 #global count across tracks for id
-    def __init__(self, mean, cov):
+    def __init__(self, mean, cov=None):
         super().__init__()
         self.time_since_update = 0
         self.id = MocapTrack.count
@@ -98,7 +98,11 @@ class MocapTrack(torch.nn.Module):
         # mean = xyxy_to_xyar(bbox).cpu()
         # cov = torch.eye(4)
         #cov[2:, 2:] *= 10
-        self.dymodel = NcpContinuous(3, 0.01)
+        self.state_size = len(mean)
+        if cov is None:
+            cov = torch.ones(self.state_size) * 0.01
+        self.dymodel = NcpContinuous(self.state_size, 2.0)
+        # self.dymodel = NcvContinuous(self.state_size, 0.001)
         #self.kf = EKFState(self.dymodel, mean.cpu().unsqueeze(0), cov.cpu().unsqueeze(0), time=0)
         self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
     
@@ -121,13 +125,16 @@ class MocapTrack(torch.nn.Module):
     def cov(self):
         return self.kf.cov
 
-    def update(self, mean, cov):
+    def update(self, mean, cov=None):
         # bbox = det[0:4]
         self.time_since_update = 0
         self.hit_streak += 1
         # bbox = xyxy_to_xyar(bbox).cpu()
         # cov = torch.eye(4) * 0.01
         # cov = cov
+        if cov is None:
+            cov = torch.ones(self.state_size) * 0.01
+
         m = PositionMeasurement(mean.cpu(), torch.diag(cov).cpu(), time=self.kf.time)
         self.kf, _ = self.kf.update(m)
 
