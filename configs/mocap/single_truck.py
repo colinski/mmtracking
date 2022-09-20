@@ -12,7 +12,8 @@ custom_imports = dict(
         ],
         allow_failed_imports=False)
 
-checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa img_backbone_cfg=dict(
+checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa
+img_backbone_cfg=dict(
     type='ResNet',
     depth=50,
     num_stages=4,
@@ -65,7 +66,9 @@ model = dict(type='DecoderMocapModel',
     img_neck_cfg=img_neck_cfg,
     depth_backbone_cfg=depth_backbone_cfg,
     depth_neck_cfg=depth_neck_cfg,
-    num_sa_layers=6
+    num_sa_layers=6,
+    track_eval=True,
+    mse_loss_weight=10
 )
 
 img_norm_cfg = dict(
@@ -212,9 +215,10 @@ data = dict(
     workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[25][0]],
-        end_times=[chunks[25][1]],
+        # hdf5_fname='data/node_1_debug.hdf5',
+        hdf5_fname='/dev/shm/node_1_debug.hdf5',
+        start_times=[chunks[6][0]],
+        end_times=[chunks[6][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -225,27 +229,27 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[28][0]],
-        end_times=[chunks[28][1]],
+        start_times=[chunks[7][0]],
+        end_times=[chunks[7][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        vid_path='logs/'
+        vid_path='logs/single_truck/'
     ),
     test=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[28][0]],
-        end_times=[chunks[28][1]],
+        hdf5_fname='/dev/shm/node_1_debug.hdf5',
+        start_times=[chunks[7][0]],
+        end_times=[chunks[7][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        vid_path='logs/'
+        vid_path='logs/single_truck/'
     ),
 )
 

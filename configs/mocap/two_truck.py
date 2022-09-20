@@ -12,7 +12,8 @@ custom_imports = dict(
         ],
         allow_failed_imports=False)
 
-checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa img_backbone_cfg=dict(
+checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa
+img_backbone_cfg=dict(
     type='ResNet',
     depth=50,
     num_stages=4,
@@ -65,7 +66,10 @@ model = dict(type='DecoderMocapModel',
     img_neck_cfg=img_neck_cfg,
     depth_backbone_cfg=depth_backbone_cfg,
     depth_neck_cfg=depth_neck_cfg,
-    num_sa_layers=6
+    num_sa_layers=6,
+    track_eval=True,
+    mse_loss_weight=0.1,
+    max_age=15
 )
 
 img_norm_cfg = dict(
@@ -225,27 +229,30 @@ data = dict(
     ),
     val=dict(type='HDF5Dataset',
         hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[28][0]],
-        end_times=[chunks[28][1]],
+        start_times=[chunks[25][0]],
+        end_times=[chunks[25][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        vid_path='logs/'
+        vid_path='logs/two_trucks/'
     ),
     test=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[28][0]],
-        end_times=[chunks[28][1]],
+        hdf5_fname='/dev/shm/node_1_debug.hdf5',
+        start_times=[chunks[25][0]],
+        end_times=[chunks[25][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        vid_path='logs/'
+        vid_path='logs/two_trucks/',
+        remove_first_frame=True,
+        #max_len=500
+        max_len=None
     ),
 )
 
@@ -262,7 +269,7 @@ optimizer = dict(
         }))
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 50
+total_epochs = 100
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
 evaluation = dict(metric=['bbox', 'track'], interval=total_epochs)
@@ -271,7 +278,7 @@ find_unused_parameters = True
 
 checkpoint_config = dict(interval=total_epochs)
 log_config = dict(
-    interval=50,
+    interval=10,
     hooks=[
         dict(type='TextLoggerHook'),
     ])
