@@ -67,8 +67,10 @@ class DecoderMocapModel(BaseMocapModel):
                      return_weights=False,
                      v_dim=None
                  ),
-                 max_age=1,
+                 max_age=5,
                  min_hits=3,
+                 track_eval=False,
+                 mse_loss_weight=0.0,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -77,6 +79,8 @@ class DecoderMocapModel(BaseMocapModel):
         self.min_hits = min_hits
         self.tracks = []
         self.frame_count = 0 
+        self.track_eval = track_eval
+        self.mse_loss_weight = mse_loss_weight
 
         self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
@@ -122,10 +126,13 @@ class DecoderMocapModel(BaseMocapModel):
         if return_loss:
             return self.forward_train(data, **kwargs)
         else:
-            return self.forward_test(data, **kwargs)
+            if self.track_eval:
+                return self.forward_track(data, **kwargs)
+            else:
+                return self.forward_test(data, **kwargs)
 
 
-    def _forward(self, data, **kwargs):
+    def _forward(self, data, return_unscaled=False, **kwargs):
         inter_embeds = []
 
         if 'zed_camera_left' in data.keys():
@@ -160,7 +167,10 @@ class DecoderMocapModel(BaseMocapModel):
             # output_vals[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
             # output_vals = layer(output_vals)
             
-        # output_vals = self.self_attn(output_vals)
+        output_vals = self.self_attn(output_vals)
+
+        if return_unscaled:
+            return output_vals
 
         # mean = self.mean_head(final_embeds)
         mean = output_vals[..., 0:3]
@@ -194,7 +204,8 @@ class DecoderMocapModel(BaseMocapModel):
         }
         return result
 
-    def forward_test_(self, data, **kwargs):
+    def forward_track(self, data, **kwargs):
+        output_vals = self._forward(data, return_unscaled=True)
         means, covs, cls_logits, obj_logits = self._forward(data, **kwargs)
         assert len(means) == 1 #assume batch size of 1
         means = means[0] #Nq x 3 
@@ -230,9 +241,12 @@ class DecoderMocapModel(BaseMocapModel):
                 new_track = MocapTrack(means[j], covs[j])
                 self.tracks.append(new_track)
         else:
+            print(probs.exp())
+            exp_probs = probs.exp()
             assign_idx = linear_assignment(-probs)
             for t, d in assign_idx:
-                self.tracks[t].update(means[d], covs[d])
+                if exp_probs[t,d] >= 1e-16:
+                    self.tracks[t].update(means[d], covs[d])
 
 
         # if len(self.tracks) > 0:
@@ -255,29 +269,39 @@ class DecoderMocapModel(BaseMocapModel):
         # labels, scores = [], []
         
         track_means, track_covs = [], []
+        track_ids = []
         for t, track in enumerate(self.tracks):
             onstreak = track.hit_streak >= self.min_hits
             warmingup = self.frame_count <= self.min_hits
             if track.wasupdated and (onstreak or warmingup):
                 track_means.append(track.mean)
                 track_covs.append(track.cov.diag())
+                track_ids.append(track.id)
         
         track_means = torch.stack(track_means)
         track_covs = torch.stack(track_covs)
+        track_ids = torch.tensor(track_ids)
 
-        print(track_means)
+        print(track_means, track_ids)
         # states = torch.cat(states, dim=0)
         # ids = torch.tensor(ids).cuda()
         # labels = torch.tensor(labels).cuda()
         # scores = torch.tensor(scores).cuda()
         # ret = (states, labels, ids, scores)
+        keep_tracks = []
+        for track in self.tracks:
+            if track.time_since_update > self.max_age:
+                continue
+            keep_tracks.append(track)
+        self.tracks = keep_tracks
         # self.tracks = [track for track in self.tracks\
                        # if track.time_since_update < self.max_age]
 
         result = {
             'pred_position_mean': track_means.detach().unsqueeze(0).cpu().numpy(),
             'pred_position_cov': track_covs.detach().unsqueeze(0).cpu().numpy(),
-            'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy()
+            'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy(),
+            'track_ids': track_ids.unsqueeze(0).numpy()
         }
         return result
 
@@ -325,8 +349,9 @@ class DecoderMocapModel(BaseMocapModel):
             losses['pos_loss'].append(pos_loss)
 
             mse_loss /= len(assign_idx)
-            mse_loss /= 10
-            # losses['mse_loss'].append(mse_loss)
+            if self.mse_loss_weight != 0:
+                mse_loss *= self.mse_loss_weight
+                losses['mse_loss'].append(mse_loss)
 
             obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + (1.0 - self.bce_target)
             obj_targets = obj_targets.float()
