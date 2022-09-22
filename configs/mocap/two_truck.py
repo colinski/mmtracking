@@ -67,7 +67,7 @@ model = dict(type='DecoderMocapModel',
     depth_backbone_cfg=depth_backbone_cfg,
     depth_neck_cfg=depth_neck_cfg,
     num_sa_layers=6,
-    track_eval=True,
+    track_eval=False,
     mse_loss_weight=0.1,
     max_age=15
 )
@@ -211,6 +211,22 @@ chunks = [
 
 shuffle = True
 classes = ('truck', )
+valset=dict(type='HDF5Dataset',
+    hdf5_fname='/home/csamplawski/eight/iobt/data_624/node_4_debug.hdf5',
+    start_times=[chunks[30][0]],
+    end_times=[chunks[30][1]],
+    valid_keys=valid_keys,
+    img_pipeline=img_pipeline,
+    depth_pipeline=depth_pipeline,
+    azimuth_pipeline=azimuth_pipeline,
+    range_pipeline=range_pipeline,
+    audio_pipeline=audio_pipeline,
+    vid_path='logs/two_trucks/',
+    is_random=False,
+    remove_first_frame=True,
+    max_len=None,
+)
+
 data = dict(
     samples_per_gpu=32,
     workers_per_gpu=0,
@@ -225,35 +241,12 @@ data = dict(
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        is_random=shuffle
-    ),
-    val=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[25][0]],
-        end_times=[chunks[25][1]],
-        valid_keys=valid_keys,
-        img_pipeline=img_pipeline,
-        depth_pipeline=depth_pipeline,
-        azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline,
-        vid_path='logs/two_trucks/'
-    ),
-    test=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[28][0]],
-        end_times=[chunks[28][1]],
-        valid_keys=valid_keys,
-        img_pipeline=img_pipeline,
-        depth_pipeline=depth_pipeline,
-        azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline,
-        vid_path='logs/two_trucks/',
+        is_random=shuffle,
         remove_first_frame=True,
-        #max_len=500
-        max_len=None
+        max_len=None,
     ),
+    val=valset,
+    test=valset
 )
 
 
@@ -266,7 +259,9 @@ optimizer = dict(
             'backbone': dict(lr_mult=0.1),
             'sampling_offsets': dict(lr_mult=0.1),
             'reference_points': dict(lr_mult=0.1)
-        }))
+        }
+    )
+)
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 total_epochs = 100
