@@ -67,7 +67,7 @@ model = dict(type='DecoderMocapModel',
     depth_backbone_cfg=depth_backbone_cfg,
     depth_neck_cfg=depth_neck_cfg,
     num_sa_layers=6,
-    track_eval=True,
+    track_eval=False,
     mse_loss_weight=0.1,
     max_age=5
 )
@@ -211,7 +211,7 @@ chunks = [
 
 shuffle = True
 classes = ('truck', )
-data_root = '/dev/shm/'
+data_root = 'data'
 valset=dict(type='HDF5Dataset',
     # hdf5_fname='/home/csamplawski/eight/iobt/data_624/node_4_debug.hdf5',
     hdf5_fname=f'{data_root}/node_1_debug.hdf5',

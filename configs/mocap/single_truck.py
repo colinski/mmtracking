@@ -68,7 +68,8 @@ model = dict(type='DecoderMocapModel',
     depth_neck_cfg=depth_neck_cfg,
     num_sa_layers=6,
     track_eval=True,
-    mse_loss_weight=10
+    mse_loss_weight=0.1,
+    max_age=5
 )
 
 img_norm_cfg = dict(
@@ -210,13 +211,31 @@ chunks = [
 
 shuffle = True
 classes = ('truck', )
+data_root = 'data/'
+valset=dict(type='HDF5Dataset',
+    # hdf5_fname='/home/csamplawski/eight/iobt/data_624/node_4_debug.hdf5',
+    hdf5_fname=f'{data_root}/node_1_debug.hdf5',
+    start_times=[chunks[7][0]],
+    end_times=[chunks[7][1]],
+    valid_keys=valid_keys,
+    img_pipeline=img_pipeline,
+    depth_pipeline=depth_pipeline,
+    azimuth_pipeline=azimuth_pipeline,
+    range_pipeline=range_pipeline,
+    audio_pipeline=audio_pipeline,
+    vid_path='logs/single_truck/',
+    is_random=False,
+    remove_first_frame=True,
+    max_len=200,
+)
+
 data = dict(
     samples_per_gpu=32,
     workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
+        hdf5_fname=f'{data_root}/node_1_debug.hdf5',
         # hdf5_fname='data/node_1_debug.hdf5',
-        hdf5_fname='/dev/shm/node_1_debug.hdf5',
         start_times=[chunks[6][0]],
         end_times=[chunks[6][1]],
         valid_keys=valid_keys,
@@ -225,32 +244,12 @@ data = dict(
         azimuth_pipeline=azimuth_pipeline,
         range_pipeline=range_pipeline,
         audio_pipeline=audio_pipeline,
-        is_random=shuffle
+        is_random=shuffle,
+        remove_first_frame=True,
+        max_len=None,
     ),
-    val=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
-        start_times=[chunks[7][0]],
-        end_times=[chunks[7][1]],
-        valid_keys=valid_keys,
-        img_pipeline=img_pipeline,
-        depth_pipeline=depth_pipeline,
-        azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline,
-        vid_path='logs/single_truck/'
-    ),
-    test=dict(type='HDF5Dataset',
-        hdf5_fname='/dev/shm/node_1_debug.hdf5',
-        start_times=[chunks[7][0]],
-        end_times=[chunks[7][1]],
-        valid_keys=valid_keys,
-        img_pipeline=img_pipeline,
-        depth_pipeline=depth_pipeline,
-        azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline,
-        vid_path='logs/single_truck/'
-    ),
+    val=valset,
+    test=valset
 )
 
 
@@ -263,7 +262,9 @@ optimizer = dict(
             'backbone': dict(lr_mult=0.1),
             'sampling_offsets': dict(lr_mult=0.1),
             'reference_points': dict(lr_mult=0.1)
-        }))
+        }
+    )
+)
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 total_epochs = 50
@@ -275,7 +276,7 @@ find_unused_parameters = True
 
 checkpoint_config = dict(interval=total_epochs)
 log_config = dict(
-    interval=50,
+    interval=10,
     hooks=[
         dict(type='TextLoggerHook'),
     ])
