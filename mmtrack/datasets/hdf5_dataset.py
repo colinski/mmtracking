@@ -206,7 +206,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         fig, axes = init_fig()
 
         colors = ['red', 'blue', 'green', 'yellow', 'black']
-        markers = [',', 'o', ',', 'o', ',', 'o', ',', 'o']
+        markers = []
+        colors = []
+        for i in range(100):
+            markers.append(',')
+            markers.append('o')
+            colors.extend(['red', 'blue', 'green', 'yellow', 'black'])
+        # markers = [',', 'o', ',', 'o', ',', 'o', ',', 'o']
 
         for i in trange(len(self)):
             data = self[i]
