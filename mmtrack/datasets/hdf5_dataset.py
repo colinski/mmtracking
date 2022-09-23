@@ -38,7 +38,7 @@ def init_fig():
     axes['detected_points'] = plt.subplot2grid((3,4), (2,1), projection='3d')
     axes['mic_waveform'] = plt.subplot2grid((3,4), (2,2))
     axes['mic_direction'] = plt.subplot2grid((3,4), (2,3), projection='polar')
-    fig.suptitle('Title', fontsize=16)
+    fig.suptitle('Title', fontsize=11)
     fig.subplots_adjust(wspace=0, hspace=0)
     plt.tight_layout()
     return fig, axes
@@ -211,7 +211,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         for i in range(100):
             markers.append(',')
             markers.append('o')
-            colors.extend(['red', 'blue', 'green', 'yellow', 'black'])
+            #colors.extend(['red', 'blue', 'green', 'yellow', 'black'])
+            colors.extend(['green', 'red', 'black', 'yellow'])
         # markers = [',', 'o', ',', 'o', ',', 'o', ',', 'o']
 
         for i in trange(len(self)):
@@ -221,19 +222,23 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             if 'mocap' in data.keys():
                 save_frame = True
                 axes['mocap'].clear()
+                axes['mocap'].set_xlim(0,1)
+                axes['mocap'].set_ylim(0,1)
                  
                 means = outputs['pred_position_mean'][i][0]
                 covs = outputs['pred_position_cov'][i][0]
                 ids = outputs['track_ids'][i][0].astype(int)
+                print(means, covs, ids)
                 for j in range(len(means)):
                     mean = means[j]
                     cov = covs[j]
                     ID = ids[j]
                     if len(mean) != 3 or len(cov) != 3:
                         import ipdb; ipdb.set_trace() # noqa
-                    axes['mocap'].scatter(mean[1], mean[0], color=colors[ID])
+                    axes['mocap'].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
+                    # axes['mocap'].annotate(str(ID), (mean[1], mean[0]))
                     ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
-                                                    edgecolor=colors[ID], fc='None', lw=2)
+                                                    edgecolor='blue', fc='None', lw=1, linestyle='--')
                     axes['mocap'].add_patch(ellipse)
                 
                 # for pos in outputs['pred_position_mean'][i]:
@@ -250,11 +255,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     ID = gt_ids[j]
                     if gt_labels[j] == 0:
                         marker = ','
+                        color = 'black'
                     else:
                         marker = markers[ID]
+                        color = colors[ID]
                     # if pos[-1] == 0.0: #z == 0, ignore
                         # continue
-                    axes['mocap'].scatter(pos[1], pos[0], marker=marker, color='k') # to rotate, longer side to be y axis
+                    axes['mocap'].scatter(pos[1], pos[0], marker=marker, color=color) # to rotate, longer side to be y axis
 
 
             if 'zed_camera_left' in data.keys():
