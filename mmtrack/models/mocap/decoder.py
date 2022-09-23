@@ -227,27 +227,34 @@ class DecoderMocapModel(BaseMocapModel):
         # pred_means = torch.zeros(0, 3)
         # pred_cov = torch.zeros(0, 3)
         
-        probs = torch.zeros(len(self.tracks), len(means))
+        log_probs = torch.zeros(len(self.tracks), len(means))
         for i, track in enumerate(self.tracks):
             # track_dist = self.dist(track.mean, track.cov)
             # track_dist = D.Independent(pred_dist, 1)
             for j, mean in enumerate(means):
                 pred_dist = self.dist(means[j], covs[j])
                 pred_dist = D.Independent(pred_dist, 1)
-                log_prob = pred_dist.log_prob(track.mean.cuda())
-                probs[i, j] = log_prob
+                log_prob = pred_dist.log_prob(track.mean[...,0:3].cuda())
+                log_probs[i, j] = log_prob
         
-        if len(probs) == 0: #no tracks yet
+        if len(log_probs) == 0: #no tracks yet
             for j in range(len(means)):
                 new_track = MocapTrack(means[j], covs[j])
                 self.tracks.append(new_track)
         else:
-            print(probs.exp())
-            exp_probs = probs.exp()
-            assign_idx = linear_assignment(-probs)
+            print(log_probs.exp())
+            exp_probs = log_probs.exp()
+            assign_idx = linear_assignment(-log_probs)
+            unassigned = []
             for t, d in assign_idx:
                 if exp_probs[t,d] >= 1e-16:
                     self.tracks[t].update(means[d], covs[d])
+                else:
+                    unassigned.append(d)
+            for d in unassigned:
+                new_track = MocapTrack(means[d], covs[d])
+                self.tracks.append(new_track)
+
 
 
         # if len(self.tracks) > 0:
@@ -262,7 +269,7 @@ class DecoderMocapModel(BaseMocapModel):
         # for d, t in matches:
             # self.tracks[t].update(dets[d])
 
-        # for d in unmatched_dets:
+        # for d in unmatched_detd:
             # new_track = MocapTrack(dets[d])
             # self.tracks.append(new_track)
             
@@ -275,8 +282,8 @@ class DecoderMocapModel(BaseMocapModel):
             onstreak = track.hit_streak >= self.min_hits
             warmingup = self.frame_count <= self.min_hits
             if track.wasupdated and (onstreak or warmingup):
-                track_means.append(track.mean.unsqueeze(0))
-                track_covs.append(track.cov.diag().unsqueeze(0))
+                track_means.append(track.mean[...,0:3].unsqueeze(0))
+                track_covs.append(track.cov[...,0:3].diag().unsqueeze(0))
                 track_ids.append(track.id)
         
         track_means = torch.cat(track_means)

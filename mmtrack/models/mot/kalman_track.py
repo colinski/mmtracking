@@ -101,8 +101,12 @@ class MocapTrack(torch.nn.Module):
         self.state_size = len(mean)
         if cov is None:
             cov = torch.ones(self.state_size) * 0.01
-        self.dymodel = NcpContinuous(self.state_size, 2.0)
-        # self.dymodel = NcvContinuous(self.state_size, 0.001)
+        # self.dymodel = NcpContinuous(self.state_size, 2.0)
+        self.dymodel = NcvContinuous(self.state_size*2, 0.01)
+        
+        mean = torch.cat([mean, torch.zeros(3).cuda() + 0.01])
+        cov = torch.cat([cov, torch.ones(3).cuda() * 0.01])
+
         #self.kf = EKFState(self.dymodel, mean.cpu().unsqueeze(0), cov.cpu().unsqueeze(0), time=0)
         self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
     
@@ -134,7 +138,6 @@ class MocapTrack(torch.nn.Module):
         # cov = cov
         if cov is None:
             cov = torch.ones(self.state_size) * 0.01
-
         m = PositionMeasurement(mean.cpu(), torch.diag(cov).cpu(), time=self.kf.time)
         self.kf, _ = self.kf.update(m)
 
