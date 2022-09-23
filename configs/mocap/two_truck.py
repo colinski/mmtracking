@@ -67,9 +67,9 @@ model = dict(type='DecoderMocapModel',
     depth_backbone_cfg=depth_backbone_cfg,
     depth_neck_cfg=depth_neck_cfg,
     num_sa_layers=6,
-    track_eval=False,
+    track_eval=True,
     mse_loss_weight=0.1,
-    max_age=15
+    max_age=5
 )
 
 img_norm_cfg = dict(
@@ -211,10 +211,12 @@ chunks = [
 
 shuffle = True
 classes = ('truck', )
+data_root = '/dev/shm/'
 valset=dict(type='HDF5Dataset',
-    hdf5_fname='/home/csamplawski/eight/iobt/data_624/node_4_debug.hdf5',
-    start_times=[chunks[30][0]],
-    end_times=[chunks[30][1]],
+    # hdf5_fname='/home/csamplawski/eight/iobt/data_624/node_4_debug.hdf5',
+    hdf5_fname=f'{data_root}/node_1_debug.hdf5',
+    start_times=[chunks[25][0]],
+    end_times=[chunks[25][1]],
     valid_keys=valid_keys,
     img_pipeline=img_pipeline,
     depth_pipeline=depth_pipeline,
@@ -232,7 +234,8 @@ data = dict(
     workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
-        hdf5_fname='data/node_1_debug.hdf5',
+        hdf5_fname=f'{data_root}/node_1_debug.hdf5',
+        # hdf5_fname='data/node_1_debug.hdf5',
         start_times=[chunks[25][0]],
         end_times=[chunks[25][1]],
         valid_keys=valid_keys,
