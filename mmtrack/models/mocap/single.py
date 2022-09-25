@@ -21,8 +21,10 @@ from .base import BaseMocapModel
 from mmdet.models import build_loss
 from cad.pos import AnchorEncoding
 from cad.attn import ResCrossAttn, ResSelfAttn
-from cad.models.detr import DETRDecoder
+# from cad.models.detr import DETRDecoder
 from collections import defaultdict
+from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
+from mmcv import build_from_cfg
 
 @MODELS.register_module()
 class SingleModalityModel(BaseModule):
@@ -39,6 +41,7 @@ class SingleModalityModel(BaseModule):
                      return_weights=False,
                      v_dim=None
                  ),
+                 ffn_cfg=dict(type='SLP', in_channels=256),
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -51,6 +54,10 @@ class SingleModalityModel(BaseModule):
         
         self.pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
         self.cross_attn = ResCrossAttn(cross_attn_cfg)
+        
+        self.ffn = None
+        if ffn_cfg is not None:
+            self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
         
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -71,4 +78,6 @@ class SingleModalityModel(BaseModule):
         pos_embeds = pos_embeds.expand(B, -1, -1, -1)
         output_embeds = self.cross_attn(pos_embeds, feats)
         output_embeds = output_embeds.reshape(B, -1, D)
+        if self.ffn is not None:
+            output_embeds = self.ffn(output_embeds)
         return output_embeds

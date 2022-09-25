@@ -27,6 +27,9 @@ from mmtrack.models.mot.kalman_track import MocapTrack
 # from .hungarian import match
 import time
 
+from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
+from mmcv import build_from_cfg
+
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
     _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
@@ -40,10 +43,7 @@ def linear_assignment(cost_matrix):
 class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
                  img_model_cfg=None,
-                 img_backbone_cfg=None,
-                 img_neck_cfg=None,
-                 depth_backbone_cfg=None,
-                 depth_neck_cfg=None,
+                 range_model_cfg=None,
                  bce_target=0.99,
                  remove_zero_at_train=True,
                  cross_attn_cfg=dict(type='QKVAttention',
@@ -56,8 +56,18 @@ class DecoderMocapModel(BaseMocapModel):
                      return_weights=False,
                      v_dim=None
                  ),
-                 num_sa_layers=6,
-                 self_attn_cfg=dict(type='QKVAttention',
+                 fusion_sa_cfg=dict(type='QKVAttention',
+                     qk_dim=256,
+                     num_heads=8, 
+                     in_proj=True,
+                     out_proj=True,
+                     attn_drop=0.1, 
+                     seq_drop=0.0,
+                     return_weights=False,
+                     v_dim=None
+                 ),
+                 fusion_ffn_cfg=dict(type='SLP', in_channels=256),
+                 output_sa_cfg=dict(type='QKVAttention',
                      qk_dim=7,
                      num_heads=1, 
                      in_proj=True,
@@ -67,6 +77,7 @@ class DecoderMocapModel(BaseMocapModel):
                      return_weights=False,
                      v_dim=None
                  ),
+                 num_output_sa_layers=6,
                  max_age=5,
                  min_hits=3,
                  track_eval=False,
@@ -85,13 +96,20 @@ class DecoderMocapModel(BaseMocapModel):
         self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
         
-        self.img_model = build_model(img_model_cfg)
+        if img_model_cfg is not None:
+            self.img_model = build_model(img_model_cfg)
+        
+        if range_model_cfg is not None:
+            self.range_model = build_model(range_model_cfg)
         self.mse_loss = nn.MSELoss(reduction='none')
         self.global_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
-        self.self_attn = [ResSelfAttn(self_attn_cfg) for _ in range(num_sa_layers)]
-        self.self_attn = nn.Sequential(*self.self_attn)
+        
+        self.fuser = nn.Sequential(
+            ResSelfAttn(fusion_sa_cfg),
+            build_from_cfg(fusion_ffn_cfg, FEEDFORWARD_NETWORK)
+        )
         
         self.ctn = nn.Sequential(
             nn.Linear(256, 256),
@@ -100,8 +118,11 @@ class DecoderMocapModel(BaseMocapModel):
             nn.GELU(),
         )
         
+        self.output_sa = [ResSelfAttn(output_sa_cfg) for _ in range(num_output_sa_layers)]
+        self.output_sa = nn.Sequential(*self.output_sa)
 
         self.output_head = nn.Linear(256, 3+3+1)
+
         self.dist = D.Normal
 
         # focal_loss_cfg = dict(type='FocalLoss',
@@ -140,6 +161,12 @@ class DecoderMocapModel(BaseMocapModel):
             img_embeds = self.img_model(img)
             inter_embeds.append(img_embeds)
 
+        if 'range_doppler' in data.keys():
+            img = data['range_doppler']['img']
+            img = img.expand(-1, 3, -1, -1)
+            range_embeds = self.range_model(img)
+            inter_embeds.append(range_embeds)
+
         if 'zed_camera_depth' in data.keys():
             dmap = data['zed_camera_depth']['img']
             depth_embeds = self.depth_model(dmap)
@@ -151,6 +178,9 @@ class DecoderMocapModel(BaseMocapModel):
 
         inter_embeds = torch.cat(inter_embeds, dim=1)
         B, L, D = inter_embeds.shape
+
+        # inter_embeds = self.fusion_sa(inter_embeds)
+        inter_embeds = self.fuser(inter_embeds)
         
         global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
         global_pos_embeds = global_pos_embeds.expand(B, -1, -1, -1)
@@ -161,13 +191,7 @@ class DecoderMocapModel(BaseMocapModel):
         final_embeds = self.ctn(final_embeds)
 
         output_vals = self.output_head(final_embeds) #B L 7
-        
-        # for layer in self.self_attn:
-            # output_vals[:, :, 0] += self.global_pos_encoding.unscaled_params_x.flatten()
-            # output_vals[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
-            # output_vals = layer(output_vals)
-            
-        output_vals = self.self_attn(output_vals)
+        output_vals = self.output_sa(output_vals)
 
         if return_unscaled:
             return output_vals
@@ -178,12 +202,8 @@ class DecoderMocapModel(BaseMocapModel):
         mean[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
         mean = mean.sigmoid()
 
-        # cov = self.cov_head(final_embeds)
         cov = F.softplus(output_vals[..., 3:6])
-        # cls_logits = self.cls_head(final_embeds)
-        # obj_logits = self.obj_head(final_embeds)
         obj_logits = output_vals[..., -1]
-        # obj_logits = self.self_attn(obj_logits)
         return mean, cov, None, obj_logits
  
 
@@ -315,13 +335,12 @@ class DecoderMocapModel(BaseMocapModel):
 
     def forward_train(self, data, **kwargs):
         losses = defaultdict(list)
-        
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
         bs = len(mean)
         for i in range(bs):
-            is_missing = data['missing']['zed_camera_left'][i]
-            if is_missing:
-                continue
+            # is_missing = data['missing']['zed_camera_left'][i]
+            # if is_missing:
+                # continue
             
             # is_missing = data['missing']['zed_camera_depth'][i]
             # if is_missing:
