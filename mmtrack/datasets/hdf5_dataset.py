@@ -132,6 +132,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         buff['zed_camera_left'] = np.zeros((10, 10, 3)).astype(np.uint8) #will be resized
         buff['zed_camera_left'] = cv2.imencode('.jpg', buff['zed_camera_left'])[1] #save compressed
         buff['zed_camera_depth'] = np.zeros((10, 10, 1)).astype(np.int16) #will be resized
+        buff['range_doppler'] = np.zeros((10, 10))
         buff = {k: v for k, v in buff.items() if k in self.valid_keys}
         buff['missing'] = {}
         for mod in self.MODALITIES:
@@ -190,6 +191,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
             if key == 'zed_camera_depth':
                 new_buff[key] = self.depth_pipeline(val)
+
+            if key == 'range_doppler':
+                new_buff[key] = self.range_pipeline(val.T)
         
         return new_buff
     
