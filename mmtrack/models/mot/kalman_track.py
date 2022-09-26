@@ -90,44 +90,37 @@ class MocapTrack(torch.nn.Module):
         self.hit_streak = 0
         self.age = 0
         
-        #bbox is 1 x 6 
-        # bbox = det[0:4]
-        # self.score = det[4].cpu()
-        # self.label = det[5].cpu()
-        
-        # mean = xyxy_to_xyar(bbox).cpu()
-        # cov = torch.eye(4)
-        #cov[2:, 2:] *= 10
         self.state_size = len(mean)
         if cov is None:
             cov = torch.ones(self.state_size) * 0.01
         # self.dymodel = NcpContinuous(self.state_size, 2.0)
         self.dymodel = NcvContinuous(self.state_size*2, 0.01)
+        # self.dymodel = self.dymodel.to(mean.device)
         
-        mean = torch.cat([mean, torch.zeros(3).cuda() + 0.01])
-        cov = torch.cat([cov, torch.ones(3).cuda() * 0.01])
+        mean = torch.cat([mean, torch.zeros_like(mean) + 0.01])
+        cov = torch.cat([cov, torch.zeros_like(cov) + 0.01])
 
         #self.kf = EKFState(self.dymodel, mean.cpu().unsqueeze(0), cov.cpu().unsqueeze(0), time=0)
+        #self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
         self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
     
     @property
     def wasupdated(self):
         return self.time_since_update < 1
     
-    @property
-    def state(self):
-        mean = self.kf.mean.cuda()
-        state = mean
-        # state = xyar_to_xyxy(mean)
-        return state
+    # @property
+    # def state(self):
+        # mean = self.kf.mean.cuda()
+        # state = mean
+        # return state
 
     @property
     def mean(self):
-        return self.kf.mean
+        return self.kf.mean[..., 0:3]
 
     @property
     def cov(self):
-        return self.kf.cov
+        return self.kf.cov[..., 0:3]
 
     def update(self, mean, cov=None):
         # bbox = det[0:4]

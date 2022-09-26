@@ -162,23 +162,23 @@ chunks = [
 ]
 
 #valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
-valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
-# valid_keys=['mocap', 'zed_camera_left']
+# valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
+valid_keys=['mocap', 'zed_camera_left']
 
 shuffle = True
 classes = ('truck', )
 data_root = 'data/'
 valset=dict(type='HDF5Dataset',
     hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
-    start_times=[chunks[2][0] + int(2.5*60*1000)],
-    end_times=[chunks[2][1]],
+    start_times=[chunks[3][0] + int(2.5*60*1000)],
+    end_times=[chunks[3][1]],
     valid_keys=valid_keys,
     img_pipeline=img_pipeline,
     depth_pipeline=depth_pipeline,
     azimuth_pipeline=azimuth_pipeline,
     range_pipeline=range_pipeline,
     audio_pipeline=audio_pipeline,
-    vid_path='logs/single_truck/',
+    vid_path='logs/two_trucks/',
     is_random=False,
     remove_first_frame=True,
     max_len=1000,
@@ -190,8 +190,8 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
-        start_times=[chunks[2][0]],
-        end_times=[chunks[2][0] + int(2.5*60*1000)],
+        start_times=[chunks[3][0]],
+        end_times=[chunks[3][0] + int(2.5*60*1000)],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,

@@ -29,7 +29,6 @@ import time
 
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
-from pyro.contrib.tracking.measurements import PositionMeasurement
 
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
@@ -41,7 +40,7 @@ def linear_assignment(cost_matrix):
     return assign_idx.long()
 
 @MODELS.register_module()
-class DecoderMocapModel(BaseMocapModel):
+class BackgroundModel(BaseMocapModel):
     def __init__(self,
                  img_model_cfg=None,
                  range_model_cfg=None,
@@ -107,11 +106,10 @@ class DecoderMocapModel(BaseMocapModel):
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
         
-        self.fuser = None
-        # self.fuser = nn.Sequential(
-            # ResSelfAttn(fusion_sa_cfg),
-            # build_from_cfg(fusion_ffn_cfg, FEEDFORWARD_NETWORK)
-        # )
+        self.fuser = nn.Sequential(
+            ResSelfAttn(fusion_sa_cfg),
+            build_from_cfg(fusion_ffn_cfg, FEEDFORWARD_NETWORK)
+        )
         
         self.ctn = nn.Sequential(
             nn.Linear(256, 256),
@@ -160,53 +158,9 @@ class DecoderMocapModel(BaseMocapModel):
 
         if 'zed_camera_left' in data.keys():
             img = data['zed_camera_left']['img']
-            img_embeds = self.img_model(img)
-            inter_embeds.append(img_embeds)
-
-        if 'range_doppler' in data.keys():
-            img = data['range_doppler']['img']
-            img = img.expand(-1, 3, -1, -1)
-            range_embeds = self.range_model(img)
-            inter_embeds.append(range_embeds)
-
-        if 'zed_camera_depth' in data.keys():
-            dmap = data['zed_camera_depth']['img']
-            depth_embeds = self.depth_model(dmap)
-            inter_embeds.append(depth_embeds)
-
-                    
-        if len(inter_embeds) == 0:
-            import ipdb; ipdb.set_trace() # noqa
-
-        inter_embeds = torch.cat(inter_embeds, dim=1)
-        B, L, D = inter_embeds.shape
-
-        # inter_embeds = self.fusion_sa(inter_embeds)
-        if self.fuser is not None:
-            inter_embeds = self.fuser(inter_embeds)
-        
-        global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-        global_pos_embeds = global_pos_embeds.expand(B, -1, -1, -1)
-
-        final_embeds = self.global_cross_attn(global_pos_embeds, inter_embeds)
-        final_embeds = final_embeds.reshape(B, -1, D)
-        
-        final_embeds = self.ctn(final_embeds)
-
-        output_vals = self.output_head(final_embeds) #B L 7
-        output_vals = self.output_sa(output_vals)
-
-        if return_unscaled:
-            return output_vals
-
-        # mean = self.mean_head(final_embeds)
-        mean = output_vals[..., 0:3]
-        mean[:, :, 0] += self.global_pos_encoding.unscaled_params_x.flatten()
-        mean[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
-        mean = mean.sigmoid()
-
-        cov = F.softplus(output_vals[..., 3:6])
-        obj_logits = output_vals[..., -1]
+            if 'zed_camera_left' not in self.backgrounds.keys():
+                self.backgrounds['zed_camera_left'] = torch.zeros_like(img)
+            self.backgrounds['zed_camera_left'] += img
         return mean, cov, None, obj_logits
  
 
@@ -234,12 +188,10 @@ class DecoderMocapModel(BaseMocapModel):
         assert len(means) == 1 #assume batch size of 1
         means = means[0] #Nq x 3 
         covs = covs[0] #Nq x 3
-        obj_probs = F.sigmoid(obj_logits[0]).squeeze() #Nq,
+        obj_probs = F.sigmoid(obj_logits[0]).squeeze()
         is_obj = obj_probs >= 0.5
         means = means[is_obj]
         covs = covs[is_obj]
-
-        print(covs)
 
         self.frame_count += 1
         
@@ -257,11 +209,9 @@ class DecoderMocapModel(BaseMocapModel):
             # track_dist = self.dist(track.mean, track.cov)
             # track_dist = D.Independent(pred_dist, 1)
             for j, mean in enumerate(means):
-                m = PositionMeasurement(means[j].cpu(), torch.diag(covs[j]).cpu(), time=track.kf.time)
-                log_prob = track.kf.log_likelihood_of_update(m)
-                # pred_dist = self.dist(means[j], covs[j])
-                # pred_dist = D.Independent(pred_dist, 1)
-                # log_prob = pred_dist.log_prob(track.mean[...,0:3].cuda())
+                pred_dist = self.dist(means[j], covs[j])
+                pred_dist = D.Independent(pred_dist, 1)
+                log_prob = pred_dist.log_prob(track.mean[...,0:3].cuda())
                 log_probs[i, j] = log_prob
         
         if len(log_probs) == 0: #no tracks yet
@@ -269,6 +219,7 @@ class DecoderMocapModel(BaseMocapModel):
                 new_track = MocapTrack(means[j], covs[j])
                 self.tracks.append(new_track)
         else:
+            print(log_probs.exp())
             exp_probs = log_probs.exp()
             assign_idx = linear_assignment(-log_probs)
             unassigned = []
@@ -302,33 +253,34 @@ class DecoderMocapModel(BaseMocapModel):
         # states, ids = [torch.empty(0,4).cuda()], []
         # labels, scores = [], []
         
-        track_means, track_covs, track_ids = [means.new_empty(0,3).cpu()], [means.new_empty(0,3).cpu()], []
+        track_means, track_covs = [torch.empty(0,3)], [torch.empty(0,3)]
+        track_ids = []
         for t, track in enumerate(self.tracks):
             onstreak = track.hit_streak >= self.min_hits
             warmingup = self.frame_count <= self.min_hits
             if track.wasupdated and (onstreak or warmingup):
-                track_means.append(track.mean.unsqueeze(0))
-                track_covs.append(track.cov.diag().unsqueeze(0))
+                track_means.append(track.mean[...,0:3].unsqueeze(0))
+                track_covs.append(track.cov[...,0:3].diag().unsqueeze(0))
                 track_ids.append(track.id)
         
         track_means = torch.cat(track_means)
         track_covs = torch.cat(track_covs)
         track_ids = torch.tensor(track_ids)
 
-        # print(track_means, track_ids)
+        print(track_means, track_ids)
         # states = torch.cat(states, dim=0)
         # ids = torch.tensor(ids).cuda()
         # labels = torch.tensor(labels).cuda()
         # scores = torch.tensor(scores).cuda()
         # ret = (states, labels, ids, scores)
-        # keep_tracks = []
-        # for track in self.tracks:
-            # if track.time_since_update > self.max_age:
-                # continue
-            # keep_tracks.append(track)
-        # self.tracks = keep_tracks
-        self.tracks = [track for track in self.tracks\
-                       if track.time_since_update < self.max_age]
+        keep_tracks = []
+        for track in self.tracks:
+            if track.time_since_update > self.max_age:
+                continue
+            keep_tracks.append(track)
+        self.tracks = keep_tracks
+        # self.tracks = [track for track in self.tracks\
+                       # if track.time_since_update < self.max_age]
 
         result = {
             'pred_position_mean': track_means.detach().unsqueeze(0).cpu().numpy(),
