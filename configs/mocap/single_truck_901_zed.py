@@ -89,7 +89,7 @@ model = dict(type='DecoderMocapModel',
         neck_cfg=range_neck_cfg,
         ffn_cfg=None,
     ),
-    track_eval=True,
+    track_eval=False,
     mse_loss_weight=0.0,
     max_age=5
 )
