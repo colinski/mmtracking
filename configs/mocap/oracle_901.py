@@ -8,99 +8,14 @@ custom_imports = dict(
         imports=[
             'mmtrack.models.mocap.decoder',
             'mmtrack.models.mocap.single',
-            'mmtrack.models.mocap.bg_model'
+            'mmtrack.models.mocap.oracle',
             # 'mmtrack.models.trackers.trackformer_tracker'
         ],
         allow_failed_imports=False)
 
-checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa
-img_backbone_cfg=dict(
-    type='ResNet',
-    depth=50,
-    num_stages=4,
-    out_indices=(3, ),
-    frozen_stages=1,
-    norm_cfg=dict(type='SyncBN', requires_grad=False),
-    norm_eval=True,
-    style='pytorch',
-    init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
-)
-
-img_neck_cfg=dict(type='ChannelMapper',
-    in_channels=[2048],
-    kernel_size=1,
-    out_channels=256,
-    act_cfg=None,
-    norm_cfg=dict(type='BN'),
-    num_outs=1
-)
-
-range_backbone_cfg=dict(
-    type='ResNet',
-    depth=50,
-    num_stages=4,
-    out_indices=(0, ),
-    # frozen_stages=1,
-    norm_cfg=dict(type='SyncBN', requires_grad=False),
-    norm_eval=True,
-    style='pytorch',
-    init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
-)
-
-range_neck_cfg=dict(type='ChannelMapper',
-    in_channels=[256],
-    kernel_size=1,
-    out_channels=256,
-    act_cfg=None,
-    norm_cfg=dict(type='BN'),
-    num_outs=1
-)
 
 
-depth_backbone_cfg=dict(
-    type='ResNet',
-    depth=50,
-    num_stages=4,
-    #out_indices=(0,1,2,3),
-    out_indices=(3, ),
-    frozen_stages=1,
-    norm_cfg=dict(type='SyncBN', requires_grad=False),
-    norm_eval=True,
-    style='pytorch',
-    init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
-)
-
-depth_neck_cfg=dict(type='ChannelMapper',
-    in_channels=[2048],
-    kernel_size=1,
-    out_channels=256,
-    act_cfg=None,
-    norm_cfg=dict(type='BN'),
-    num_outs=1
-)
-
-bg_model_cfg=dict(type='BackgroundModel', 
-    init_cfg=dict(type='Pretrained', 
-        checkpoint='logs/bg_model_zed/latest.pth'
-    )
-)
-
-model = dict(type='DecoderMocapModel',
-    img_model_cfg=dict(type='SingleModalityModel',
-        backbone_cfg=img_backbone_cfg,
-        neck_cfg=img_neck_cfg,
-        ffn_cfg=None,
-        bg_cfg=bg_model_cfg
-    ),
-    range_model_cfg=dict(type='SingleModalityModel',
-        backbone_cfg=range_backbone_cfg,
-        neck_cfg=range_neck_cfg,
-        ffn_cfg=None,
-    ),
-    track_eval=True,
-    mse_loss_weight=0.0,
-    max_age=5
-)
+model = dict(type='OracleModel')
 
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
@@ -178,7 +93,7 @@ classes = ('truck', )
 data_root = 'data/'
 valset=dict(type='HDF5Dataset',
     hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
-    start_times=[chunks[2][0] + int(2.5*60*1000)],
+    start_times=[chunks[2][0]],
     end_times=[chunks[2][1]],
     valid_keys=valid_keys,
     img_pipeline=img_pipeline,
@@ -199,7 +114,7 @@ data = dict(
     train=dict(type='HDF5Dataset',
         hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
         start_times=[chunks[2][0]],
-        end_times=[chunks[2][0] + int(2.5*60*1000)],
+        end_times=[chunks[2][1]],
         valid_keys=valid_keys,
         img_pipeline=img_pipeline,
         depth_pipeline=depth_pipeline,
@@ -229,10 +144,11 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 50
-lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
+total_epochs = 1
+lr_config = None
+# lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
-evaluation = dict(metric=['bbox', 'track'], interval=total_epochs)
+evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
 find_unused_parameters = True
 

@@ -30,6 +30,9 @@ import time
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 
+from pyro.contrib.tracking.measurements import PositionMeasurement
+
+
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
     _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
@@ -40,19 +43,21 @@ def linear_assignment(cost_matrix):
     return assign_idx.long()
 
 @MODELS.register_module()
-class BackgroundModel(BaseMocapModel):
+class OracleModel(BaseMocapModel):
     def __init__(self,
-                 key='zed_camera_left',
-                 data_shape=[3, 270, 480],
+                 cov=[1,1,1],
+                 max_age=5,
+                 min_hits=3,
+                 track_eval=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        self.key = key
-        self.data_shape = data_shape
-        C, H, W = data_shape
-        self.register_buffer('_bg', torch.zeros(C, H, W))
-        self.register_buffer('count', torch.zeros(1))
+        self.cov = torch.tensor(cov).unsqueeze(0).float()
         self.dummy_loss = nn.Parameter(torch.zeros(1))
+        self.max_age = max_age
+        self.min_hits = min_hits
+        self.tracks = []
+        self.frame_count = 0 
 
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -69,25 +74,102 @@ class BackgroundModel(BaseMocapModel):
         if return_loss:
             return self.forward_train(data, **kwargs)
         else:
-            return self.forward_test(data, **kwargs)
+            return self.forward_track(data, **kwargs)
 
-    @property
-    def buffer_names(self):
-        return set([x[0] for x in self.named_buffers()])
-    
-    @property
-    def bg(self):
-        return self._bg / self.count
-    
     def forward_train(self, data, **kwargs):
-        if self.key in data.keys():
-            img = data[self.key]['img']
-            B, C, H, W = img.shape
-            for i in range(B):
-                self._bg += img[i]
-                self.count += 1
-        return {'dummy_loss': self.dummy_loss}
- 
+        pass
+
+    def forward_track(self, data, **kwargs):
+        gt_pos = data['mocap']['gt_positions'][0][-2].unsqueeze(0)
+        gt_labels = data['mocap']['gt_labels'][0][-2].unsqueeze(0)
+        # is_node = gt_labels == 0
+        # final_mask = ~is_node
+        # z_is_zero = gt_pos[:, -1] == 0.0
+        # final_mask = final_mask & ~z_is_zero
+        # gt_pos = gt_pos[final_mask]
+        # gt_labels = gt_labels[final_mask]
+
+        means = gt_pos
+        covs = self.cov
+        self.frame_count += 1
+        
+        #get predictions from existing tracks
+        for track in self.tracks:
+            track.predict()
+        
+        log_probs = torch.zeros(len(self.tracks), len(means))
+        for i, track in enumerate(self.tracks):
+            for j, mean in enumerate(means):
+                m = PositionMeasurement(means[j].cpu(), torch.diag(covs[j]).cpu(), time=track.kf.time)
+                log_prob = track.kf.log_likelihood_of_update(m)
+                log_probs[i, j] = log_prob
+        
+        if len(log_probs) == 0: #no tracks yet
+            for j in range(len(means)):
+                new_track = MocapTrack(means[j], covs[j])
+                self.tracks.append(new_track)
+        else:
+            exp_probs = log_probs.exp()
+            try:
+                assign_idx = linear_assignment(-log_probs)
+            except:
+                import ipdb; ipdb.set_trace() # noqa
+            unassigned = []
+            for t, d in assign_idx:
+                if exp_probs[t,d] >= 1e-16:
+                    self.tracks[t].update(means[d], covs[d])
+                else:
+                    unassigned.append(d)
+            for d in unassigned:
+                new_track = MocapTrack(means[d], covs[d])
+                self.tracks.append(new_track)
+
+
+        track_means, track_covs, track_ids = [means.new_empty(0,3).cpu()], [means.new_empty(0,3).cpu()], []
+        for t, track in enumerate(self.tracks):
+            onstreak = track.hit_streak >= self.min_hits
+            warmingup = self.frame_count <= self.min_hits
+            if track.wasupdated and (onstreak or warmingup):
+                track_means.append(track.mean.unsqueeze(0))
+                track_covs.append(track.cov.diag().unsqueeze(0))
+                track_ids.append(track.id)
+        
+        track_means = torch.cat(track_means)
+        track_covs = torch.cat(track_covs)
+        track_ids = torch.tensor(track_ids)
+
+        self.tracks = [track for track in self.tracks\
+                       if track.time_since_update < self.max_age]
+
+        result = {
+            'pred_position_mean': track_means.detach().unsqueeze(0).cpu().numpy(),
+            'pred_position_cov': track_covs.detach().unsqueeze(0).cpu().numpy(),
+            # 'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy(),
+            'track_ids': track_ids.unsqueeze(0).numpy()
+        }
+        return result
+
+
+    def forward_test(self, data, **kwargs):
+        gt_pos = data['mocap']['gt_positions'][0]
+        gt_labels = data['mocap']['gt_labels'][0]
+
+        is_node = gt_labels == 0
+        final_mask = ~is_node
+        z_is_zero = gt_pos[:, -1] == 0.0
+        final_mask = final_mask & ~z_is_zero
+        gt_pos = gt_pos[final_mask]
+        gt_labels = gt_labels[final_mask]
+
+        result = {
+            'pred_position_mean': gt_pos.cpu().detach().unsqueeze(0).numpy(),
+            'pred_position_cov': self.cov.cpu().detach().unsqueeze(0).numpy(),
+            # 'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy(),
+            'pred_obj_prob': np.ones((1, len(gt_pos))),
+            'track_ids': np.zeros((1, len(gt_pos)))
+        }
+        return result
+
 
     def simple_test(self, img, img_metas, rescale=False):
         pass

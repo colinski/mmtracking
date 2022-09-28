@@ -25,6 +25,7 @@ from cad.attn import ResCrossAttn, ResSelfAttn
 from collections import defaultdict
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
+from ..builder import MODELS, build_tracker, build_model
 
 @MODELS.register_module()
 class SingleModalityModel(BaseModule):
@@ -42,6 +43,7 @@ class SingleModalityModel(BaseModule):
                      v_dim=None
                  ),
                  ffn_cfg=dict(type='SLP', in_channels=256),
+                 bg_cfg=None,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,6 +60,10 @@ class SingleModalityModel(BaseModule):
         self.ffn = None
         if ffn_cfg is not None:
             self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
+
+        self.bg_model = None
+        if bg_cfg is not None:
+            self.bg_model = build_model(bg_cfg)
         
     
     #def forward(self, data, return_loss=True, **kwargs):

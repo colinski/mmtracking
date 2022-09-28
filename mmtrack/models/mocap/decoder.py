@@ -160,8 +160,15 @@ class DecoderMocapModel(BaseMocapModel):
 
         if 'zed_camera_left' in data.keys():
             img = data['zed_camera_left']['img']
+            # bg = self.img_model.bg_model.bg
+            # abs_diff = (bg - img).abs()
+            # avg_diffs = abs_diff.mean(dim=[1,2,3])
+            # for i in range(len(img)):
+                # if avg_diffs[i] <= 0.04:
+                    # import ipdb; ipdb.set_trace() # noqa
             img_embeds = self.img_model(img)
             inter_embeds.append(img_embeds)
+
 
         if 'range_doppler' in data.keys():
             img = data['range_doppler']['img']
