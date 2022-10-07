@@ -95,11 +95,11 @@ class MocapTrack(torch.nn.Module):
             cov = torch.ones(self.state_size) * 0.01
         # self.dymodel = self.dymodel.to(mean.device)
         
-        self.dymodel = NcvContinuous(self.state_size*2, 0.01)
-        mean = torch.cat([mean, torch.zeros_like(mean) + 0.01])
-        cov = torch.cat([cov, torch.zeros_like(cov) + 0.01])
+        self.dymodel = NcvContinuous(self.state_size*2, 1e-2)
+        mean = torch.cat([mean, torch.zeros_like(mean) + 0.0])
+        cov = torch.cat([cov, torch.zeros_like(cov) + 1.0])
 
-        # self.dymodel = NcpContinuous(self.state_size, 2.0)
+        # self.dymodel = NcpContinuous(self.state_size, 1)
         #self.kf = EKFState(self.dymodel, mean.cpu().unsqueeze(0), cov.cpu().unsqueeze(0), time=0)
         #self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
         self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
@@ -132,11 +132,13 @@ class MocapTrack(torch.nn.Module):
         if cov is None:
             cov = torch.ones(self.state_size) * 0.01
         m = PositionMeasurement(mean.cpu(), torch.diag(cov).cpu(), time=self.kf.time)
+        # inno = self.kf.innovation(m)
         self.kf, _ = self.kf.update(m)
 
     def predict(self):        
         self.age += 1
-        self.kf = self.kf.predict(dt=self.age)        
+        self.kf = self.kf.predict(dt=1)
+        # self.kf = self.kf.predict(dt=self.age)
         
         if self.time_since_update > 0:
             self.hit_streak = 0
