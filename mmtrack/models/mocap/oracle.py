@@ -46,18 +46,23 @@ def linear_assignment(cost_matrix):
 class OracleModel(BaseMocapModel):
     def __init__(self,
                  cov=[1,1,1],
+                 mean_cov=[0.01,0.01,0.01],
                  max_age=5,
                  min_hits=3,
                  track_eval=False,
+                 no_update=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.cov = torch.tensor(cov).unsqueeze(0).float()
+        self.mean_cov = torch.tensor(mean_cov).unsqueeze(0).float()
         self.dummy_loss = nn.Parameter(torch.zeros(1))
         self.max_age = max_age
         self.min_hits = min_hits
         self.tracks = []
         self.frame_count = 0 
+        self.track_eval = track_eval
+        self.no_update = no_update
 
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -74,14 +79,25 @@ class OracleModel(BaseMocapModel):
         if return_loss:
             return self.forward_train(data, **kwargs)
         else:
-            return self.forward_track(data, **kwargs)
+            if self.track_eval:
+                return self.forward_track(data, **kwargs)
+            else:
+                return self.forward_test(data, **kwargs)
+
 
     def forward_train(self, data, **kwargs):
         pass
 
-    def forward_track(self, data, **kwargs):
+    def _forward(self, data, **kwargs):
         gt_pos = data['mocap']['gt_positions'][0][-2].unsqueeze(0)
-        gt_labels = data['mocap']['gt_labels'][0][-2].unsqueeze(0)
+        dist = D.Normal(gt_pos, self.mean_cov.cuda())
+        mean = dist.sample([1])[0]
+        return mean, self.cov.cuda()
+
+
+    def forward_track(self, data, **kwargs):
+        means, covs = self._forward(data)
+        # gt_labels = data['mocap']['gt_labels'][0][-2].unsqueeze(0)
         # is_node = gt_labels == 0
         # final_mask = ~is_node
         # z_is_zero = gt_pos[:, -1] == 0.0
@@ -89,14 +105,16 @@ class OracleModel(BaseMocapModel):
         # gt_pos = gt_pos[final_mask]
         # gt_labels = gt_labels[final_mask]
 
-        means = gt_pos
-        covs = self.cov
+        # means = gt_pos
+        # covs = self.cov
         self.frame_count += 1
         
         #get predictions from existing tracks
         for track in self.tracks:
             track.predict()
-        
+
+        no_update = self.no_update and self.frame_count > 5
+         
         log_probs = torch.zeros(len(self.tracks), len(means))
         for i, track in enumerate(self.tracks):
             for j, mean in enumerate(means):
@@ -110,14 +128,11 @@ class OracleModel(BaseMocapModel):
                 self.tracks.append(new_track)
         else:
             exp_probs = log_probs.exp()
-            try:
-                assign_idx = linear_assignment(-log_probs)
-            except:
-                import ipdb; ipdb.set_trace() # noqa
+            assign_idx = linear_assignment(-log_probs)
             unassigned = []
             for t, d in assign_idx:
                 if exp_probs[t,d] >= 1e-16:
-                    self.tracks[t].update(means[d], covs[d])
+                    if not no_update: self.tracks[t].update(means[d], covs[d])
                 else:
                     unassigned.append(d)
             for d in unassigned:
@@ -129,7 +144,8 @@ class OracleModel(BaseMocapModel):
         for t, track in enumerate(self.tracks):
             onstreak = track.hit_streak >= self.min_hits
             warmingup = self.frame_count <= self.min_hits
-            if track.wasupdated and (onstreak or warmingup):
+            cond = track.wasupdated and (onstreak or warmingup)
+            if cond or no_update:
                 track_means.append(track.mean.unsqueeze(0))
                 track_covs.append(track.cov.diag().unsqueeze(0))
                 track_ids.append(track.id)
@@ -151,22 +167,23 @@ class OracleModel(BaseMocapModel):
 
 
     def forward_test(self, data, **kwargs):
-        gt_pos = data['mocap']['gt_positions'][0]
-        gt_labels = data['mocap']['gt_labels'][0]
+        mean, cov = self._forward(data)
+        # gt_pos = data['mocap']['gt_positions'][0]
+        # gt_labels = data['mocap']['gt_labels'][0]
 
-        is_node = gt_labels == 0
-        final_mask = ~is_node
-        z_is_zero = gt_pos[:, -1] == 0.0
-        final_mask = final_mask & ~z_is_zero
-        gt_pos = gt_pos[final_mask]
-        gt_labels = gt_labels[final_mask]
+        # is_node = gt_labels == 0
+        # final_mask = ~is_node
+        # z_is_zero = gt_pos[:, -1] == 0.0
+        # final_mask = final_mask & ~z_is_zero
+        # gt_pos = gt_pos[final_mask]
+        # gt_labels = gt_labels[final_mask]
 
         result = {
-            'pred_position_mean': gt_pos.cpu().detach().unsqueeze(0).numpy(),
-            'pred_position_cov': self.cov.cpu().detach().unsqueeze(0).numpy(),
+            'pred_position_mean': mean.cpu().detach().unsqueeze(0).numpy(),
+            'pred_position_cov': cov.cpu().detach().unsqueeze(0).numpy(),
             # 'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy(),
-            'pred_obj_prob': np.ones((1, len(gt_pos))),
-            'track_ids': np.zeros((1, len(gt_pos)))
+            'pred_obj_prob': np.ones((1, len(mean))),
+            'track_ids': np.zeros((1, len(mean)))
         }
         return result
 
