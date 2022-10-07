@@ -24,20 +24,33 @@ import copy
 from mmcv.runner import get_dist_info
 from matplotlib.patches import Ellipse
 
-def init_fig():
-    fig = plt.figure(figsize=(16,9))
+def init_fig(valid_keys):
+    assert 'mocap' in valid_keys
+    fig = plt.figure(figsize=(16,16))
+    
+    num_plots = len(valid_keys)
+    num_rows = num_cols = int(np.ceil(np.sqrt(num_plots)))
+    num_cells = num_cols * num_rows
+    num_unused = num_cells - num_plots
+    num_empty_rows = int(np.floor(num_unused / num_rows))
+    num_rows -= num_empty_rows
+    
     axes = {}
-    axes['zed_camera_left'] = plt.subplot2grid((3,4), (0,0)) #ax1
-    axes['zed_camera_right'] = plt.subplot2grid((3,4), (0,1)) #ax2
-    axes['zed_camera_depth'] = plt.subplot2grid((3,4), (0,2))
-    axes['mocap'] = plt.subplot2grid((3,4), (0,3), rowspan=2)
-    axes['realsense_camera_img'] = plt.subplot2grid((3,4), (1,0))
-    axes['realsense_camera_depth'] = plt.subplot2grid((3,4), (1,1))
-    axes['azimuth_static'] = plt.subplot2grid((3,4), (1,2))
-    axes['range_doppler'] = plt.subplot2grid((3,4), (2,0))
-    axes['detected_points'] = plt.subplot2grid((3,4), (2,1), projection='3d')
-    axes['mic_waveform'] = plt.subplot2grid((3,4), (2,2))
-    axes['mic_direction'] = plt.subplot2grid((3,4), (2,3), projection='polar')
+    for i, key in enumerate(valid_keys):
+        axes[key] = plt.subplot(num_rows, num_cols, i+1)
+
+
+    # axes['zed_camera_left'] = plt.subplot2grid((3,4), (0,0)) #ax1
+    # axes['zed_camera_right'] = plt.subplot2grid((3,4), (0,1)) #ax2
+    # axes['zed_camera_depth'] = plt.subplot2grid((3,4), (0,2))
+    # axes['mocap'] = plt.subplot2grid((3,4), (0,3), rowspan=2)
+    # axes['realsense_camera_img'] = plt.subplot2grid((3,4), (1,0))
+    # axes['realsense_camera_depth'] = plt.subplot2grid((3,4), (1,1))
+    # axes['azimuth_static'] = plt.subplot2grid((3,4), (1,2))
+    # axes['range_doppler'] = plt.subplot2grid((3,4), (2,0))
+    # axes['detected_points'] = plt.subplot2grid((3,4), (2,1), projection='3d')
+    # axes['mic_waveform'] = plt.subplot2grid((3,4), (2,2))
+    # axes['mic_direction'] = plt.subplot2grid((3,4), (2,3), projection='polar')
     fig.suptitle('Title', fontsize=11)
     fig.subplots_adjust(wspace=0, hspace=0)
     plt.tight_layout()
@@ -256,10 +269,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     def evaluate(self, outputs, **eval_kwargs):
         mse = 0
-        size = (1600, 900)
+        size = (1600, 1600)
         fname = f'{self.vid_path}/latest_vid.mp4'
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
-        fig, axes = init_fig()
+        fig, axes = init_fig(self.valid_keys)
 
         colors = ['red', 'blue', 'green', 'yellow', 'black']
         markers = []
