@@ -75,9 +75,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  azimuth_pipeline=[],
                  range_pipeline=[],
                  audio_pipeline=[],
+                 num_past_frames=0,
+                 num_future_frames=0,
                  test_mode=False,
                  remove_first_frame=False,
                  max_len=None,
+                 limit_axis=True,
+                 draw_cov=True,
                  vid_path='/tmp',
                  **kwargs):
 
@@ -92,6 +96,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.fname = hdf5_fname
         self.fps = fps
         self.vid_path = vid_path
+        self.limit_axis = limit_axis
+        self.draw_cov = draw_cov
+        self.num_future_frames = num_future_frames
+        self.num_past_frames = num_past_frames
 
         with h5py.File(self.fname, 'r') as f:
             keys = list(f.keys())
@@ -148,6 +156,18 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             save_frame = False
             data = all_data[time]
             if 'mocap' in data.keys():
+                mocap_data = json.loads(data['mocap'])
+                gt_pos = torch.tensor([d['normalized_position'] for d in mocap_data])
+                gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
+
+                is_node = gt_labels == 0
+                final_mask = ~is_node
+                z_is_zero = gt_pos[:, -1] == 0.0
+                final_mask = final_mask & ~z_is_zero
+                gt_pos = gt_pos[final_mask]
+                if len(gt_pos) == 0:
+                    continue
+
                 buff['mocap'] = data['mocap']
                 num_frames += 1
                 save_frame = True
@@ -200,6 +220,38 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def __getitem__(self, ind):
         buff = self.buffers[ind]
         new_buff = self.parse_buffer(buff)
+        new_buff['ind'] = ind
+        
+
+        idx_set = torch.arange(len(self))
+        start_idx = max(0, ind - self.num_past_frames)
+        past_idx = idx_set[start_idx:ind]
+
+        if len(past_idx) < self.num_past_frames:
+            zeros = torch.zeros(self.num_past_frames - len(past_idx)).long()
+            past_idx = torch.cat([zeros, past_idx])
+
+        end_idx = min(ind + self.num_past_frames + 1, len(self))
+        future_idx = idx_set[ind + 1:end_idx]
+
+        if len(future_idx) < self.num_future_frames:
+            zeros = torch.zeros(self.num_future_frames- len(future_idx)).long()
+            future_idx = torch.cat([future_idx, zeros + len(self) - 1])
+        
+        new_buff['past_frames'] = []
+        for idx in past_idx:
+            buff = self.buffers[idx]
+            buff = self.parse_buffer(buff)
+            buff['ind'] = idx
+            new_buff['past_frames'].append(buff)
+
+        new_buff['future_frames'] = []
+        for idx in future_idx:
+            buff = self.buffers[idx]
+            buff = self.parse_buffer(buff)
+            buff['ind'] = idx
+            new_buff['future_frames'].append(buff)
+
         return new_buff
 
     def evaluate(self, outputs, **eval_kwargs):
@@ -226,8 +278,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             if 'mocap' in data.keys():
                 save_frame = True
                 axes['mocap'].clear()
-                axes['mocap'].set_xlim(0,1)
-                axes['mocap'].set_ylim(0,1)
+                if self.limit_axis:
+                    axes['mocap'].set_xlim(0,1)
+                    axes['mocap'].set_ylim(0,1)
                  
                 means = outputs['pred_position_mean'][i][0]
                 covs = outputs['pred_position_cov'][i][0]
@@ -241,9 +294,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         import ipdb; ipdb.set_trace() # noqa
                     axes['mocap'].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
                     # axes['mocap'].annotate(str(ID), (mean[1], mean[0]))
-                    ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
+                    if self.draw_cov:
+                        ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
                                                     edgecolor='blue', fc='None', lw=1, linestyle='--')
-                    axes['mocap'].add_patch(ellipse)
+                        axes['mocap'].add_patch(ellipse)
                 
                 # for pos in outputs['pred_position_mean'][i]:
                     # if pos[-1] == 0.0: #z == 0, ignore
