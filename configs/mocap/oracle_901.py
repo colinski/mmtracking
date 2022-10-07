@@ -15,7 +15,7 @@ custom_imports = dict(
 
 
 
-model = dict(type='OracleModel')
+model = dict(type='OracleModel', track_eval=True, no_update=True, cov=[0.1,0.1,0.1], max_age=1e8)
 
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
@@ -90,7 +90,7 @@ valid_keys=['mocap', 'zed_camera_left']
 
 shuffle = True
 classes = ('truck', )
-data_root = 'data/'
+data_root = '/dev/shm/'
 valset=dict(type='HDF5Dataset',
     hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
     start_times=[chunks[2][0]],
@@ -101,10 +101,12 @@ valset=dict(type='HDF5Dataset',
     azimuth_pipeline=azimuth_pipeline,
     range_pipeline=range_pipeline,
     audio_pipeline=audio_pipeline,
-    vid_path='logs/single_truck/',
+    vid_path='logs/oracle/',
     is_random=False,
     remove_first_frame=True,
-    max_len=1000,
+    max_len=50,
+    limit_axis=False,
+    draw_cov=True,
 )
 
 data = dict(

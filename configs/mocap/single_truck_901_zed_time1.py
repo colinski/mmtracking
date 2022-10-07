@@ -97,10 +97,10 @@ model = dict(type='DecoderMocapModel',
         neck_cfg=range_neck_cfg,
         ffn_cfg=None,
     ),
-    time_attn_cfg=None,
     track_eval=False,
     mse_loss_weight=0.0,
-    max_age=5
+    max_age=5,
+    history_size=1
 )
 
 img_norm_cfg = dict(
@@ -174,7 +174,6 @@ chunks = [
 valid_keys=['mocap', 'zed_camera_left']
 # valid_keys=['mocap', 'zed_camera_left']
 
-shuffle = True
 classes = ('truck', )
 data_root = '/dev/shm/'
 valset=dict(type='HDF5Dataset',
@@ -193,8 +192,9 @@ valset=dict(type='HDF5Dataset',
     max_len=1000,
 )
 
+shuffle = False
 data = dict(
-    samples_per_gpu=32,
+    samples_per_gpu=1,
     workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
@@ -218,7 +218,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4*4,
+    lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={
