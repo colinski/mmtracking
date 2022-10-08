@@ -63,8 +63,8 @@ range_pipeline = [
 ]
 
 audio_pipeline = [
-    dict(type='LoadAudio'),
-    dict(type='LoadFromNumpyArray'),
+    # dict(type='LoadAudio'),
+    dict(type='LoadFromNumpyArray', force_float32=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
@@ -85,14 +85,15 @@ chunks = [
 ]
 
 #valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
-# valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 'range_doppler', 'azimuth_static']
-valid_keys=['mocap', 'zed_camera_left']
+valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 'range_doppler', 'azimuth_static', 'mic_waveform']
+# valid_keys=['mocap', 'zed_camera_left']
+# valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
 
 shuffle = True
 classes = ('truck', )
 data_root = '/home/csamplawski/data'
 valset=dict(type='HDF5Dataset',
-    hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
+    hdf5_fnames=[f'{data_root}/data_901_node_4.hdf5', f'{data_root}/data_901_node_1.hdf5'],
     start_times=[chunks[2][0]],
     end_times=[chunks[2][1]],
     valid_keys=valid_keys,
@@ -104,7 +105,7 @@ valset=dict(type='HDF5Dataset',
     vid_path='exps/oracle/',
     is_random=False,
     remove_first_frame=True,
-    max_len=50,
+    max_len=500,
     limit_axis=True,
     draw_cov=True,
 )
@@ -114,7 +115,7 @@ data = dict(
     workers_per_gpu=0,
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
-        hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
+        hdf5_fnames=[f'{data_root}/data_901_node_1.hdf5'],
         start_times=[chunks[2][0]],
         end_times=[chunks[2][1]],
         valid_keys=valid_keys,
