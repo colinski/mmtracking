@@ -24,20 +24,35 @@ import copy
 from mmcv.runner import get_dist_info
 from matplotlib.patches import Ellipse
 
-def init_fig(valid_keys):
+def init_fig(valid_keys, num_rows=4):
     assert 'mocap' in valid_keys
-    fig = plt.figure(figsize=(16,16))
-    
     num_plots = len(valid_keys)
-    num_rows = num_cols = int(np.ceil(np.sqrt(num_plots)))
-    num_cells = num_cols * num_rows
-    num_unused = num_cells - num_plots
-    num_empty_rows = int(np.floor(num_unused / num_rows))
-    num_rows -= num_empty_rows
-    
+    num_mods = num_plots - 1
+    num_cols = int(np.ceil(num_mods / num_rows)) + 1
+    # fig = plt.figure(figsize=(num_cols*5, num_rows*5))
+    fig = plt.figure(figsize=(16, 9))
     axes = {}
+    axes['mocap'] = plt.subplot2grid((num_rows, num_cols), (0, 0), rowspan=num_rows)
+    
+    valid_keys = [vk for vk in valid_keys if vk != 'mocap']
+    row, col = 0, 1
     for i, key in enumerate(valid_keys):
-        axes[key] = plt.subplot(num_rows, num_cols, i+1)
+        axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
+        row += 1
+        if row  == num_rows:
+            row = 0
+            col += 1
+
+
+    
+    # num_rows = num_cols = int(np.ceil(np.sqrt(num_plots)))
+    # num_cells = num_cols * num_rows
+    # num_unused = num_cells - num_plots
+    # num_empty_rows = int(np.floor(num_unused / num_rows))
+    # num_rows -= num_empty_rows
+    
+            # axes[key] = plt.subplot(num_rows, num_cols, i+1)
+        # axes[key] = plt.subplot2grid((num_rows,num_cols), (0,0)) #ax1
 
 
     # axes['zed_camera_left'] = plt.subplot2grid((3,4), (0,0)) #ax1
@@ -56,7 +71,27 @@ def init_fig(valid_keys):
     plt.tight_layout()
     return fig, axes
 
-def read_hdf5(f, keys):
+# def init_fig(valid_keys):
+    # assert 'mocap' in valid_keys
+    # fig = plt.figure(figsize=(16,16))
+    
+    # num_plots = len(valid_keys)
+    # num_rows = num_cols = int(np.ceil(np.sqrt(num_plots)))
+    # num_cells = num_cols * num_rows
+    # num_unused = num_cells - num_plots
+    # num_empty_rows = int(np.floor(num_unused / num_rows))
+    # num_rows -= num_empty_rows
+    
+    # axes = {}
+    # for i, key in enumerate(valid_keys):
+        # axes[key] = plt.subplot(num_rows, num_cols, i+1)
+
+    # fig.suptitle('Title', fontsize=11)
+    # fig.subplots_adjust(wspace=0, hspace=0)
+    # plt.tight_layout()
+    # return fig, axes
+
+def convert2dict(f, keys):
     data = {}
     #for ms in tqdm(f.keys()):
     for ms in tqdm(keys):
@@ -73,12 +108,29 @@ def read_hdf5(f, keys):
                         data[ms][k][k2] = v2[:]
     return data
 
+def load_chunk(fname, start_time, end_time):
+    with h5py.File(fname, 'r') as f:
+        keys = list(f.keys())
+        keys = np.array(keys).astype(int)
+        
+        #find closest keys to start and end times
+        diffs = (keys - start_time)**2
+        start_idx = np.argmin(diffs)
+        diffs = (keys - end_time)**2
+        end_idx = np.argmin(diffs)
+
+        keys = keys[start_idx:end_idx]
+        keys = list(keys.astype(str))
+        data = convert2dict(f, keys)
+    return data
+
+
 
 @DATASETS.register_module()
 class HDF5Dataset(Dataset, metaclass=ABCMeta):
     CLASSES = None
     def __init__(self,
-                 hdf5_fname,
+                 hdf5_fnames,
                  fps=20,
                  valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth'],
                  start_times=[1656096536271, 1656096636977],
@@ -104,37 +156,60 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.valid_keys = valid_keys
         self.class2idx = {'truck': 1, 'node': 0}
         
-        rank, ws = get_dist_info()
+        # rank, ws = get_dist_info()
 
-        self.fname = hdf5_fname
+        self.fnames = hdf5_fnames
         self.fps = fps
         self.vid_path = vid_path
         self.limit_axis = limit_axis
         self.draw_cov = draw_cov
         self.num_future_frames = num_future_frames
         self.num_past_frames = num_past_frames
+        
+        
+        # chunks, all_keys = [], []
+        data = {}
+        for fname in hdf5_fnames:
+            chunk = load_chunk(fname , start_times[0], end_times[0])
+            for ms, val in chunk.items():
+                if ms in data.keys():
+                    # for key, v2 in val.items():
+                        # if 'node' in key:
+                            # data[ms][key] = v2
+                    # if 'node_4' in val.keys() and 'node_1' in data[ms].keys():
+                        # import ipdb; ipdb.set_trace() # noqa
+                    data[ms].update(val)
+                    # if 'node_1' in data[ms].keys() and 'node_4' in data[ms].keys():
+                        # import ipdb; ipdb.set_trace() # noqa
+                else:
+                    data[ms] = val
+            # data = {**data, **chunk} #merge dicts
+            # chunks.append(chunk)
+            # all_keys.extend(list(chunk.keys()))
 
-        with h5py.File(self.fname, 'r') as f:
-            keys = list(f.keys())
-            keys = np.array(keys).astype(int)
 
-            start_time = start_times[rank]
-            end_time = end_times[rank]
+        # with h5py.File(self.fname, 'r') as f:
+            # keys = list(f.keys())
+            # keys = np.array(keys).astype(int)
+
+            # start_time = start_times[rank]
+            # end_time = end_times[rank]
             
-            #find closest keys to start and end times
-            diffs = (keys - start_time)**2
-            start_idx = np.argmin(diffs)
-            diffs = (keys - end_time)**2
-            end_idx = np.argmin(diffs)
+            # diffs = (keys - start_time)**2
+            # start_idx = np.argmin(diffs)
+            # diffs = (keys - end_time)**2
+            # end_idx = np.argmin(diffs)
 
-            keys = keys[start_idx:end_idx]
-            keys = list(keys.astype(str))
-            data = read_hdf5(f, keys)
-            self.buffers = self.fill_buffers(data)
-            if remove_first_frame:
-                self.buffers = self.buffers[1:]
-            if max_len is not None:
-                self.buffers = self.buffers[0:max_len]
+            # keys = keys[start_idx:end_idx]
+            # keys = list(keys.astype(str))
+            # data = read_hdf5(f, keys)
+        self.buffers = self.fill_buffers(data)
+        if remove_first_frame:
+            self.buffers = self.buffers[1:]
+        if max_len is not None:
+            self.buffers = self.buffers[0:max_len]
+        
+        self.active_keys = sorted(self.buffers[-1].keys())
 
         self.img_pipeline = Compose(img_pipeline)
         self.depth_pipeline = Compose(depth_pipeline)
@@ -162,35 +237,38 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     def fill_buffers(self, all_data):
         buffers = []
-        buff = self.init_buffer()
+        # buff = self.init_buffer()
+        buff = {}
         factor = 100 // self.fps
         num_frames = 0
-        for time in tqdm(all_data.keys()):
+        keys = sorted(list(all_data.keys()))
+        for time in tqdm(keys):
             save_frame = False
             data = all_data[time]
-            if 'mocap' in data.keys():
-                mocap_data = json.loads(data['mocap'])
-                gt_pos = torch.tensor([d['normalized_position'] for d in mocap_data])
-                gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
+            for key in data.keys():
+                if key == 'mocap':
+                    mocap_data = json.loads(data['mocap'])
+                    gt_pos = torch.tensor([d['normalized_position'] for d in mocap_data])
+                    gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
 
-                is_node = gt_labels == 0
-                final_mask = ~is_node
-                z_is_zero = gt_pos[:, -1] == 0.0
-                final_mask = final_mask & ~z_is_zero
-                gt_pos = gt_pos[final_mask]
-                if len(gt_pos) == 0:
-                    continue
+                    is_node = gt_labels == 0
+                    final_mask = ~is_node
+                    z_is_zero = gt_pos[:, -1] == 0.0
+                    final_mask = final_mask & ~z_is_zero
+                    gt_pos = gt_pos[final_mask]
+                    if len(gt_pos) == 0:
+                        continue
 
-                buff['mocap'] = data['mocap']
-                num_frames += 1
-                save_frame = True
-            if 'node_1' in data.keys():
-                data = data['node_1']
+                    buff['mocap'] = data['mocap']
+                    num_frames += 1
+                    save_frame = True
 
-            for key, val in data.items():
-                if key in self.valid_keys:
-                    buff[key] = val
-                    buff['missing'][key] = False
+                if 'node' in key:
+                    # data = data['node_1']
+                    for k, v in data[key].items():
+                        if k in self.valid_keys:
+                            buff[k + '_' + key] = v
+                            # buff['missing'][key] = False
             
             if save_frame and num_frames % factor == 0:
                 new_buff = copy.deepcopy(buff)
@@ -201,7 +279,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     
     def parse_buffer(self, buff):
-        new_buff = {'missing': buff['missing']}
+        #new_buff = {'missing': buff['missing']}
+        new_buff = {}
         for key, val in buff.items():
             if key == 'mocap':
                 mocap_data = json.loads(val)
@@ -218,16 +297,22 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     'gt_ids': ids[final_mask].long()
                 }
 
-            if key == 'zed_camera_left': #and not buff['missing'][key]:
+            if 'zed_camera_left' in key: #and not buff['missing'][key]:
                 img = cv2.imdecode(val, 1)
                 new_buff[key] = self.img_pipeline(img)
 
-            if key == 'zed_camera_depth':
+            if 'zed_camera_depth' in key:
                 new_buff[key] = self.depth_pipeline(val)
 
-            if key == 'range_doppler':
+            if 'range_doppler' in key:
                 new_buff[key] = self.range_pipeline(val.T)
-        
+
+            if 'azimuth_static' in key:
+                new_buff[key] = self.azimuth_pipeline(val)
+
+            if 'mic_waveform' in key:
+                new_buff[key] = self.audio_pipeline(val.T)
+       
         return new_buff
     
     def __getitem__(self, ind):
@@ -235,7 +320,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         new_buff = self.parse_buffer(buff)
         new_buff['ind'] = ind
         
-
         idx_set = torch.arange(len(self))
         start_idx = max(0, ind - self.num_past_frames)
         past_idx = idx_set[start_idx:ind]
@@ -269,10 +353,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     def evaluate(self, outputs, **eval_kwargs):
         mse = 0
-        size = (1600, 1600)
         fname = f'{self.vid_path}/latest_vid.mp4'
+        fig, axes = init_fig(self.active_keys, len(self.fnames))
+        size = (fig.get_figwidth()*100, fig.get_figheight()*100)
+        # size = (fig.get_figheight()*100, fig.get_figwidth()*100)
+        size = tuple([int(s) for s in size])
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
-        fig, axes = init_fig(self.valid_keys)
 
         colors = ['red', 'blue', 'green', 'yellow', 'black']
         markers = []
@@ -288,118 +374,121 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             data = self[i]
 
             save_frame = False
-            if 'mocap' in data.keys():
-                save_frame = True
-                axes['mocap'].clear()
-                if self.limit_axis:
-                    axes['mocap'].set_xlim(0,1)
-                    axes['mocap'].set_ylim(0,1)
+            for key in data.keys():
+                if key == 'mocap':
+                    save_frame = True
+                    axes['mocap'].clear()
+                    if self.limit_axis:
+                        axes['mocap'].set_xlim(0,1)
+                        axes['mocap'].set_ylim(0,1)
+                     
+                    means = outputs['pred_position_mean'][i][0]
+                    covs = outputs['pred_position_cov'][i][0]
+                    ids = outputs['track_ids'][i][0].astype(int)
+                    print(means, covs, ids)
+                    for j in range(len(means)):
+                        mean = means[j]
+                        cov = covs[j]
+                        ID = ids[j]
+                        if len(mean) != 3 or len(cov) != 3:
+                            import ipdb; ipdb.set_trace() # noqa
+                        axes['mocap'].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
+                        # axes['mocap'].annotate(str(ID), (mean[1], mean[0]))
+                        if self.draw_cov:
+                            ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
+                                                        edgecolor='blue', fc='None', lw=1, linestyle='--')
+                            axes['mocap'].add_patch(ellipse)
+                    
+                    # for pos in outputs['pred_position_mean'][i]:
+                        # if pos[-1] == 0.0: #z == 0, ignore
+                            # continue
+                        # alpha = 0.5 if len(pos) > 1 else 1
+                        # axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
+                    gt_pos = data['mocap']['gt_positions']
+                    gt_ids = data['mocap']['gt_ids']
+                    gt_labels = data['mocap']['gt_labels']
+                    # for pos in data['mocap']['gt_positions']:
+                    for j in range(len(gt_pos)):
+                        pos = gt_pos[j]
+                        ID = gt_ids[j]
+                        if gt_labels[j] == 0:
+                            marker = ','
+                            color = 'black'
+                        else:
+                            marker = markers[ID]
+                            color = colors[ID]
+                        # if pos[-1] == 0.0: #z == 0, ignore
+                            # continue
+                        axes['mocap'].scatter(pos[1], pos[0], marker=marker, color=color) # to rotate, longer side to be y axis
+
+
+                if 'zed_camera_left' in key:
+                    axes[key].clear()
+                    axes[key].axis('off')
+                    axes[key].set_title(key) # code = data['zed_camera_left'][:]
+                    img = data[key]['img'].data.cpu().squeeze()
+                    mean = data[key]['img_metas'].data['img_norm_cfg']['mean']
+                    std = data[key]['img_metas'].data['img_norm_cfg']['std']
+                    img = img.permute(1, 2, 0).numpy()
+                    img = (img * std) - mean
+                    img = img.astype(np.uint8)
+                    axes[key].imshow(img)
                  
-                means = outputs['pred_position_mean'][i][0]
-                covs = outputs['pred_position_cov'][i][0]
-                ids = outputs['track_ids'][i][0].astype(int)
-                print(means, covs, ids)
-                for j in range(len(means)):
-                    mean = means[j]
-                    cov = covs[j]
-                    ID = ids[j]
-                    if len(mean) != 3 or len(cov) != 3:
-                        import ipdb; ipdb.set_trace() # noqa
-                    axes['mocap'].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
-                    # axes['mocap'].annotate(str(ID), (mean[1], mean[0]))
-                    if self.draw_cov:
-                        ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
-                                                    edgecolor='blue', fc='None', lw=1, linestyle='--')
-                        axes['mocap'].add_patch(ellipse)
+                if 'zed_camera_depth' in key:
+                    axes[key].clear()
+                    axes[key].axis('off')
+                    axes[key].set_title(key)
+                    dmap = data[key]['img'].data[0].cpu().squeeze()
+                    axes[key].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
+
+                # if 'realsense_camera_img' in data.keys():
+                    # axes['realsense_camera_img'].clear()
+                    # axes['realsense_camera_img'].axis('off')
+                    # axes['realsense_camera_img'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
+                    # img = data['realsense_camera_img']['img'].data[0].cpu().squeeze()
+                    # mean = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['mean']
+                    # std = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['std']
+                    # img = img.permute(1, 2, 0).numpy()
+                    # img = (img * std) - mean
+                    # img = img.astype(np.uint8)
+                    # axes['realsense_camera_img'].imshow(img)
+
+                # if 'realsense_camera_depth' in data.keys():
+                    # axes['realsense_camera_depth'].clear()
+                    # axes['realsense_camera_depth'].axis('off')
+                    # axes['realsense_camera_depth'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
+                    # depth = data['realsense_camera_depth']['img'].data[0].cpu().squeeze()
+                    # mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean'] 
+                    # std = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['std']
+                    # depth = depth.permute(1, 2, 0).numpy()
+                    # depth = (depth * std) - mean
+                    # depth = depth.astype(np.uint8)
+                    # axes['realsense_camera_depth'].imshow(depth)
                 
-                # for pos in outputs['pred_position_mean'][i]:
-                    # if pos[-1] == 0.0: #z == 0, ignore
-                        # continue
-                    # alpha = 0.5 if len(pos) > 1 else 1
-                    # axes['mocap'].scatter(pos[:, 1], pos[:, 0], alpha=alpha) # to rotate, longer side to be y axis
-                gt_pos = data['mocap']['gt_positions']
-                gt_ids = data['mocap']['gt_ids']
-                gt_labels = data['mocap']['gt_labels']
-                # for pos in data['mocap']['gt_positions']:
-                for j in range(len(gt_pos)):
-                    pos = gt_pos[j]
-                    ID = gt_ids[j]
-                    if gt_labels[j] == 0:
-                        marker = ','
-                        color = 'black'
-                    else:
-                        marker = markers[ID]
-                        color = colors[ID]
-                    # if pos[-1] == 0.0: #z == 0, ignore
-                        # continue
-                    axes['mocap'].scatter(pos[1], pos[0], marker=marker, color=color) # to rotate, longer side to be y axis
+                if 'range_doppler' in key:
+                    axes[key].clear()
+                    axes[key].axis('off')
+                    axes[key].set_title(key)
+                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    axes[key].imshow(img, cmap='turbo', aspect=9/16)
 
+                if 'azimuth_static' in key:
+                    axes[key].clear()
+                    axes[key].axis('off')
+                    axes[key].set_title(key)
+                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    axes[key].imshow(img, cmap='turbo', aspect=9/16)
 
-            if 'zed_camera_left' in data.keys():
-                axes['zed_camera_left'].clear()
-                axes['zed_camera_left'].axis('off')
-                axes['zed_camera_left'].set_title("ZED Left Image") # code = data['zed_camera_left'][:]
-                img = data['zed_camera_left']['img'].data.cpu().squeeze()
-                mean = data['zed_camera_left']['img_metas'].data['img_norm_cfg']['mean']
-                std = data['zed_camera_left']['img_metas'].data['img_norm_cfg']['std']
-                img = img.permute(1, 2, 0).numpy()
-                img = (img * std) - mean
-                img = img.astype(np.uint8)
-                axes['zed_camera_left'].imshow(img)
-            
-            if 'zed_camera_depth' in data.keys():
-                axes['zed_camera_depth'].clear()
-                axes['zed_camera_depth'].axis('off')
-                axes['zed_camera_depth'].set_title("ZED Depth Map")
-                dmap = data['zed_camera_depth']['img'].data[0].cpu().squeeze()
-                axes['zed_camera_depth'].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
-
-            if 'realsense_camera_img' in data.keys():
-                axes['realsense_camera_img'].clear()
-                axes['realsense_camera_img'].axis('off')
-                axes['realsense_camera_img'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
-                img = data['realsense_camera_img']['img'].data[0].cpu().squeeze()
-                mean = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['mean']
-                std = data['realsense_camera_img']['img_metas'].data[0][0]['img_norm_cfg']['std']
-                img = img.permute(1, 2, 0).numpy()
-                img = (img * std) - mean
-                img = img.astype(np.uint8)
-                axes['realsense_camera_img'].imshow(img)
-
-            if 'realsense_camera_depth' in data.keys():
-                axes['realsense_camera_depth'].clear()
-                axes['realsense_camera_depth'].axis('off')
-                axes['realsense_camera_depth'].set_title("Realsense Camera Image") # code = data['zed_camera_left'][:]
-                depth = data['realsense_camera_depth']['img'].data[0].cpu().squeeze()
-                mean = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['mean'] 
-                std = data['realsense_camera_depth']['img_metas'].data[0][0]['img_norm_cfg']['std']
-                depth = depth.permute(1, 2, 0).numpy()
-                depth = (depth * std) - mean
-                depth = depth.astype(np.uint8)
-                axes['realsense_camera_depth'].imshow(depth)
-            
-            if 'range_doppler' in data.keys():
-                axes['range_doppler'].clear()
-                axes['range_doppler'].axis('off')
-                axes['range_doppler'].set_title("Range Doppler")
-                img = data['range_doppler']['img'].data[0].cpu().squeeze().numpy()
-                axes['range_doppler'].imshow(img, cmap='turbo', aspect='auto')
-
-            if 'azimuth_static' in data.keys():
-                axes['azimuth_static'].clear()
-                axes['azimuth_static'].axis('off')
-                axes['azimuth_static'].set_title("Azimuth Static")
-                img = data['azimuth_static']['img'].data[0].cpu().squeeze().numpy()
-                axes['azimuth_static'].imshow(img, cmap='turbo', aspect='auto')
-
-            if 'mic_waveform' in data.keys():
-                axes['mic_waveform'].clear()
-                axes['mic_waveform'].axis('off')
-                axes['mic_waveform'].set_title("Audio Spectrogram")
-                img = data['mic_waveform']['img'].data[0].cpu().squeeze().numpy()
-                C, H, W = img.shape
-                img = img.reshape(C*H, W)
-                axes['mic_waveform'].imshow(img, cmap='turbo', aspect='auto')
+                if 'mic_waveform' in key:
+                    axes[key].clear()
+                    axes[key].set_title(key)
+                    axes[key].set_ylim(-1,1)
+                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    max_val = img[0].max()
+                    min_val = img[0].min()
+                    axes[key].plot(img[0], color='black')
+                    axes[key].axhline(max_val, color='black')
+                    axes[key].axhline(min_val, color='black')
 
             if save_frame:
                 fig.canvas.draw()
