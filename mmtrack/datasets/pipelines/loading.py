@@ -6,6 +6,16 @@ from mmtrack.core import results2outs
 import numpy as np
 import torch
 import torchaudio
+import cv2
+
+@PIPELINES.register_module()
+class DecodeJPEG(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, code):
+        img = cv2.imdecode(code, 1)
+        return img
 
 @PIPELINES.register_module()
 class LoadAudio(object):
@@ -22,12 +32,15 @@ class LoadAudio(object):
 
 @PIPELINES.register_module()
 class LoadFromNumpyArray(object):
-    def __init__(self, force_float32=False):
+    def __init__(self, force_float32=False, transpose=False):
         self.force_float32 = force_float32
+        self.transpose = transpose
 
     def __call__(self, array):
         if self.force_float32:
             array = array.astype(np.float32)
+        if self.transpose:
+            array = array.T
         if len(array.shape) == 2: #add channel dimesion
             array = array[:, :, np.newaxis]
         array = np.nan_to_num(array, nan=0.0)

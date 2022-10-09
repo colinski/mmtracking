@@ -17,18 +17,14 @@ custom_imports = dict(
 
 model = dict(type='OracleModel', track_eval=True, no_update=False, mean_cov=[0.05,0.05,0.05], cov=[0.1,0.1,0.1], max_age=1e8)
 
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
-
-# img_norm_cfg = dict(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], to_rgb=True)
+img_norm_cfg = dict(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 
 img_pipeline = [
+    dict(type='DecodeJPEG'),
     dict(type='LoadFromNumpyArray'),
     dict(type='Resize', img_scale=(270, 480), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', **img_norm_cfg),
-    # dict(type='Pad', size_divisor=32),
-    # dict(type='ImageToTensor', keys=['img']),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
@@ -39,10 +35,8 @@ depth_pipeline = [
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', mean=[0], std=[20000], to_rgb=False),
     dict(type='Normalize', mean=[1], std=[0.5], to_rgb=False),
-    # dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
-    # dict(type='ImageToTensor', keys=['img']),
 ]
 
 azimuth_pipeline = [
@@ -53,23 +47,30 @@ azimuth_pipeline = [
 ]
 
 range_pipeline = [
-    dict(type='LoadFromNumpyArray', force_float32=True),
+    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
     dict(type='Resize', img_scale=(256, 16), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', mean=[4353], std=[705], to_rgb=False),
-    # dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
 
 audio_pipeline = [
-    # dict(type='LoadAudio'),
-    dict(type='LoadFromNumpyArray', force_float32=True),
+    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
 
+pipelines = {
+    'zed_camera_left': img_pipeline,
+    'zed_camera_depth': depth_pipeline,
+    'azimuth_static': azimuth_pipeline,
+    'range_doppler': range_pipeline,
+    'mic_waveform': audio_pipeline,
+    'realsense_camera_img': img_pipeline,
+    'realsense_camera_depth': img_pipeline
+}
 
 chunks = [
     (1662065698934, 1662065756964), #0 5804
@@ -85,23 +86,26 @@ chunks = [
 ]
 
 #valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
-valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 'range_doppler', 'azimuth_static', 'mic_waveform']
+valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
+        'range_doppler', 'azimuth_static', 'mic_waveform',
+        'realsense_camera_depth', 'realsense_camera_img']
 # valid_keys=['mocap', 'zed_camera_left']
 # valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
+# valid_keys=['mocap', 'zed_camera_left']
+# valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
+data_root = '/home/csamplawski/data'
+hdf5_fnames=[f'{data_root}/data_901_node_1.hdf5', f'{data_root}/data_901_node_2.hdf5',
+        f'{data_root}/data_901_node_3.hdf5', f'{data_root}/data_901_node_4.hdf5']
 
 shuffle = True
 classes = ('truck', )
-data_root = '/home/csamplawski/data'
 valset=dict(type='HDF5Dataset',
-    hdf5_fnames=[f'{data_root}/data_901_node_4.hdf5', f'{data_root}/data_901_node_1.hdf5'],
-    start_times=[chunks[2][0]],
-    end_times=[chunks[2][1]],
+    #hdf5_fnames=[hdf5_fnames[0]],
+    hdf5_fnames=hdf5_fnames,
+    start_time=chunks[2][0],
+    end_time=chunks[2][1],
     valid_keys=valid_keys,
-    img_pipeline=img_pipeline,
-    depth_pipeline=depth_pipeline,
-    azimuth_pipeline=azimuth_pipeline,
-    range_pipeline=range_pipeline,
-    audio_pipeline=audio_pipeline,
+    pipelines=pipelines,
     vid_path='exps/oracle/',
     is_random=False,
     remove_first_frame=True,
@@ -116,18 +120,13 @@ data = dict(
     shuffle=shuffle,
     train=dict(type='HDF5Dataset',
         hdf5_fnames=[f'{data_root}/data_901_node_1.hdf5'],
-        start_times=[chunks[2][0]],
-        end_times=[chunks[2][1]],
+        start_time=chunks[2][0],
+        end_time=chunks[2][1],
         valid_keys=valid_keys,
-        img_pipeline=img_pipeline,
-        depth_pipeline=depth_pipeline,
-        azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline,
+        pipelines=pipelines,
         is_random=shuffle,
         remove_first_frame=True,
         max_len=None,
-        limit_axis=True
     ),
     val=valset,
     test=valset

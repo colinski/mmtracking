@@ -11,6 +11,7 @@ from mmdet.datasets.pipelines import Normalize, Pad, RandomFlip, Resize
 from mmtrack.core import crop_image
 
 
+
 @PIPELINES.register_module()
 class SeqCropLikeSiamFC(object):
     """Crop images as SiamFC did.
