@@ -48,8 +48,11 @@ class SingleModalityModel(BaseModule):
                  **kwargs):
         super().__init__(*args, **kwargs)
         
-        self.backbone = build_backbone(backbone_cfg)
         
+        self.backbone = backbone_cfg
+        if self.backbone is not None:
+            self.backbone = build_backbone(backbone_cfg)
+
         self.neck = neck_cfg
         if self.neck is not None:
             self.neck = build_neck(neck_cfg)
@@ -68,7 +71,10 @@ class SingleModalityModel(BaseModule):
     
     #def forward(self, data, return_loss=True, **kwargs):
     def forward(self, x):
-        feats = self.backbone(x)
+        if self.backbone:
+            feats = self.backbone(x)
+        else:
+            feats = x
         if self.neck:
             feats = self.neck(feats)
         if len(feats) > 1:

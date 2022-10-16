@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import numpy as np
+import mmcv
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -43,8 +44,10 @@ def linear_assignment(cost_matrix):
 @MODELS.register_module()
 class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
-                 img_model_cfg=None,
-                 range_model_cfg=None,
+                 backbone_cfgs=None,
+                 model_cfgs=None,
+                 # img_model_cfg=None,
+                 # range_model_cfg=None,
                  bce_target=0.99,
                  remove_zero_at_train=True,
                  cross_attn_cfg=dict(type='QKVAttention',
@@ -119,12 +122,22 @@ class DecoderMocapModel(BaseMocapModel):
 
             # self.history_size = history_size
             # self.history = []
+
+        self.backbones = nn.ModuleDict()
+        for key, cfg in backbone_cfgs.items():
+            self.backbones[key] = build_backbone(cfg)
         
-        if img_model_cfg is not None:
-            self.img_model = build_model(img_model_cfg)
+        self.models = nn.ModuleDict()
+
+        for key, cfg in model_cfgs.items():
+            mod, node = key
+            self.models[mod + '_' + node] = build_model(cfg)
         
-        if range_model_cfg is not None:
-            self.range_model = build_model(range_model_cfg)
+        # if img_model_cfg is not None:
+            # self.img_model = build_model(img_model_cfg)
+        
+        # if range_model_cfg is not None:
+            # self.range_model = build_model(range_model_cfg)
         self.mse_loss = nn.MSELoss(reduction='none')
         self.global_pos_encoding = AnchorEncoding(dim=256, learned=False, out_proj=False)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
@@ -180,120 +193,81 @@ class DecoderMocapModel(BaseMocapModel):
             else:
                 return self.forward_test(data, **kwargs)
 
-
-    def _forward(self, data, return_unscaled=False, **kwargs):
-        inter_embeds = []
-
-        if 'zed_camera_left' in data.keys():
-            past_frames = [d['zed_camera_left']['img'] for d in data['past_frames']]
-            future_frames = [d['zed_camera_left']['img'] for d in data['future_frames']]
-            main_frame = data['zed_camera_left']['img']
-            all_frames = past_frames + [main_frame] + future_frames
-            all_frames = torch.stack(all_frames)
-            Nt, B, C, H, W = all_frames.shape
-            all_frames = all_frames.reshape(Nt*B, C, H, W)
-            # bg = self.img_model.bg_model.bg
-            # abs_diff = (bg - img).abs()
-            # avg_diffs = abs_diff.mean(dim=[1,2,3])
-            # for i in range(len(img)):
-                # if avg_diffs[i] <= 0.04:
-                    # import ipdb; ipdb.set_trace() # noqa
-            img_embeds = self.img_model(all_frames)
-            _, L, D = img_embeds.shape
-            img_embeds = img_embeds.reshape(Nt, B, L, D)
-            inter_embeds.append(img_embeds)
-
-
-        if 'range_doppler' in data.keys():
-            img = data['range_doppler']['img']
-            img = img.expand(-1, 3, -1, -1)
-            range_embeds = self.range_model(img)
-            inter_embeds.append(range_embeds)
-
-        if 'zed_camera_depth' in data.keys():
-            dmap = data['zed_camera_depth']['img']
-            depth_embeds = self.depth_model(dmap)
-            inter_embeds.append(depth_embeds)
-
-                    
-        if len(inter_embeds) == 0:
-            import ipdb; ipdb.set_trace() # noqa
-
-        inter_embeds = torch.cat(inter_embeds, dim=-2)
-        Nt, B, L, D = inter_embeds.shape
-        inter_embeds = inter_embeds.reshape(Nt*B, L, D)
-
-        # inter_embeds = self.fusion_sa(inter_embeds)
-        if self.fuser is not None:
-            inter_embeds = self.fuser(inter_embeds)
+    def _forward(self, datas, return_unscaled=False, **kwargs):
+        all_embeds, all_mocap = [], []
+        for t, data in enumerate(datas):
+            embeds = self._forward_single(data)
+            all_mocap.append(data[('mocap', 'mocap')])
+            all_embeds.append(embeds)
         
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        Nt, B, L, D = all_embeds.shape
+        all_embeds = all_embeds.reshape(Nt*B, L, D)
+
         global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
         global_pos_embeds = global_pos_embeds.expand(B*Nt, -1, -1, -1)
 
-        final_embeds = self.global_cross_attn(global_pos_embeds, inter_embeds)
+        final_embeds = self.global_cross_attn(global_pos_embeds, all_embeds)
         final_embeds = final_embeds.reshape(B*Nt, -1, D)
+        _, L, D = final_embeds.shape
         
         final_embeds = self.ctn(final_embeds)
-
+        
         output_vals = self.output_head(final_embeds) #B L 7
         output_vals = output_vals.reshape(Nt, B, L, 7)
         
         if self.time_attn is not None:
             output_vals = output_vals.permute(1, 2, 0, 3) #B L Nt 7
             output_vals = output_vals.reshape(B*L, Nt, 7)
-            # output_vals = output_vals.permute(1,0,2) #T Nq 7
-            # T, Nq, D = output_vals.shape
-            # output_vals = output_vals.reshape(1, T*Nq, D)
             output_vals = self.time_attn(output_vals)
             output_vals = output_vals.reshape(B, L, Nt, 7)
-            output_vals = output_vals.permute(2, 0, 1, 3)
-            # output_vals = output_vals.reshape(T, Nq, D)
-            # output_vals = output_vals.permute(1,0,2)
-        output_vals = output_vals[len(data['past_frames'])]
+            output_vals = output_vals.permute(2, 0, 1, 3) #Nt B L 7
+
+        output_vals = output_vals.reshape(Nt*B, L, 7)
         output_vals = self.output_sa(output_vals)
+        # output_vals = output_vals.reshape(Nt, B, L, 7)
         
-        # if self.history is not None:
-            # assert len(output_vals) == 1
-            # ind = data['ind'].item()
-            # if ind == 0:
-                # self.history = []
-            # self.history.append(output_vals.squeeze().detach())
-            # if len(self.history) > self.history_size:
-                # self.history = self.history[(len(self.history) - self.history_size):]
-            # history = torch.stack(self.history) 
-            # history = history.permute(1, 0, 2) #Nq x Nt x 7
-
-            # output_vals = output_vals.permute(1, 0, 2)
-
-            # for layer in self.time_attn:
-                # output_vals = layer(output_vals, history)
-
-            # output_vals = output_vals.permute(1,0,2) #Nt x Nq x 7
-            # output_vals = output_vals[-1].unsqueeze(0)
-
-        # output_vals = self.output_sa(output_vals)
-         
-        if return_unscaled:
-            return output_vals
-
-
-        # mean = self.mean_head(final_embeds)
         mean = output_vals[..., 0:3]
-        mean[:, :, 0] += self.global_pos_encoding.unscaled_params_x.flatten()
-        mean[:, :, 1] += self.global_pos_encoding.unscaled_params_y.flatten()
+        mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
+        mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
         mean = mean.sigmoid()
 
         cov = F.softplus(output_vals[..., 3:6])
         obj_logits = output_vals[..., -1]
         return mean, cov, None, obj_logits
- 
 
+        # output_vals = output_vals[len(data['past_frames'])]
+        # output_vals = self.output_sa(output_vals)
+
+    def _forward_single(self, data, return_unscaled=False, **kwargs):
+        inter_embeds = []
+
+        for key in data.keys():
+            mod, node = key
+            if mod == 'mocap':
+                continue
+            backbone = self.backbones[mod]
+            model = self.models[mod + '_' + node]
+            feats = backbone(data[key]['img'])
+            embeds = model(feats)
+            inter_embeds.append(embeds)
+
+        if len(inter_embeds) == 0:
+            import ipdb; ipdb.set_trace() # noqa
+        
+        inter_embeds = torch.cat(inter_embeds, dim=-2)
+        return inter_embeds
+        
     def forward_test(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
-        assert len(mean) == 1 #assume batch size of 1
-        mean = mean[0] #Nq x 3 
-        cov = cov[0] #Nq x 3
-        obj_probs = F.sigmoid(obj_logits[0]).squeeze()
+        mean = mean[-1] #get last time step, there should be no future
+        cov = cov[-1]
+        obj_logits = obj_logits[-1]
+        # assert len(mean) == 1 #assume batch size of 1
+        # mean = mean[0] #Nq x 3 
+        # cov = cov[0] #Nq x 3
+        #obj_probs = F.sigmoid(obj_logits[0]).squeeze()
+        obj_probs = F.sigmoid(obj_logits).squeeze()
         is_obj = obj_probs >= 0.5
         mean = mean[is_obj]
         cov = cov[is_obj]
@@ -309,6 +283,9 @@ class DecoderMocapModel(BaseMocapModel):
     def forward_track(self, data, **kwargs):
         output_vals = self._forward(data, return_unscaled=True)
         means, covs, cls_logits, obj_logits = self._forward(data, **kwargs)
+        mean = mean[-1] #get last time step, there should be no future
+        cov = cov[-1]
+        obj_logits = obj_logits[-1]
         assert len(means) == 1 #assume batch size of 1
         means = means[0] #Nq x 3 
         covs = covs[0] #Nq x 3
@@ -419,7 +396,20 @@ class DecoderMocapModel(BaseMocapModel):
     def forward_train(self, data, **kwargs):
         losses = defaultdict(list)
         mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
+        mocaps = [d[('mocap', 'mocap')] for d in data]
+        mocaps = mmcv.parallel.collate(mocaps)
+
+        gt_positions = mocaps['gt_positions']
+        T, B, N, C = gt_positions.shape
+        gt_positions = gt_positions.reshape(T*B, N, C)
+
+        gt_labels = mocaps['gt_labels']
+        T, B, N = gt_labels.shape
+        gt_labels = gt_labels.reshape(T*B, N)
+
+
         bs = len(mean)
+        assert len(gt_positions) == bs
         for i in range(bs):
             # is_missing = data['missing']['zed_camera_left'][i]
             # if is_missing:
@@ -432,16 +422,19 @@ class DecoderMocapModel(BaseMocapModel):
             dist = self.dist(mean[i], cov[i])
             dist = D.Independent(dist, 1) #Nq independent Gaussians
 
-            gt_pos = data['mocap']['gt_positions'][i]#[-2].unsqueeze(0)
-            gt_labels = data['mocap']['gt_labels'][i]#[-2].unsqueeze(0)
+            # gt_pos = data['mocap']['gt_positions'][i]#[-2].unsqueeze(0)
+            # gt_labels = data['mocap']['gt_labels'][i]#[-2].unsqueeze(0)
 
-            is_node = gt_labels == 0
+            gt_pos = gt_positions[i]
+            # gt_labels = gt_labels[i]
+
+            is_node = gt_labels[i] == 0
             final_mask = ~is_node
             if self.remove_zero_at_train:
                 z_is_zero = gt_pos[:, -1] == 0.0
                 final_mask = final_mask & ~z_is_zero
             gt_pos = gt_pos[final_mask]
-            gt_labels = gt_labels[final_mask]
+            # gt_labels = gt_labels[final_mask]
 
             if len(gt_pos) == 0:
                 import ipdb; ipdb.set_trace() # noqa
@@ -518,7 +511,7 @@ class DecoderMocapModel(BaseMocapModel):
         losses = self(data)
         loss, log_vars = self._parse_losses(losses)
         
-        num_samples = len(data['mocap']['gt_positions'])
+        num_samples = len(data[0][('mocap', 'mocap')]['gt_positions'])
 
         outputs = dict(
             loss=loss, log_vars=log_vars, num_samples=num_samples)

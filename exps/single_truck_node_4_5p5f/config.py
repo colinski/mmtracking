@@ -9,13 +9,50 @@ custom_imports = dict(
             'mmtrack.models.mocap.decoder',
             'mmtrack.models.mocap.single',
             'mmtrack.models.mocap.oracle',
-            # 'mmtrack.models.trackers.trackformer_tracker'
         ],
         allow_failed_imports=False)
 
 
+checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa
 
-model = dict(type='OracleModel', track_eval=True, no_update=False, mean_cov=[0.05,0.05,0.05], cov=[0.1,0.1,0.1], max_age=1e8)
+
+img_backbone_cfg=[
+    dict(type='ResNet',
+        depth=50,
+        num_stages=4,
+        out_indices=(3, ),
+        frozen_stages=1,
+        norm_cfg=dict(type='SyncBN', requires_grad=False),
+        norm_eval=True,
+        style='pytorch',
+        init_cfg=dict(type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
+    ),
+    dict(type='ChannelMapper',
+        in_channels=[2048],
+        kernel_size=1,
+        out_channels=256,
+        act_cfg=None,
+        norm_cfg=dict(type='BN'),
+        num_outs=1
+    )
+]
+
+img_model_cfg=dict(type='SingleModalityModel', ffn_cfg=None)
+
+model_cfgs = {('zed_camera_left', 'node_4'): img_model_cfg}
+              #('zed_camera_left', 'node_4'): img_model_cfg}
+backbone_cfgs = {'zed_camera_left': img_backbone_cfg}
+
+model = dict(type='DecoderMocapModel',
+    model_cfgs=model_cfgs,
+    backbone_cfgs=backbone_cfgs,
+    track_eval=False,
+    mse_loss_weight=0.0,
+    max_age=5,
+    # init_cfg=dict(type='Pretrained', checkpoint='logs/single_truck_901_zed/latest.pth')
+)
+
+# model = dict(type='OracleModel', track_eval=True, no_update=False, mean_cov=[0.05,0.05,0.05], cov=[0.1,0.1,0.1], max_age=1e8)
 
 img_norm_cfg = dict(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 
@@ -85,66 +122,63 @@ chunks = [
     (1662069405041, 1662069705031), #9 30000
 ]
 
-#valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
-valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
-        'range_doppler', 'azimuth_static', 'mic_waveform',
-        'realsense_camera_depth', 'realsense_camera_img']
-# valid_keys=['mocap', 'zed_camera_left']
-# valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
-# valid_keys=['mocap', 'zed_camera_left']
-# valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
+# valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
+        # 'range_doppler', 'azimuth_static', 'mic_waveform',
+        # 'realsense_camera_depth', 'realsense_camera_img']
+
+valid_keys=['mocap', 'zed_camera_left']
 data_root = '/home/csamplawski/data/mmm/2022-09-01'
 hdf5_fnames=[
     f'{data_root}/mocap.hdf5',
-    f'{data_root}/node_1/zed.hdf5',
-    f'{data_root}/node_1/realsense.hdf5',
-    f'{data_root}/node_1/respeaker.hdf5',
-    f'{data_root}/node_1/mmwave.hdf5',
-    f'{data_root}/node_2/zed.hdf5',
-    f'{data_root}/node_2/realsense.hdf5',
-    f'{data_root}/node_2/respeaker.hdf5',
-    f'{data_root}/node_2/mmwave.hdf5',
-    f'{data_root}/node_3/zed.hdf5',
-    f'{data_root}/node_3/realsense.hdf5',
-    f'{data_root}/node_3/respeaker.hdf5',
-    f'{data_root}/node_3/mmwave.hdf5',
+    # f'{data_root}/node_1/zed.hdf5',
+    # f'{data_root}/node_1/realsense.hdf5',
+    # f'{data_root}/node_1/respeaker.hdf5',
+    # f'{data_root}/node_1/mmwave.hdf5',
+    # f'{data_root}/node_2/zed.hdf5',
+    # f'{data_root}/node_2/realsense.hdf5',
+    # f'{data_root}/node_2/respeaker.hdf5',
+    # f'{data_root}/node_2/mmwave.hdf5',
+    # f'{data_root}/node_3/zed.hdf5',
+    # f'{data_root}/node_3/realsense.hdf5',
+    # f'{data_root}/node_3/respeaker.hdf5',
+    # f'{data_root}/node_3/mmwave.hdf5',
     f'{data_root}/node_4/zed.hdf5',
-    f'{data_root}/node_4/realsense.hdf5',
-    f'{data_root}/node_4/respeaker.hdf5',
-    f'{data_root}/node_4/mmwave.hdf5',
+    # f'{data_root}/node_4/realsense.hdf5',
+    # f'{data_root}/node_4/respeaker.hdf5',
+    # f'{data_root}/node_4/mmwave.hdf5',
 ]
 
-shuffle = True
 classes = ('truck', )
-valset=dict(type='HDF5Dataset',
-    #hdf5_fnames=[hdf5_fnames[0]],
+trainset=dict(type='HDF5Dataset',
     hdf5_fnames=hdf5_fnames,
     start_time=chunks[2][0],
-    end_time=chunks[2][1],
+    end_time=chunks[2][0] + int(2.5*60*1000),
+    num_future_frames=5,
+    num_past_frames=5,
     valid_keys=valid_keys,
     pipelines=pipelines,
-    vid_path='exps/oracle/',
-    is_random=False,
-    remove_first_frame=True,
+    max_len=None,
+),
+
+valset=dict(type='HDF5Dataset',
+    hdf5_fnames=hdf5_fnames,
+    start_time=chunks[2][0] + int(2.5*60*1000),
+    end_time=chunks[2][1],
+    num_future_frames=0,
+    num_past_frames=5,
+    valid_keys=valid_keys,
+    pipelines=pipelines,
+    vid_path='exps/single_truck_node_4_5p5f/',
     max_len=500,
     limit_axis=True,
     draw_cov=True,
 )
 
 data = dict(
-    samples_per_gpu=32,
+    samples_per_gpu=2,
     workers_per_gpu=0,
-    shuffle=shuffle,
-    train=dict(type='HDF5Dataset',
-        hdf5_fnames=[f'{data_root}/data_901_node_1.hdf5'],
-        start_time=chunks[2][0],
-        end_time=chunks[2][1],
-        valid_keys=valid_keys,
-        pipelines=pipelines,
-        is_random=shuffle,
-        remove_first_frame=True,
-        max_len=None,
-    ),
+    shuffle=True, #trainset shuffle only
+    train=trainset,
     val=valset,
     test=valset
 )
@@ -164,9 +198,8 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 1
-lr_config = None
-# lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
+total_epochs = 50
+lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 

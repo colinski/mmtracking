@@ -12,6 +12,7 @@ import torchaudio
 from tqdm import trange, tqdm
 import matplotlib.pyplot as plt
 import copy
+import mmcv
 from mmcv.runner import get_dist_info
 from matplotlib.patches import Ellipse
 
@@ -115,12 +116,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
 
         self.buffers = self.fill_buffers(data)
+
         if remove_first_frame:
             self.buffers = self.buffers[1:]
         if max_len is not None:
             self.buffers = self.buffers[0:max_len]
+
+
         
         self.active_keys = sorted(self.buffers[-1].keys())
+        self.nodes = set([key[1] for key in self.active_keys if 'node' in key[1]])
 
         self.pipelines = {}
         for mod, cfg in pipelines.items():
@@ -199,7 +204,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def __getitem__(self, ind):
         buff = self.buffers[ind]
         new_buff = self.apply_pipelines(buff)
-        new_buff['ind'] = ind
+        # new_buff['ind'] = ind
         
         idx_set = torch.arange(len(self))
         start_idx = max(0, ind - self.num_past_frames)
@@ -209,32 +214,40 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             zeros = torch.zeros(self.num_past_frames - len(past_idx)).long()
             past_idx = torch.cat([zeros, past_idx])
 
-        end_idx = min(ind + self.num_past_frames + 1, len(self))
+        end_idx = min(ind + self.num_future_frames + 1, len(self))
         future_idx = idx_set[ind + 1:end_idx]
 
         if len(future_idx) < self.num_future_frames:
             zeros = torch.zeros(self.num_future_frames- len(future_idx)).long()
             future_idx = torch.cat([future_idx, zeros + len(self) - 1])
         
-        new_buff['past_frames'] = []
+        buffs = []
+        # new_buff['past_frames'] = []
         for idx in past_idx:
             buff = self.buffers[idx]
             buff = self.apply_pipelines(buff)
-            buff['ind'] = idx
-            new_buff['past_frames'].append(buff)
+            # buff['ind'] = idx
+            buffs.append(buff)
+            # new_buff['past_frames'].append(buff)
+        
+        buffs.append(new_buff)
 
-        new_buff['future_frames'] = []
+        # new_buff['future_frames'] = []
         for idx in future_idx:
             buff = self.buffers[idx]
             buff = self.apply_pipelines(buff)
-            buff['ind'] = idx
-            new_buff['future_frames'].append(buff)
-        return new_buff
+            # buff['ind'] = idx
+            buffs.append(buff)
+            # new_buff['future_frames'].append(buff)
+        
+        #merge time series into a batch
+        # res = mmcv.parallel.collate(buffs)
+        return buffs
 
     def evaluate(self, outputs, **eval_kwargs):
         mse = 0
         fname = f'{self.vid_path}/latest_vid.mp4'
-        fig, axes = init_fig(self.active_keys, len(self.fnames))
+        fig, axes = init_fig(self.active_keys, len(self.nodes))
         size = (fig.get_figwidth()*100, fig.get_figheight()*100)
         # size = (fig.get_figheight()*100, fig.get_figwidth()*100)
         size = tuple([int(s) for s in size])
@@ -249,7 +262,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             colors.extend(['green', 'red', 'black', 'yellow'])
 
         for i in trange(len(self)):
-            data = self[i]
+            data = self[i][-1] #get last frame, eval shouldnt have future
             save_frame = False
             for key, val in data.items():
                 try:
@@ -262,7 +275,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     if self.limit_axis:
                         axes[key].set_xlim(0,1)
                         axes[key].set_ylim(0,1)
-                     
+                    
                     means = outputs['pred_position_mean'][i][0]
                     covs = outputs['pred_position_cov'][i][0]
                     ids = outputs['track_ids'][i][0].astype(int)
