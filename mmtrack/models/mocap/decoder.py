@@ -283,13 +283,14 @@ class DecoderMocapModel(BaseMocapModel):
     def forward_track(self, data, **kwargs):
         output_vals = self._forward(data, return_unscaled=True)
         means, covs, cls_logits, obj_logits = self._forward(data, **kwargs)
-        mean = mean[-1] #get last time step, there should be no future
-        cov = cov[-1]
+        means = means[-1] #get last time step, there should be no future
+        covs = covs[-1]
         obj_logits = obj_logits[-1]
-        assert len(means) == 1 #assume batch size of 1
-        means = means[0] #Nq x 3 
-        covs = covs[0] #Nq x 3
-        obj_probs = F.sigmoid(obj_logits[0]).squeeze() #Nq,
+        # assert len(means) == 1 #assume batch size of 1
+        # means = means[0] #Nq x 3 
+        # covs = covs[0] #Nq x 3
+        # obj_probs = F.sigmoid(obj_logits[0]).squeeze() #Nq,
+        obj_probs = F.sigmoid(obj_logits).squeeze() #Nq,
         is_obj = obj_probs >= 0.5
         means = means[is_obj]
         covs = covs[is_obj]
