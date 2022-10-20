@@ -798,7 +798,7 @@ data = dict(
         draw_cov=True))
 optimizer = dict(
     type='AdamW',
-    lr=0.0001,
+    lr=0.0004,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys=dict(
@@ -806,11 +806,11 @@ optimizer = dict(
             sampling_offsets=dict(lr_mult=0.1),
             reference_points=dict(lr_mult=0.1))))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 10
-lr_config = dict(policy='step', step=[8])
+total_epochs = 50
+lr_config = dict(policy='step', step=[40])
 evaluation = dict(metric=['bbox', 'track'], interval=100000000.0)
 find_unused_parameters = True
-checkpoint_config = dict(interval=10)
+checkpoint_config = dict(interval=50)
 log_config = dict(interval=10, hooks=[dict(type='TextLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'

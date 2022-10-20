@@ -82,8 +82,9 @@ class KalmanTrack(torch.nn.Module):
 
 class MocapTrack(torch.nn.Module):
     count = 0 #global count across tracks for id
-    def __init__(self, mean, cov=None):
+    def __init__(self, mean, cov=None, sa=1e-2):
         super().__init__()
+        self.sa = sa
         self.time_since_update = 0
         self.id = MocapTrack.count
         MocapTrack.count += 1
@@ -95,7 +96,7 @@ class MocapTrack(torch.nn.Module):
             cov = torch.ones(self.state_size) * 0.01
         # self.dymodel = self.dymodel.to(mean.device)
         
-        self.dymodel = NcvContinuous(self.state_size*2, 1e-2)
+        self.dymodel = NcvContinuous(self.state_size*2, self.sa)
         mean = torch.cat([mean, torch.zeros_like(mean) + 0.0])
         cov = torch.cat([cov, torch.zeros_like(cov) + 1.0])
 

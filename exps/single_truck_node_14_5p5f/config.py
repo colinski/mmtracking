@@ -46,7 +46,7 @@ backbone_cfgs = {'zed_camera_left': img_backbone_cfg}
 model = dict(type='DecoderMocapModel',
     model_cfgs=model_cfgs,
     backbone_cfgs=backbone_cfgs,
-    track_eval=False,
+    track_eval=True,
     mse_loss_weight=0.0,
     max_age=5,
     # init_cfg=dict(type='Pretrained', checkpoint='logs/single_truck_901_zed/latest.pth')
@@ -168,8 +168,8 @@ valset=dict(type='HDF5Dataset',
     num_past_frames=5,
     valid_keys=valid_keys,
     pipelines=pipelines,
-    vid_path='exps/single_truck_node_4_5p5f/',
-    max_len=500,
+    vid_path='exps/single_truck_node_14_5p5f/',
+    max_len=None,
     limit_axis=True,
     draw_cov=True,
 )
@@ -186,7 +186,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=1e-4*4,
+    lr=1e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={

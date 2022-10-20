@@ -33,6 +33,8 @@ img_backbone_cfg = [
 img_model_cfg = dict(type='SingleModalityModel', ffn_cfg=None)
 model_cfgs = dict({
     ('zed_camera_left', 'node_1'):
+    dict(type='SingleModalityModel', ffn_cfg=None),
+    ('zed_camera_left', 'node_4'):
     dict(type='SingleModalityModel', ffn_cfg=None)
 })
 backbone_cfgs = dict(zed_camera_left=[
@@ -64,6 +66,8 @@ model = dict(
     type='DecoderMocapModel',
     model_cfgs=dict({
         ('zed_camera_left', 'node_1'):
+        dict(type='SingleModalityModel', ffn_cfg=None),
+        ('zed_camera_left', 'node_4'):
         dict(type='SingleModalityModel', ffn_cfg=None)
     }),
     backbone_cfgs=dict(zed_camera_left=[
@@ -214,7 +218,8 @@ valid_keys = ['mocap', 'zed_camera_left']
 data_root = '/home/csamplawski/data/mmm/2022-09-01'
 hdf5_fnames = [
     '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-    '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+    '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5',
+    '/home/csamplawski/data/mmm/2022-09-01/node_4/zed.hdf5'
 ]
 classes = ('truck', )
 trainset = ({
@@ -222,7 +227,8 @@ trainset = ({
     'HDF5Dataset',
     'hdf5_fnames': [
         '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-        '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+        '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5',
+        '/home/csamplawski/data/mmm/2022-09-01/node_4/zed.hdf5'
     ],
     'start_time':
     1662065994888,
@@ -377,7 +383,8 @@ valset = dict(
     type='HDF5Dataset',
     hdf5_fnames=[
         '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-        '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+        '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5',
+        '/home/csamplawski/data/mmm/2022-09-01/node_4/zed.hdf5'
     ],
     start_time=1662066144888,
     end_time=1662066294878,
@@ -454,7 +461,7 @@ valset = dict(
             dict(type='DefaultFormatBundle'),
             dict(type='Collect', keys=['img'])
         ]),
-    vid_path='exps/single_truck_node_1_5p5f/',
+    vid_path='exps/single_truck_node_4_5p5f/',
     max_len=500,
     limit_axis=True,
     draw_cov=True)
@@ -467,7 +474,8 @@ data = dict(
         'HDF5Dataset',
         'hdf5_fnames': [
             '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5',
+            '/home/csamplawski/data/mmm/2022-09-01/node_4/zed.hdf5'
         ],
         'start_time':
         1662065994888,
@@ -622,7 +630,8 @@ data = dict(
         type='HDF5Dataset',
         hdf5_fnames=[
             '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5',
+            '/home/csamplawski/data/mmm/2022-09-01/node_4/zed.hdf5'
         ],
         start_time=1662066144888,
         end_time=1662066294878,
@@ -703,7 +712,7 @@ data = dict(
                 dict(type='DefaultFormatBundle'),
                 dict(type='Collect', keys=['img'])
             ]),
-        vid_path='exps/single_truck_node_1_5p5f/',
+        vid_path='exps/single_truck_node_4_5p5f/',
         max_len=500,
         limit_axis=True,
         draw_cov=True),
@@ -711,7 +720,8 @@ data = dict(
         type='HDF5Dataset',
         hdf5_fnames=[
             '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5',
+            '/home/csamplawski/data/mmm/2022-09-01/node_4/zed.hdf5'
         ],
         start_time=1662066144888,
         end_time=1662066294878,
@@ -792,7 +802,7 @@ data = dict(
                 dict(type='DefaultFormatBundle'),
                 dict(type='Collect', keys=['img'])
             ]),
-        vid_path='exps/single_truck_node_1_5p5f/',
+        vid_path='exps/single_truck_node_4_5p5f/',
         max_len=500,
         limit_axis=True,
         draw_cov=True))
@@ -806,11 +816,11 @@ optimizer = dict(
             sampling_offsets=dict(lr_mult=0.1),
             reference_points=dict(lr_mult=0.1))))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 10
-lr_config = dict(policy='step', step=[8])
+total_epochs = 50
+lr_config = dict(policy='step', step=[40])
 evaluation = dict(metric=['bbox', 'track'], interval=100000000.0)
 find_unused_parameters = True
-checkpoint_config = dict(interval=10)
+checkpoint_config = dict(interval=50)
 log_config = dict(interval=10, hooks=[dict(type='TextLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
@@ -819,5 +829,5 @@ resume_from = None
 workflow = [('train', 1)]
 opencv_num_threads = 0
 mp_start_method = 'fork'
-work_dir = 'exps/single_truck_node_1_5p5f/log'
+work_dir = 'exps/single_truck_node_14_5p5f/log'
 gpu_ids = [0]

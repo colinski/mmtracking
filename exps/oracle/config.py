@@ -89,7 +89,7 @@ chunks = [
 valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
         'range_doppler', 'azimuth_static', 'mic_waveform',
         'realsense_camera_depth', 'realsense_camera_img']
-# valid_keys=['mocap', 'zed_camera_left']
+valid_keys=['mocap', 'zed_camera_left']
 # valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
 # valid_keys=['mocap', 'zed_camera_left']
 # valid_keys=['mocap', 'zed_camera_left', 'mic_waveform']
@@ -97,21 +97,21 @@ data_root = '/home/csamplawski/data/mmm/2022-09-01'
 hdf5_fnames=[
     f'{data_root}/mocap.hdf5',
     f'{data_root}/node_1/zed.hdf5',
-    f'{data_root}/node_1/realsense.hdf5',
-    f'{data_root}/node_1/respeaker.hdf5',
-    f'{data_root}/node_1/mmwave.hdf5',
-    f'{data_root}/node_2/zed.hdf5',
-    f'{data_root}/node_2/realsense.hdf5',
-    f'{data_root}/node_2/respeaker.hdf5',
-    f'{data_root}/node_2/mmwave.hdf5',
-    f'{data_root}/node_3/zed.hdf5',
-    f'{data_root}/node_3/realsense.hdf5',
-    f'{data_root}/node_3/respeaker.hdf5',
-    f'{data_root}/node_3/mmwave.hdf5',
-    f'{data_root}/node_4/zed.hdf5',
-    f'{data_root}/node_4/realsense.hdf5',
-    f'{data_root}/node_4/respeaker.hdf5',
-    f'{data_root}/node_4/mmwave.hdf5',
+    # f'{data_root}/node_1/realsense.hdf5',
+    # f'{data_root}/node_1/respeaker.hdf5',
+    # f'{data_root}/node_1/mmwave.hdf5',
+    # f'{data_root}/node_2/zed.hdf5',
+    # f'{data_root}/node_2/realsense.hdf5',
+    # f'{data_root}/node_2/respeaker.hdf5',
+    # f'{data_root}/node_2/mmwave.hdf5',
+    # f'{data_root}/node_3/zed.hdf5',
+    # f'{data_root}/node_3/realsense.hdf5',
+    # f'{data_root}/node_3/respeaker.hdf5',
+    # f'{data_root}/node_3/mmwave.hdf5',
+    # f'{data_root}/node_4/zed.hdf5',
+    # f'{data_root}/node_4/realsense.hdf5',
+    # f'{data_root}/node_4/respeaker.hdf5',
+    # f'{data_root}/node_4/mmwave.hdf5',
 ]
 
 shuffle = True
@@ -119,6 +119,8 @@ classes = ('truck', )
 valset=dict(type='HDF5Dataset',
     #hdf5_fnames=[hdf5_fnames[0]],
     hdf5_fnames=hdf5_fnames,
+    num_future_frames=0,
+    num_past_frames=0,
     start_time=chunks[2][0],
     end_time=chunks[2][1],
     valid_keys=valid_keys,
