@@ -46,7 +46,7 @@ backbone_cfgs = {'zed_camera_left': img_backbone_cfg}
 model = dict(type='DecoderMocapModel',
     model_cfgs=model_cfgs,
     backbone_cfgs=backbone_cfgs,
-    track_eval=False,
+    track_eval=True,
     mse_loss_weight=0.0,
     max_age=5,
     # init_cfg=dict(type='Pretrained', checkpoint='logs/single_truck_901_zed/latest.pth')
@@ -127,7 +127,8 @@ chunks = [
         # 'realsense_camera_depth', 'realsense_camera_img']
 
 valid_keys=['mocap', 'zed_camera_left']
-data_root = '/home/csamplawski/data/mmm/2022-09-01'
+#data_root = '/home/csamplawski/data/mmm/2022-09-01'
+data_root = '/work/csamplawski_umass_edu/data/mmm/2022-09-01'
 hdf5_fnames=[
     f'{data_root}/mocap.hdf5',
     f'{data_root}/node_1/zed.hdf5',
@@ -198,7 +199,7 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 10
+total_epochs = 50
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)

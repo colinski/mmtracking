@@ -127,7 +127,8 @@ chunks = [
         # 'realsense_camera_depth', 'realsense_camera_img']
 
 valid_keys=['mocap', 'zed_camera_left']
-data_root = '/home/csamplawski/data/mmm/2022-09-01'
+#data_root = '/home/csamplawski/data/mmm/2022-09-01'
+data_root = '/work/csamplawski_umass_edu/data/mmm/2022-09-01'
 hdf5_fnames=[
     f'{data_root}/mocap.hdf5',
     f'{data_root}/node_1/zed.hdf5',

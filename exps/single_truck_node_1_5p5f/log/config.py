@@ -211,18 +211,18 @@ chunks = [(1662065698934, 1662065756964), (1662065858970, 1662065918960),
           (1662067900609, 1662068200599), (1662068331340, 1662068631330),
           (1662068790675, 1662069090665), (1662069405041, 1662069705031)]
 valid_keys = ['mocap', 'zed_camera_left']
-data_root = '/home/csamplawski/data/mmm/2022-09-01'
+data_root = '/work/csamplawski_umass_edu/data/mmm/2022-09-01'
 hdf5_fnames = [
-    '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-    '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+    '/work/csamplawski_umass_edu/data/mmm/2022-09-01/mocap.hdf5',
+    '/work/csamplawski_umass_edu/data/mmm/2022-09-01/node_1/zed.hdf5'
 ]
 classes = ('truck', )
 trainset = ({
     'type':
     'HDF5Dataset',
     'hdf5_fnames': [
-        '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-        '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+        '/work/csamplawski_umass_edu/data/mmm/2022-09-01/mocap.hdf5',
+        '/work/csamplawski_umass_edu/data/mmm/2022-09-01/node_1/zed.hdf5'
     ],
     'start_time':
     1662065994888,
@@ -376,8 +376,8 @@ trainset = ({
 valset = dict(
     type='HDF5Dataset',
     hdf5_fnames=[
-        '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-        '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+        '/work/csamplawski_umass_edu/data/mmm/2022-09-01/mocap.hdf5',
+        '/work/csamplawski_umass_edu/data/mmm/2022-09-01/node_1/zed.hdf5'
     ],
     start_time=1662066144888,
     end_time=1662066294878,
@@ -466,8 +466,8 @@ data = dict(
         'type':
         'HDF5Dataset',
         'hdf5_fnames': [
-            '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+            '/work/csamplawski_umass_edu/data/mmm/2022-09-01/mocap.hdf5',
+            '/work/csamplawski_umass_edu/data/mmm/2022-09-01/node_1/zed.hdf5'
         ],
         'start_time':
         1662065994888,
@@ -621,8 +621,8 @@ data = dict(
     val=dict(
         type='HDF5Dataset',
         hdf5_fnames=[
-            '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+            '/work/csamplawski_umass_edu/data/mmm/2022-09-01/mocap.hdf5',
+            '/work/csamplawski_umass_edu/data/mmm/2022-09-01/node_1/zed.hdf5'
         ],
         start_time=1662066144888,
         end_time=1662066294878,
@@ -710,8 +710,8 @@ data = dict(
     test=dict(
         type='HDF5Dataset',
         hdf5_fnames=[
-            '/home/csamplawski/data/mmm/2022-09-01/mocap.hdf5',
-            '/home/csamplawski/data/mmm/2022-09-01/node_1/zed.hdf5'
+            '/work/csamplawski_umass_edu/data/mmm/2022-09-01/mocap.hdf5',
+            '/work/csamplawski_umass_edu/data/mmm/2022-09-01/node_1/zed.hdf5'
         ],
         start_time=1662066144888,
         end_time=1662066294878,
@@ -806,11 +806,11 @@ optimizer = dict(
             sampling_offsets=dict(lr_mult=0.1),
             reference_points=dict(lr_mult=0.1))))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 10
-lr_config = dict(policy='step', step=[8])
+total_epochs = 50
+lr_config = dict(policy='step', step=[40])
 evaluation = dict(metric=['bbox', 'track'], interval=100000000.0)
 find_unused_parameters = True
-checkpoint_config = dict(interval=10)
+checkpoint_config = dict(interval=50)
 log_config = dict(interval=10, hooks=[dict(type='TextLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
