@@ -15,6 +15,7 @@ import copy
 import mmcv
 from mmcv.runner import get_dist_info
 from matplotlib.patches import Ellipse
+from collections import defaultdict
 
 def init_fig(valid_keys, num_rows=4, colspan=2):
     assert ('mocap', 'mocap') in valid_keys
@@ -260,7 +261,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             markers.append(',')
             markers.append('o')
             colors.extend(['green', 'red', 'black', 'yellow'])
-
+        
+        id2dist = defaultdict(list)
         for i in trange(len(self)):
             data = self[i][-1] #get last frame, eval shouldnt have future
             save_frame = False
@@ -275,19 +277,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     if self.limit_axis:
                         axes[key].set_xlim(0,1)
                         axes[key].set_ylim(0,1)
-                    
-                    means = outputs['pred_position_mean'][i][0]
-                    covs = outputs['pred_position_cov'][i][0]
-                    ids = outputs['track_ids'][i][0].astype(int)
-                    for j in range(len(means)):
-                        mean = means[j]
-                        cov = covs[j]
-                        ID = ids[j]
-                        axes[key].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
-                        if self.draw_cov:
-                            ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
-                                                        edgecolor='blue', fc='None', lw=1, linestyle='--')
-                            axes[key].add_patch(ellipse)
                     
                     gt_pos = val['gt_positions']
                     gt_ids = val['gt_ids']
@@ -305,6 +294,24 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             # continue
                         axes[key].scatter(pos[1], pos[0], marker=marker, color=color) # to rotate, longer side to be y axis
 
+                    means = outputs['pred_position_mean'][i][0]
+                    covs = outputs['pred_position_cov'][i][0]
+                    ids = outputs['track_ids'][i][0].astype(int)
+                    for j in range(len(means)):
+                        mean = means[j]
+                        dists = [np.linalg.norm(mean - pos.numpy()) for pos in gt_pos]
+                        dist = dists[-2]
+                        cov = covs[j]
+                        ID = ids[j]
+                        id2dist[ID].append(dist)
+                        axes[key].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
+                        axes[key].text(mean[1], mean[0], '%0.2f' % dist)
+                        if self.draw_cov:
+                            ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
+                                                        edgecolor='blue', fc='None', lw=1, linestyle='--')
+                            axes[key].add_patch(ellipse)
+                    
+                    
 
                 if mod in ['zed_camera_left', 'realsense_camera_img', 'realsense_camera_depth']:
                     axes[key].clear()
@@ -383,5 +390,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 vid.write(data) 
 
         vid.release()
+        dist_mean = {k: np.mean(v) for k, v in id2dist.items()}
+        dist_std = {k: np.std(v) for k, v in id2dist.items()}
+        print(dist_mean, dist_std)
         return {'mse': mse}
         

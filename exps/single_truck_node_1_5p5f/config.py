@@ -127,8 +127,8 @@ chunks = [
         # 'realsense_camera_depth', 'realsense_camera_img']
 
 valid_keys=['mocap', 'zed_camera_left']
-#data_root = '/home/csamplawski/data/mmm/2022-09-01'
-data_root = '/work/csamplawski_umass_edu/data/mmm/2022-09-01'
+data_root = '/home/csamplawski/data/mmm/2022-09-01'
+# data_root = '/work/csamplawski_umass_edu/data/mmm/2022-09-01'
 hdf5_fnames=[
     f'{data_root}/mocap.hdf5',
     f'{data_root}/node_1/zed.hdf5',
@@ -170,7 +170,7 @@ valset=dict(type='HDF5Dataset',
     valid_keys=valid_keys,
     pipelines=pipelines,
     vid_path='exps/single_truck_node_1_5p5f/',
-    max_len=500,
+    max_len=-1,
     limit_axis=True,
     draw_cov=True,
 )
