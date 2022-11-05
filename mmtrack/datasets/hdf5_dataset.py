@@ -16,6 +16,9 @@ import mmcv
 from mmcv.runner import get_dist_info
 from matplotlib.patches import Ellipse
 from collections import defaultdict
+import torch.distributions as D
+from scipy.spatial import distance
+from trackeval.metrics import CLEAR
 
 def init_fig(valid_keys, num_rows=4, colspan=2):
     assert ('mocap', 'mocap') in valid_keys
@@ -81,6 +84,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth'],
                  start_time=1656096536271,
                  end_time=1656096626261,
+                 min_x=-2162.78244, max_x=4157.92774,
+                 min_y=-1637.84491, max_y=2930.06133,
+                 min_z=0.000000000, max_z=903.616290,
+                 normalized_position=False,
                  pipelines={},
                  num_past_frames=0,
                  num_future_frames=0,
@@ -96,6 +103,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                            'range_doppler', 'azimuth_static', 'mic_waveform']
         self.valid_keys = valid_keys
         self.class2idx = {'truck': 1, 'node': 0}
+        self.min_x = min_x
+        self.max_x = max_x
+        self.len_x = 7000
+        self.min_y = min_y
+        self.max_y = max_y
+        self.len_y = 5000
+        self.min_z = min_z
+        self.max_z = max_z
+        self.len_z = 1000
+        self.normalized_position = normalized_position
         
         # rank, ws = get_dist_info()
         self.fnames = hdf5_fnames
@@ -163,9 +180,17 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             for key in data.keys():
                 if key == 'mocap':
                     mocap_data = json.loads(data['mocap'])
-                    gt_pos = torch.tensor([d['normalized_position'] for d in mocap_data])
+                    if self.normalized_position:
+                        gt_pos = torch.tensor([d['normalized_position'] for d in mocap_data])
+                    else:
+                        gt_pos = torch.tensor([d['position'] for d in mocap_data])
+                        gt_pos[..., 0] += np.abs(self.min_x)
+                        gt_pos[..., 1] += np.abs(self.min_y)
+                        gt_pos[..., 2] += np.abs(self.min_z)
+                        gt_pos /= 1000
                     gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
                     gt_ids = torch.tensor([d['id'] for d in mocap_data])
+                    gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
                     is_node = gt_labels == 0
                     final_mask = ~is_node
                     z_is_zero = gt_pos[:, -1] == 0.0
@@ -175,7 +200,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     buff[('mocap', 'mocap')] = {
                         'gt_positions': gt_pos,
                         'gt_labels': gt_labels.long(),
-                        'gt_ids': gt_ids.long()
+                        'gt_ids': gt_ids.long(),
+                        'gt_rot': gt_rot
                     }
                     num_frames += 1
                     save_frame = True
@@ -246,6 +272,62 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         return buffs
 
     def evaluate(self, outputs, **eval_kwargs):
+        all_gt_pos, all_gt_labels, all_gt_ids = [], [], []
+        for i in trange(len(self)):
+            data = self[i][-1] #get last frame, eval shouldnt have future
+            for key, val in data.items():
+                try:
+                    mod, node = key
+                except:
+                    continue
+                if mod == 'mocap':
+                    all_gt_pos.append(val['gt_positions'][-2])
+                    all_gt_ids.append(val['gt_ids'][-2])
+                    all_gt_labels.append(val['gt_labels'][-2])
+
+        all_gt_pos = torch.stack(all_gt_pos).unsqueeze(1) #num_frames x num_objs x 3
+        all_gt_labels = torch.stack(all_gt_labels).unsqueeze(1)
+        all_gt_ids = torch.stack(all_gt_ids).unsqueeze(1)
+
+        res = {}
+        res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
+        res['num_gt_ids'] = len(torch.unique(all_gt_ids))
+        res['num_timesteps'] = len(all_gt_ids)
+        res['num_tracker_dets'] = 3
+        res['tracker_ids'] = []
+        res['gt_ids'] = all_gt_ids.numpy() - 4
+        res['similarity_scores'] = []
+        
+        max_len = np.sqrt(7**2 + 5**2)
+        all_probs, all_dists = [], []
+        for i in range(len(all_gt_ids)):
+            pred_mean = torch.from_numpy(outputs['pred_position_mean'][i][0])
+            pred_cov = torch.from_numpy(outputs['pred_position_cov'][i][0])
+            pred_ids = torch.from_numpy(outputs['track_ids'][i][0])
+            res['tracker_ids'].append(pred_ids.numpy())
+            gt_pos = all_gt_pos[i]
+            
+            dists, probs = [], []
+            for j in range(len(pred_mean)):
+                dist = torch.norm(pred_mean[j][0:2] - gt_pos[:,0:2], dim=1)
+                dists.append(dist)
+                # dist = D.Normal(pred_mean[j], pred_cov[j])
+                # dist = D.Independent(dist, 1) #Nq independent Gaussians
+                # probs.append(dist.log_prob(gt_pos))
+                # icov = torch.diag(1/pred_cov[j])
+                # mdist = distance.mahalanobis(gt_pos[0], pred_mean[j], icov)
+                # mdists.append(mdist)
+            # probs = torch.stack(probs) #num_preds x num_gt_tracks
+            dists = torch.stack(dists) #num_preds x num_gt_tracks
+            dists = dists.numpy().T
+            dists = 1 - (dists / max_len)
+            res['similarity_scores'].append(dists)
+            all_dists.append(dists)
+            # all_probs.append(probs)
+        met=CLEAR({'THRESHOLD': 1-(0.3/max_len)}) 
+        out = met.eval_sequence(res)
+        print(out)
+
         mse = 0
         fname = f'{self.vid_path}/latest_vid.mp4'
         fig, axes = init_fig(self.active_keys, len(self.nodes))
@@ -274,13 +356,15 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 if mod == 'mocap':
                     save_frame = True
                     axes[key].clear()
-                    if self.limit_axis:
-                        axes[key].set_xlim(0,1)
-                        axes[key].set_ylim(0,1)
+                    if self.limit_axis or True:
+                        axes[key].set_xlim(0,5)
+                        axes[key].set_ylim(0,7)
+                        axes[key].set_aspect(1.4)
                     
                     gt_pos = val['gt_positions']
                     gt_ids = val['gt_ids']
                     gt_labels = val['gt_labels']
+                    gt_rot = val['gt_rot']
                     for j in range(len(gt_pos)):
                         pos = gt_pos[j]
                         ID = gt_ids[j]
@@ -292,7 +376,81 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             color = colors[ID]
                         # if pos[-1] == 0.0: #z == 0, ignore
                             # continue
+                        if pos[-1] == 0:
+                            continue
                         axes[key].scatter(pos[1], pos[0], marker=marker, color=color) # to rotate, longer side to be y axis
+                        if gt_labels[j] != 0:
+                            rot = gt_rot[-2]
+                            
+                            # rads = np.arccos(rot[0]) / (2*np.pi)
+                            # angle = rads * 360
+                            # w = 15/100
+                            # h = 30/100
+                            # ellipse = Ellipse(xy=(pos[1], pos[0]), width=w, height=h, angle=angle,
+                                                            # edgecolor=color, fc='None', lw=1, linestyle='--')
+                            # axes[key].add_patch(ellipse)
+
+
+                            if rot[4] <= 0:
+                                rads = np.arcsin(rot[1]) / (2*np.pi)
+                            else:
+                                rads = np.arcsin(rot[3]) / (2*np.pi)
+
+
+                            angle = rads * 360
+                            
+                            w = 15/100
+                            h = 30/100
+                            ellipse = Ellipse(xy=(pos[1], pos[0]), width=w, height=h, angle=angle,
+                                                            edgecolor=color, fc='None', lw=1, linestyle='--')
+
+                            
+                            mu = torch.tensor([pos[1],pos[0]])
+                            scale = torch.tensor([w,h])
+
+                            R = np.array([np.cos(rads), np.sin(rads), -np.sin(rads), np.cos(rads)])
+                            R = R.reshape(2,2).T
+
+                            scale = np.dot(R, scale.numpy()) / 10
+                            scale = torch.from_numpy(scale)
+                            
+                            dist = D.Normal(mu, scale)
+                            samples = dist.sample([100])
+                            # axes[key].scatter(samples[:,0], samples[:,1])
+
+                            axes[key].add_patch(ellipse)
+
+                            # rads = np.arccos(rot[2]) / (2*np.pi)
+                            # angle = rads * 360
+                            # w = 15/100
+                            # h = 30/100
+                            # ellipse = Ellipse(xy=(pos[1], pos[0]), width=w, height=h, angle=angle,
+                                                            # edgecolor='black', fc='None', lw=1, linestyle='--')
+                            # axes[key].add_patch(ellipse)
+
+                            # rads = np.arcsin(rot[3]) / (2*np.pi)
+                            # angle = rads * 360
+                            # w = 15/100
+                            # h = 30/100
+                            # ellipse = Ellipse(xy=(pos[1], pos[0]), width=w, height=h, angle=angle,
+                                                            # edgecolor='blue', fc='None', lw=1, linestyle='--')
+                            # axes[key].add_patch(ellipse)
+
+
+
+                            
+                            r=0.15
+                            axes[key].arrow(pos[1], pos[0], r*rot[1], r*rot[0], head_width=0.05, head_length=0.05, fc=color, ec=color)
+                            # axes[key].arrow(pos[1], pos[0], r*rot[3], r*rot[4], head_width=0.05, head_length=0.05, fc='g', ec='g')
+
+                            
+                            # angle = 180 * rot[1]
+                            # ellipse = Ellipse(xy=(pos[1], pos[0]), width=w, height=h, angle=angle,
+                                                            # edgecolor=color, fc='None', lw=1, linestyle='--')
+                            # axes[key].add_patch(ellipse)
+                            # text = '%0.2f, %0.2f\n%0.2f, %0.2f %0.2f' % (rot[0], rot[1], rot[3], rot[4], angle)
+                            # axes[key].text(pos[1], pos[0], text)
+
 
                     means = outputs['pred_position_mean'][i][0]
                     covs = outputs['pred_position_cov'][i][0]
@@ -304,8 +462,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         cov = covs[j]
                         ID = ids[j]
                         id2dist[ID].append(dist)
+                        rot = gt_rot[-2]
                         axes[key].scatter(mean[1], mean[0], color='blue', marker=f'${ID}$', lw=1, s=20*4**1)
-                        axes[key].text(mean[1], mean[0], '%0.2f' % dist)
+                        #axes[key].text(mean[1], mean[0], '%0.2f' % dist)
                         if self.draw_cov:
                             ellipse = Ellipse(xy=(mean[1], mean[0]), width=cov[1]*1, height=cov[0]*1, 
                                                         edgecolor='blue', fc='None', lw=1, linestyle='--')

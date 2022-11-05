@@ -164,9 +164,12 @@ class OracleModel(BaseMocapModel):
         det_ids = torch.zeros(len(means)).unsqueeze(0)
         track_ids = track_ids.unsqueeze(0) + 1 
         result = {
-            'pred_position_mean': torch.cat([det_means, track_means], dim=1).numpy(),
-            'pred_position_cov': torch.cat([det_covs, track_covs], dim=1).numpy(),
-            'track_ids': torch.cat([det_ids, track_ids], dim=1).numpy(),
+            # 'pred_position_mean': torch.cat([det_means, track_means], dim=1).numpy(),
+            # 'pred_position_cov': torch.cat([det_covs, track_covs], dim=1).numpy(),
+            # 'track_ids': torch.cat([det_ids, track_ids], dim=1).numpy(),
+            'pred_position_mean': track_means.numpy(),
+            'pred_position_cov': track_covs.numpy(),
+            'track_ids': track_ids.numpy(),
         }
         return result
 

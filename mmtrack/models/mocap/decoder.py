@@ -231,6 +231,7 @@ class DecoderMocapModel(BaseMocapModel):
         mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
         mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
         mean = mean.sigmoid()
+        mean = mean * torch.tensor([7,5,1]).to(mean.device)
 
         cov = F.softplus(output_vals[..., 3:6])
         obj_logits = output_vals[..., -1]

@@ -1,5 +1,5 @@
 EXPDIR=exps/oracle
-singularity run --nv -H $WORK $WORK/sif/python_uncv.sif $WORK/src/mmtracking/tools/dist_test.sh $EXPDIR/config.py 1 --eval track
+singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/dist_test.sh $EXPDIR/config.py 1 --eval track
 mpv $EXPDIR/latest_vid.mp4
 #singularity run --nv -H $WORK sif/python_uncv.sif src/mmtracking/tools/dist_test.sh src/mmtracking/configs/mocap/single_truck_901_zed_5x5.py 1 --checkpoint $LOGDIR/latest.pth --eval track
 #singularity run --nv -H $WORK sif/python_uncv.sif src/mmtracking/tools/dist_test.sh src/mmtracking/configs/mocap/single_truck_901_zed_5x5.py 1 --checkpoint $LOGDIR/latest.pth --eval track
