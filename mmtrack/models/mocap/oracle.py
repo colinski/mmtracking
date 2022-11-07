@@ -89,7 +89,10 @@ class OracleModel(BaseMocapModel):
         pass
 
     def _forward(self, data, **kwargs):
-        gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][-2].unsqueeze(0)
+        try:
+            gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][-2].unsqueeze(0)
+        except:
+            gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][0].unsqueeze(0)
         dist = D.Normal(gt_pos, self.mean_cov.cuda())
         mean = dist.sample([1])[0]
         return mean, self.cov.cuda()

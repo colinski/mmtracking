@@ -430,17 +430,17 @@ class DecoderMocapModel(BaseMocapModel):
             gt_pos = gt_positions[i]
             # gt_labels = gt_labels[i]
 
-            is_node = gt_labels[i] == 0
-            final_mask = ~is_node
-            if self.remove_zero_at_train:
-                z_is_zero = gt_pos[:, -1] == 0.0
-                final_mask = final_mask & ~z_is_zero
-            gt_pos = gt_pos[final_mask]
+            # is_node = gt_labels[i] == 0
+            # final_mask = ~is_node
+            # if self.remove_zero_at_train:
+                # z_is_zero = gt_pos[:, -1] == 0.0
+                # final_mask = final_mask & ~z_is_zero
+            # gt_pos = gt_pos[final_mask]
             # gt_labels = gt_labels[final_mask]
 
-            if len(gt_pos) == 0:
-                import ipdb; ipdb.set_trace() # noqa
-                continue
+            # if len(gt_pos) == 0:
+                # import ipdb; ipdb.set_trace() # noqa
+                # continue
 
             pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
             pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
