@@ -171,7 +171,7 @@ valset=dict(type='HDF5Dataset',
     pipelines=pipelines,
     vid_path='exps/two_truck_node_14_5p0f_meters/',
     max_len=-1,
-    limit_axis=True
+    limit_axis=True,
     draw_cov=True,
 )
 
