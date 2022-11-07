@@ -373,8 +373,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             res['similarity_scores'].append(dists)
             all_dists.append(dists)
             # all_probs.append(probs)
+        fname = f'{self.vid_path}/res.json'
         met=CLEAR({'THRESHOLD': 1-(0.3/self.max_len)}) 
         out = met.eval_sequence(res)
+        out = {k:float(v) for k,v in out.items()}
+        with open(fname, 'w') as f:
+            json.dump(out, f)
         print(out)
 
         mse = 0
