@@ -32,9 +32,10 @@ class LoadAudio(object):
 
 @PIPELINES.register_module()
 class LoadFromNumpyArray(object):
-    def __init__(self, force_float32=False, transpose=False):
+    def __init__(self, force_float32=False, transpose=False, force_rgb=False):
         self.force_float32 = force_float32
         self.transpose = transpose
+        self.force_rgb = force_rgb
 
     def __call__(self, array):
         if self.force_float32:
@@ -43,6 +44,8 @@ class LoadFromNumpyArray(object):
             array = array.T
         if len(array.shape) == 2: #add channel dimesion
             array = array[:, :, np.newaxis]
+        if self.force_rgb:
+            array = np.concatenate([array, array, array], axis=-1)
         array = np.nan_to_num(array, nan=0.0)
         results = {
             'img': array, 

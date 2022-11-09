@@ -181,14 +181,32 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
         self.buffers = self.fill_buffers(data)
 
+        
+
+        
+        self.active_keys = sorted(self.buffers[-1].keys())
+        
+        #ensure that we always have all the modalities
+        #some might be missing at the first start
+        count = 0
+        for i in range(len(self.buffers)):
+            missing = False
+            for key in self.active_keys:
+                if key not in self.buffers[i].keys():
+                    missing = True
+            if missing:
+                count += 1
+                continue
+            else:
+                break
+        self.buffers = self.buffers[count:]
+
         if remove_first_frame:
             self.buffers = self.buffers[1:]
         if max_len is not None:
             self.buffers = self.buffers[0:max_len]
 
 
-        
-        self.active_keys = sorted(self.buffers[-1].keys())
         self.nodes = set([key[1] for key in self.active_keys if 'node' in key[1]])
 
         self.pipelines = {}
@@ -366,10 +384,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 # mdist = distance.mahalanobis(gt_pos[0], pred_mean[j], icov)
                 # mdists.append(mdist)
             # probs = torch.stack(probs) #num_preds x num_gt_tracks
-            dists = torch.stack(dists) #num_preds x num_gt_tracks
-            dists = dists.numpy().T
-            dists[dists > self.max_len] = self.max_len
-            dists = 1 - (dists / self.max_len)
+            if len(dists) != 0:
+                dists = torch.stack(dists) #num_preds x num_gt_tracks
+                dists = dists.numpy().T
+                dists[dists > self.max_len] = self.max_len
+                dists = 1 - (dists / self.max_len)
+            else:
+                dists = torch.empty(len(gt_pos), 0).numpy()
             res['similarity_scores'].append(dists)
             all_dists.append(dists)
             # all_probs.append(probs)
