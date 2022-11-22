@@ -46,7 +46,7 @@ def linear_assignment(cost_matrix):
 class OracleModel(BaseMocapModel):
     def __init__(self,
                  cov=[1,1,1],
-                 mean_cov=[0.01,0.01,0.01],
+                 mean_cov=None,
                  max_age=5,
                  min_hits=3,
                  track_eval=False,
@@ -55,7 +55,9 @@ class OracleModel(BaseMocapModel):
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.cov = torch.tensor(cov).unsqueeze(0).float()
-        self.mean_cov = torch.tensor(mean_cov).unsqueeze(0).float()
+        self.mean_cov = mean_cov
+        if self.mean_cov is not None:
+            self.mean_cov = torch.tensor(mean_cov).unsqueeze(0)
         self.dummy_loss = nn.Parameter(torch.zeros(1))
         self.max_age = max_age
         self.min_hits = min_hits
@@ -89,12 +91,15 @@ class OracleModel(BaseMocapModel):
         pass
 
     def _forward(self, data, **kwargs):
-        try:
-            gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][-2].unsqueeze(0)
-        except:
-            gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][0].unsqueeze(0)
-        dist = D.Normal(gt_pos, self.mean_cov.cuda())
-        mean = dist.sample([1])[0]
+        # try:
+            # gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][-2].unsqueeze(0)
+        # except:
+        gt_pos = data[0][('mocap', 'mocap')]['gt_positions'][0][0].unsqueeze(0)
+        if self.mean_cov is not None:
+            dist = D.Normal(gt_pos, self.mean_cov.cuda())
+            mean = dist.sample([1])[0]
+        else:
+            mean = gt_pos
         return mean, self.cov.cuda()
 
 

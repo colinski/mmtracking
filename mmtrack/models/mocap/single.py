@@ -19,13 +19,70 @@ import copy
 import torch.distributions as D
 from .base import BaseMocapModel
 from mmdet.models import build_loss
-from cad.pos import AnchorEncoding
+from cad.pos import AnchorEncoding, SineEncoding2d
 from cad.attn import ResCrossAttn, ResSelfAttn
-# from cad.models.detr import DETRDecoder
+from cad.models.detr import DETRDecoder
 from collections import defaultdict
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from ..builder import MODELS, build_tracker, build_model
+
+@MODELS.register_module()
+class DETRModalityModel(BaseModule):
+    def __init__(self,
+                 backbone_cfg=None,
+                 neck_cfg=None,
+                 decoder_cfg=dict(type='DETRDecoder',
+                    num_layers=2,
+                    self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+                    cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+                    ffn_cfg=dict(type='SLP', in_channels=256),
+                    return_all_layers=False,
+                 ),
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.decoder = build_from_cfg(decoder_cfg, FEEDFORWARD_NETWORK)
+        
+        
+        self.backbone = backbone_cfg
+        if self.backbone is not None:
+            self.backbone = build_backbone(backbone_cfg)
+
+        self.neck = neck_cfg
+        if self.neck is not None:
+            self.neck = build_neck(neck_cfg)
+        
+        self.feat_pos_encoder = SineEncoding2d(dim=256)
+        self.anchor_encoder = AnchorEncoding(dim=256, learned=True, out_proj=True)
+        
+                
+    
+    #def forward(self, data, return_loss=True, **kwargs):
+    def forward(self, x):
+        if self.backbone:
+            feats = self.backbone(x)
+        else:
+            feats = x
+        if self.neck:
+            feats = self.neck(feats)
+        if len(feats) > 1:
+            target_shape = (feats[2].shape[2], feats[2].shape[3])
+            feats = [F.interpolate(f, target_shape) for f in feats] 
+            feats = torch.cat(feats, dim=1)
+        else:
+            feats = feats[0]
+        feats = feats.permute(0, 2, 3, 1) #feat dim to end
+        B, H, W, D = feats.shape
+        feats_pos = self.feat_pos_encoder(feats)
+
+        anchor_pos = self.anchor_encoder(None).unsqueeze(0)
+        anchor_pos = anchor_pos.expand(B, -1, -1, -1)
+        anchor_embeds = torch.zeros_like(anchor_pos)
+        
+        output_embeds = self.decoder(anchor_embeds, anchor_pos, feats, feats_pos)
+        output_embeds = output_embeds.reshape(B, -1, D)
+        return output_embeds
 
 @MODELS.register_module()
 class SingleModalityModel(BaseModule):

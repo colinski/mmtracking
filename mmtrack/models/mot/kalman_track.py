@@ -97,13 +97,22 @@ class MocapTrack(torch.nn.Module):
         # self.dymodel = self.dymodel.to(mean.device)
         
         self.dymodel = NcvContinuous(self.state_size*2, self.sa)
+
         mean = torch.cat([mean, torch.zeros_like(mean) + 0.0])
-        cov = torch.cat([cov, torch.zeros_like(cov) + 1.0])
+
+        if len(cov.shape) == 2: #full matrix
+            S = cov.new_zeros(self.state_size*2, self.state_size*2)
+            S[0:self.state_size,0:self.state_size] = cov
+            self.kf = EKFState(self.dymodel, mean.cpu(), S.cpu(), time=0)
+        else:
+            cov = torch.cat([cov, torch.zeros_like(cov) + 1.0])
+            self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
+
 
         # self.dymodel = NcpContinuous(self.state_size, 1)
         #self.kf = EKFState(self.dymodel, mean.cpu().unsqueeze(0), cov.cpu().unsqueeze(0), time=0)
         #self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
-        self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
+        # self.kf = EKFState(self.dymodel, mean.cpu(), torch.diag(cov).cpu(), time=0)
     
     @property
     def wasupdated(self):
@@ -117,11 +126,11 @@ class MocapTrack(torch.nn.Module):
 
     @property
     def mean(self):
-        return self.kf.mean[..., 0:3]
+        return self.kf.mean[..., 0:self.state_size]
 
     @property
     def cov(self):
-        return self.kf.cov[..., 0:3]
+        return self.kf.cov[..., 0:self.state_size, 0:self.state_size]
 
     def update(self, mean, cov=None):
         # bbox = det[0:4]
@@ -132,7 +141,8 @@ class MocapTrack(torch.nn.Module):
         # cov = cov
         if cov is None:
             cov = torch.ones(self.state_size) * 0.01
-        m = PositionMeasurement(mean.cpu(), torch.diag(cov).cpu(), time=self.kf.time)
+        #m = PositionMeasurement(mean.cpu(), torch.diag(cov).cpu(), time=self.kf.time)
+        m = PositionMeasurement(mean.cpu(), cov.cpu(), time=self.kf.time)
         # inno = self.kf.innovation(m)
         self.kf, _ = self.kf.update(m)
 

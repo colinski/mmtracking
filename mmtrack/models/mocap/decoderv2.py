@@ -42,12 +42,46 @@ def linear_assignment(cost_matrix):
     return assign_idx.long()
 
 @MODELS.register_module()
-class DecoderMocapModel(BaseMocapModel):
+class DecoderMocapModelV2(BaseMocapModel):
     def __init__(self,
                  backbone_cfgs=None,
                  model_cfgs=None,
+                 decoder_cfg=dict(type='DETRDecoder',
+                    num_layers=6,
+                    self_attn_cfg=dict(type='ResSelfAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+                    cross_attn_cfg=dict(type='ResCrossAttn', attn_cfg=dict(type='QKVAttention', qk_dim=256, num_heads=8)),
+                    ffn_cfg=dict(type='SLP', in_channels=256),
+                    return_all_layers=False,
+                 ),
+                 output_encoder_cfg=dict(type='DETREncoder',
+                    num_layers=6,
+                    self_attn_cfg=dict(type='ResSelfAttn', 
+                        attn_cfg=dict(type='QKVAttention', qk_dim=7, num_heads=1, attn_drop=0.0,seq_drop=0.0)
+                    ),
+                    ffn_cfg=None,
+                    out_norm_cfg=None
+                 ),
                  bce_target=0.99,
-                 remove_zero_at_train=True,
+                 output_sa_cfg=dict(type='QKVAttention',
+                     qk_dim=7,
+                     num_heads=1, 
+                     in_proj=True,
+                     out_proj=True,
+                     attn_drop=0.0, 
+                     seq_drop=0.0,
+                     return_weights=False,
+                     v_dim=None
+                 ),
+                 time_attn_cfg=dict(type='QKVAttention',
+                     qk_dim=7,
+                     num_heads=1, 
+                     in_proj=True,
+                     out_proj=True,
+                     attn_drop=0.0, 
+                     seq_drop=0.0,
+                     return_weights=False,
+                     v_dim=None
+                 ),
                  cross_attn_cfg=dict(type='QKVAttention',
                      qk_dim=256,
                      num_heads=8, 
@@ -58,32 +92,14 @@ class DecoderMocapModel(BaseMocapModel):
                      return_weights=False,
                      v_dim=None
                  ),
-                 fusion_sa_cfg=dict(type='QKVAttention',
-                     qk_dim=256,
-                     num_heads=8, 
-                     in_proj=True,
-                     out_proj=True,
-                     attn_drop=0.1, 
-                     seq_drop=0.0,
-                     return_weights=False,
-                     v_dim=None
-                 ),
-                 fusion_ffn_cfg=dict(type='SLP', in_channels=256),
-                 predict_corners=False,
                  num_output_sa_layers=6,
                  max_age=5,
                  min_hits=3,
                  track_eval=False,
                  mse_loss_weight=0.0,
-                 pos_loss_weight=0.1,
-                 mean_scale=[7,5,1],
-                 predict_full_cov=False,
-                 grid_loss=False,
-                 include_z=True,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        # torch.autograd.set_detect_anomaly(True)
         self.num_classes = 2
         self.max_age = max_age
         self.min_hits = min_hits
@@ -91,60 +107,27 @@ class DecoderMocapModel(BaseMocapModel):
         self.frame_count = 0 
         self.track_eval = track_eval
         self.mse_loss_weight = mse_loss_weight
-        self.pos_loss_weight = pos_loss_weight
-        self.grid_loss = grid_loss
-        self.include_z = include_z
-
-        self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
-
-        self.register_buffer('mean_scale', torch.tensor(mean_scale))
-
-        self.num_outputs = 2 + 1
-        if self.include_z:
-            self.num_outputs += 1
-        if predict_corners:
-            self.num_outputs += 4*2
         
-        self.predict_full_cov = predict_full_cov
-        if predict_full_cov:
-            # self.corr_coef = nn.Parameter(torch.zeros(1)+0.1)
-            if self.include_z:
-                self.num_outputs += 9
-            else:
-                self.num_outputs += 4
-        else:
-            if self.include_z:
-                self.num_outputs += 3
-            else:
-                self.num_outputs += 2
+        self.decoder = build_from_cfg(decoder_cfg, FEEDFORWARD_NETWORK)
+        # self.output_encoder = build_from_cfg(output_encoder_cfg, FEEDFORWARD_NETWORK)
 
-        output_sa_cfg=dict(type='QKVAttention',
-             qk_dim=self.num_outputs,
-             num_heads=1, 
-             in_proj=True,
-             out_proj=True,
-             attn_drop=0.0, 
-             seq_drop=0.0,
-             return_weights=False,
-             v_dim=None
-        )
-        time_attn_cfg=dict(type='QKVAttention',
-            qk_dim=self.num_outputs,
-            num_heads=1, 
-            in_proj=True,
-            out_proj=True,
-            attn_drop=0.0, 
-            seq_drop=0.0,
-            return_weights=False,
-            v_dim=None
-        )
+        # self.output_sa = [ResSelfAttn(output_sa_cfg) for _ in range(num_output_sa_layers)]
+        # self.output_sa = nn.Sequential(*self.output_sa)
 
         
         self.time_attn = None
         if time_attn_cfg is not None:
             self.time_attn = [ResSelfAttn(time_attn_cfg) for _ in range(6)]
             self.time_attn = nn.Sequential(*self.time_attn)
+
+        # self.history = None
+        # if history_size is not None:
+            # self.time_attn = [ResCrossAttn(output_sa_cfg) for _ in range(num_output_sa_layers)]
+            # self.time_attn = nn.Sequential(*self.time_attn)
+
+            # self.history_size = history_size
+            # self.history = []
 
         self.backbones = nn.ModuleDict()
         for key, cfg in backbone_cfgs.items():
@@ -156,15 +139,15 @@ class DecoderMocapModel(BaseMocapModel):
             mod, node = key
             self.models[mod + '_' + node] = build_model(cfg)
         
+        # if img_model_cfg is not None:
+            # self.img_model = build_model(img_model_cfg)
+        
+        # if range_model_cfg is not None:
+            # self.range_model = build_model(range_model_cfg)
         self.mse_loss = nn.MSELoss(reduction='none')
+        self.global_anchor_encoder = AnchorEncoding(dim=256, learned=False, out_proj=False)
         
-        self.predict_corners = predict_corners
-        if predict_corners:
-            self.corner_loss = nn.MSELoss(reduction='none')
-
-        self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=(10,10), learned=False, out_proj=False)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
-        
         
         self.ctn = nn.Sequential(
             nn.Linear(256, 256),
@@ -173,23 +156,13 @@ class DecoderMocapModel(BaseMocapModel):
             nn.GELU(),
         )
         
-        #self.output_sa = [ResSelfAttn(output_sa_cfg) for _ in range(num_output_sa_layers)]
-        self.output_sa = [ResSelfAttn(output_sa_cfg) for _ in range(6)]
+        self.output_sa = [ResSelfAttn(output_sa_cfg) for _ in range(num_output_sa_layers)]
         self.output_sa = nn.Sequential(*self.output_sa)
 
         
-        # if self.include_z:
-            # self.num_outputs += 2
-        
-        self.output_head = nn.Linear(256, self.num_outputs)
-        # nn.init.constant(self.output_head.bias, 1)
-        # nn.init.constant(self.output_head.bias[-1], -1)
+        self.output_head = nn.Linear(256, 3+3+1)
 
-        # nn.init.constant(self.output_head.bias[3:6], 01)
-        # nn.init.constant(self.output_head.bias[3], 1)
-        # nn.init.constant(self.output_head.bias[4], 5)
-        # nn.init.constant(self.output_head.bias[5], 1)
-        # self.dist = D.Normal
+        self.dist = D.Normal
 
         # focal_loss_cfg = dict(type='FocalLoss',
             # use_sigmoid=True, 
@@ -198,24 +171,8 @@ class DecoderMocapModel(BaseMocapModel):
         # self.focal_loss = build_loss(focal_loss_cfg)
         self.bce_loss = nn.BCELoss(reduction='none')
 
-    def dist(self, mean, cov):
-        if self.predict_full_cov:
-            # r = torch.tanh(self.corr_coef)
-            # N, d = cov.shape
-            # S = cov.new_zeros(N, d, d)
-            # S[..., -1,-1] = cov[..., -1]
-            # S[..., 0, 0] = cov[..., 0]**2
-            # S[..., 1, 1] = cov[..., 1]**2
-            # S[..., 0, 1] = cov[..., 0] * cov[..., 1] * r
-            # S[..., 1, 0] = cov[..., 0] * cov[..., 1] * r
-            dist = D.MultivariateNormal(mean, scale_tril=cov)
-        else:
-            # dist = D.MultivariateNormal(mean, cov)
-            dist = D.Normal(mean, cov)
-            dist = D.Independent(dist, 1)
-        return dist
-
     
+    #def forward(self, data, return_loss=True, **kwargs):
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
         on whether ``return_loss`` is ``True``.
@@ -237,71 +194,56 @@ class DecoderMocapModel(BaseMocapModel):
                 return self.forward_test(data, **kwargs)
 
     def _forward(self, datas, return_unscaled=False, **kwargs):
-        all_embeds, all_mocap = [], []
+        mod_embeds = []
         for t, data in enumerate(datas):
             embeds = self._forward_single(data)
-            all_mocap.append(data[('mocap', 'mocap')])
-            all_embeds.append(embeds)
+            mod_embeds.append(embeds)
         
-        all_embeds = torch.stack(all_embeds, dim=0) 
-        Nt, B, L, D = all_embeds.shape
-        all_embeds = all_embeds.reshape(Nt*B, L, D)
+        mod_embeds = torch.stack(mod_embeds, dim=0) 
+        Nt, B, L, D = mod_embeds.shape
+        mod_embeds = mod_embeds.reshape(Nt*B, L, D)
 
-        global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
-        global_pos_embeds = global_pos_embeds.expand(B*Nt, -1, -1, -1)
+        global_anchor_pos = self.global_anchor_encoder(None).unsqueeze(0)
+        global_anchor_pos = global_anchor_pos.expand(B*Nt, -1, -1, -1)
 
-        final_embeds = self.global_cross_attn(global_pos_embeds, all_embeds)
+        global_anchor_embeds = torch.zeros_like(global_anchor_pos)
+
+        final_embeds = self.decoder(global_anchor_embeds, global_anchor_pos, mod_embeds, None)
+
+
+
+        #final_embeds = self.global_cross_attn(global_pos_embeds, all_embeds)
+        # final_embeds = self.global_cross_attn(global_anchor_pos, mod_embeds)
         final_embeds = final_embeds.reshape(B*Nt, -1, D)
         _, L, D = final_embeds.shape
         
         final_embeds = self.ctn(final_embeds)
         
-
         output_vals = self.output_head(final_embeds) #B L 7
-        output_vals = output_vals.reshape(Nt, B, L, self.num_outputs)
+        output_vals = output_vals.reshape(Nt, B, L, 7)
         
         if self.time_attn is not None:
             output_vals = output_vals.permute(1, 2, 0, 3) #B L Nt 7
-            output_vals = output_vals.reshape(B*L, Nt, self.num_outputs)
+            output_vals = output_vals.reshape(B*L, Nt, 7)
             output_vals = self.time_attn(output_vals)
-            output_vals = output_vals.reshape(B, L, Nt, self.num_outputs)
+            output_vals = output_vals.reshape(B, L, Nt, 7)
             output_vals = output_vals.permute(2, 0, 1, 3) #Nt B L 7
 
-        output_vals = output_vals.reshape(Nt*B, L, self.num_outputs)
+        output_vals = output_vals.reshape(Nt*B, L, 7)
         output_vals = self.output_sa(output_vals)
+        
+        # output_vals = self.output_encoder(output_vals, None)
         # output_vals = output_vals.reshape(Nt, B, L, 7)
         
-        #mean = output_vals[..., 0:len(self.mean_scale)]
-        if self.include_z:
-            mean = output_vals[..., 0:3]
-        else:
-            mean = output_vals[..., 0:2]
-        mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
-        mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
+        mean = output_vals[..., 0:3]
+        mean[..., 0] += self.global_anchor_encoder.unscaled_params_x.flatten()
+        mean[..., 1] += self.global_anchor_encoder.unscaled_params_y.flatten()
         mean = mean.sigmoid()
-        mean = mean * self.mean_scale
+        mean = mean * torch.tensor([7,5,1]).to(mean.device)
 
-
-        if self.predict_full_cov and self.include_z:
-            cov = F.softplus(output_vals[..., 3:3+9])
-            cov = cov.view(B*Nt, L, 3,3).tril()
-        elif not self.predict_full_cov and self.include_z:
-            cov = F.softplus(output_vals[..., 3:6])
-        elif not self.predict_full_cov and not self.include_z:
-            cov = F.softplus(output_vals[..., 2:4])
-
-        
-
+        cov = F.softplus(output_vals[..., 3:6])
         obj_logits = output_vals[..., -1]
-
-        corner_vals = None
-        if self.predict_corners:
-            corner_vals = output_vals[..., 7:]
-            B, L, _ = corner_vals.shape
-            corner_vals = corner_vals.reshape(B, L, 4, 2)
-            corner_vals = corner_vals.sigmoid()
-            corner_vals = corner_vals * self.mean_scale[0:2]
-        return mean, cov, None, obj_logits, corner_vals
+        return mean, cov, None, obj_logits
 
         # output_vals = output_vals[len(data['past_frames'])]
         # output_vals = self.output_sa(output_vals)
@@ -311,8 +253,6 @@ class DecoderMocapModel(BaseMocapModel):
         for key in data.keys():
             mod, node = key
             if mod == 'mocap':
-                continue
-            if mod not in self.backbones.keys():
                 continue
             backbone = self.backbones[mod]
             model = self.models[mod + '_' + node]
@@ -330,7 +270,7 @@ class DecoderMocapModel(BaseMocapModel):
         return inter_embeds
         
     def forward_test(self, data, **kwargs):
-        mean, cov, cls_logits, obj_logits, _ = self._forward(data, **kwargs)
+        mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
         mean = mean[-1] #get last time step, there should be no future
         cov = cov[-1]
         obj_logits = obj_logits[-1]
@@ -352,8 +292,8 @@ class DecoderMocapModel(BaseMocapModel):
         return result
 
     def forward_track(self, data, **kwargs):
-        # output_vals = self._forward(data, return_unscaled=True)
-        means, covs, cls_logits, obj_logits, _ = self._forward(data, **kwargs)
+        output_vals = self._forward(data, return_unscaled=True)
+        means, covs, cls_logits, obj_logits = self._forward(data, **kwargs)
         means = means[-1] #get last time step, there should be no future
         covs = covs[-1]
         obj_logits = obj_logits[-1]
@@ -361,30 +301,12 @@ class DecoderMocapModel(BaseMocapModel):
         # means = means[0] #Nq x 3 
         # covs = covs[0] #Nq x 3
         # obj_probs = F.sigmoid(obj_logits[0]).squeeze() #Nq,
-        obj_probs = torch.sigmoid(obj_logits).squeeze() #Nq,
+        obj_probs = F.sigmoid(obj_logits).squeeze() #Nq,
         is_obj = obj_probs >= 0.5
         means = means[is_obj]
         covs = covs[is_obj]
 
-        if len(means) == 0:
-            result = {
-                'pred_position_mean': torch.empty(0,3).unsqueeze(0).cpu().numpy(),
-                'pred_position_cov': torch.empty(0,3,3).unsqueeze(0).cpu().numpy(),
-                # 'pred_obj_prob': obj_probs[is_obj].cpu().detach().unsqueeze(0).numpy(),
-                'track_ids': torch.empty(0,1).unsqueeze(0).numpy()
-            }
-            return result
-
-
-        if self.predict_full_cov:
-            covs = torch.bmm(covs, covs.transpose(-2,-1))
-        else:
-            if len(covs) > 0:
-                covs = torch.stack([torch.diag(cov) for cov in covs])
-
-        print(len(covs))
-
-        
+        print(covs)
 
         self.frame_count += 1
         
@@ -402,8 +324,7 @@ class DecoderMocapModel(BaseMocapModel):
             # track_dist = self.dist(track.mean, track.cov)
             # track_dist = D.Independent(pred_dist, 1)
             for j, mean in enumerate(means):
-                #m = PositionMeasurement(means[j].cpu(), torch.diag(covs[j]).cpu(), time=track.kf.time)
-                m = PositionMeasurement(means[j].cpu(), covs[j].cpu(), time=track.kf.time)
+                m = PositionMeasurement(means[j].cpu(), torch.diag(covs[j]).cpu(), time=track.kf.time)
                 log_prob = track.kf.log_likelihood_of_update(m)
                 # pred_dist = self.dist(means[j], covs[j])
                 # pred_dist = D.Independent(pred_dist, 1)
@@ -416,8 +337,8 @@ class DecoderMocapModel(BaseMocapModel):
                 self.tracks.append(new_track)
         else:
             exp_probs = log_probs.exp()
-            unassigned, assign_idx = [], []
             assign_idx = linear_assignment(-log_probs)
+            unassigned = []
             for t, d in assign_idx:
                 if exp_probs[t,d] >= 1e-16:
                     self.tracks[t].update(means[d], covs[d])
@@ -448,15 +369,13 @@ class DecoderMocapModel(BaseMocapModel):
         # states, ids = [torch.empty(0,4).cuda()], []
         # labels, scores = [], []
         
-        ndim = len(means[0])
-        track_means, track_covs, track_ids = [means.new_empty(0,ndim).cpu()], [means.new_empty(0,ndim,ndim).cpu()], []
+        track_means, track_covs, track_ids = [means.new_empty(0,3).cpu()], [means.new_empty(0,3).cpu()], []
         for t, track in enumerate(self.tracks):
             onstreak = track.hit_streak >= self.min_hits
             warmingup = self.frame_count <= self.min_hits
             if track.wasupdated and (onstreak or warmingup):
                 track_means.append(track.mean.unsqueeze(0))
-                #track_covs.append(track.cov.diag().unsqueeze(0))
-                track_covs.append(track.cov.unsqueeze(0))
+                track_covs.append(track.cov.diag().unsqueeze(0))
                 track_ids.append(track.id)
         
         track_means = torch.cat(track_means)
@@ -488,7 +407,7 @@ class DecoderMocapModel(BaseMocapModel):
 
     def forward_train(self, data, **kwargs):
         losses = defaultdict(list)
-        mean, cov, cls_logits, obj_logits, corners = self._forward(data, **kwargs)
+        mean, cov, cls_logits, obj_logits = self._forward(data, **kwargs)
         mocaps = [d[('mocap', 'mocap')] for d in data]
         mocaps = mmcv.parallel.collate(mocaps)
 
@@ -499,17 +418,6 @@ class DecoderMocapModel(BaseMocapModel):
         gt_labels = mocaps['gt_labels']
         T, B, N = gt_labels.shape
         gt_labels = gt_labels.reshape(T*B, N)
-
-        if self.predict_corners:
-            gt_corners = mocaps['gt_corners']
-            T, B, N, Nc,  _ = gt_corners.shape
-            gt_corners = gt_corners.reshape(T*B, N, Nc, -1)
-
-        if self.grid_loss:
-            gt_grids = mocaps['gt_grids']
-            T, B, N, Np, _ = gt_grids.shape
-            gt_grids = gt_grids.reshape(T*B, N, Np, -1)
-
 
 
         bs = len(mean)
@@ -522,13 +430,9 @@ class DecoderMocapModel(BaseMocapModel):
             # is_missing = data['missing']['zed_camera_depth'][i]
             # if is_missing:
                 # continue
-            
-            obj_probs = F.sigmoid(obj_logits[i])
-            
-            #dist = self.dist(mean[i] * obj_probs.unsqueeze(-1), cov[i])
-            dist = self.dist(mean[i], cov[i])
-            # dist = D.Independent(dist, 1) #Nq independent Gaussians
 
+            dist = self.dist(mean[i], cov[i])
+            dist = D.Independent(dist, 1) #Nq independent Gaussians
 
             # gt_pos = data['mocap']['gt_positions'][i]#[-2].unsqueeze(0)
             # gt_labels = data['mocap']['gt_labels'][i]#[-2].unsqueeze(0)
@@ -540,27 +444,16 @@ class DecoderMocapModel(BaseMocapModel):
             # final_mask = ~is_node
             # if self.remove_zero_at_train:
                 # z_is_zero = gt_pos[:, -1] == 0.0
-            # gt_pos = gt_pos[final_mask]
                 # final_mask = final_mask & ~z_is_zero
+            # gt_pos = gt_pos[final_mask]
             # gt_labels = gt_labels[final_mask]
 
             # if len(gt_pos) == 0:
+                # import ipdb; ipdb.set_trace() # noqa
                 # continue
-            
 
-            if self.grid_loss:
-                grid = gt_grids[i]
-                No, G, _ = grid.shape
-                grid = grid.reshape(No*G, -1)
-                log_grid_pdf = dist.log_prob(grid.unsqueeze(1))
-                log_grid_pdf = log_grid_pdf.reshape(No, G, -1)
-                logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
-                pos_neg_log_probs = -logsum
-            else:
-                pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
-                pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
-
-
+            pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
+            pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
             assign_idx = linear_assignment(pos_neg_log_probs)
             
             mse_loss, pos_loss = 0, 0
@@ -568,21 +461,8 @@ class DecoderMocapModel(BaseMocapModel):
                 pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
                 mse_loss += self.mse_loss(mean[i][pred_idx], gt_pos[gt_idx]).mean()
             pos_loss /= len(assign_idx)
-            pos_loss = pos_loss * self.pos_loss_weight
+            pos_loss /= 10
             losses['pos_loss'].append(pos_loss)
-            
-            
-            # kl_vals = []
-            # for a, _ in assign_idx:
-                # dist_a = self.dist(mean[i][a], cov[i][a])
-                # for b in range(len(mean[i])):
-                    # dist_b = self.dist(mean[i][b], cov[i][b])
-                    # kl = D.kl_divergence(dist_a, dist_b)
-                    # kl_vals.append(kl)
-            # kl_vals = torch.stack(kl_vals)
-            # kl_vals = kl_vals.reshape(len(assign_idx), -1)
-            # losses['kl_loss'].append(kl_vals.mean())
-
 
             mse_loss /= len(assign_idx)
             if self.mse_loss_weight != 0:
@@ -593,6 +473,7 @@ class DecoderMocapModel(BaseMocapModel):
             obj_targets = obj_targets.float()
             obj_targets[assign_idx[:, 0]] = self.bce_target
             
+            obj_probs = F.sigmoid(obj_logits[i])
             # obj_probs = torch.softmax(obj_logits[i], dim=0)
             
             # obj_loss_vals = self.focal_loss(obj_probs, obj_targets.long())
@@ -604,16 +485,6 @@ class DecoderMocapModel(BaseMocapModel):
             neg_obj_loss = obj_loss_vals[obj_targets == 1.0 - self.bce_target].mean() 
             losses['pos_obj_loss'].append(pos_obj_loss)
             losses['neg_obj_loss'].append(neg_obj_loss)
-
-            is_obj = obj_probs >= 0.5
-            percent = is_obj.float().mean()
-            losses['percent'].append(percent.detach())
-            
-            if self.predict_corners:
-                corner_loss = 0
-                for pred_idx, gt_idx in assign_idx:
-                    corner_loss += self.mse_loss(gt_corners[i][gt_idx], corners[i][pred_idx]).mean()
-                losses['corner_loss'].append(corner_loss / len(assign_idx))
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
