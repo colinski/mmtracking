@@ -41,6 +41,93 @@ def linear_assignment(cost_matrix):
     assign_idx = torch.from_numpy(assign_idx)
     return assign_idx.long()
 
+class Tracker:
+    def __init__(self, max_age=5, min_hits=3):
+        self.max_age = max_age
+        self.min_hits = min_hits
+        self.tracks = []
+        self.frame_count = 0 
+        self.obj_prob_thres = 0.5
+
+    def __call__(self, result):
+        obj_probs = result['det_obj_probs']
+        is_obj = obj_probs > self.obj_prob_thres
+        means = result['det_means'][is_obj]
+        covs = result['det_covs'][is_obj]
+        slot_ids = torch.arange(len(obj_probs))[is_obj]
+        if len(means) == 0:
+            result.update({
+                'track_means': torch.empty(0,3).cpu(),
+                'track_covs': torch.empty(0,3,3).cpu(),
+                'track_ids': torch.empty(0,1),
+                'slot_ids': torch.empty(0,1)
+            })
+            return result
+
+        self.frame_count += 1
+        
+        #get predictions from existing tracks
+        for track in self.tracks:
+            track.predict()
+        
+        
+        log_probs = torch.zeros(len(self.tracks), len(means))
+        for i, track in enumerate(self.tracks):
+            for j, mean in enumerate(means):
+                m = PositionMeasurement(means[j], covs[j], time=track.kf.time)
+                log_probs[i, j] = track.kf.log_likelihood_of_update(m)
+        
+        if len(log_probs) == 0: #no tracks yet
+            for j in range(len(means)):
+                new_track = MocapTrack(means[j], covs[j])
+                self.tracks.append(new_track)
+                self.tracks[-1].slot_id = slot_ids[j]
+        else:
+            exp_probs = log_probs.exp()
+            unassigned, assign_idx = [], []
+            assign_idx = linear_assignment(-log_probs)
+            for t, d in assign_idx:
+                if exp_probs[t,d] >= 1e-16:
+                    self.tracks[t].update(means[d], covs[d])
+                    self.tracks[t].slot_id = slot_ids[d]
+                else:
+                    unassigned.append(d)
+            for d in unassigned:
+                new_track = MocapTrack(means[d], covs[d])
+                self.tracks.append(new_track)
+                self.tracks[-1].slot_id = slot_ids[d]
+
+        ndim = len(means[0])
+        track_means, track_covs, track_ids = [means.new_empty(0,ndim).cpu()], [means.new_empty(0,ndim,ndim).cpu()], []
+        slots = []
+        for t, track in enumerate(self.tracks):
+            onstreak = track.hit_streak >= self.min_hits
+            warmingup = self.frame_count <= self.min_hits
+            if track.wasupdated and (onstreak or warmingup):
+                track_means.append(track.mean.unsqueeze(0))
+                #track_covs.append(track.cov.diag().unsqueeze(0))
+                track_covs.append(track.cov.unsqueeze(0))
+                track_ids.append(track.id)
+                slots.append(track.slot_id)
+        
+        track_means = torch.cat(track_means)
+        track_covs = torch.cat(track_covs)
+        track_ids = torch.tensor(track_ids)
+        slots = torch.tensor(slots)
+
+        self.tracks = [track for track in self.tracks\
+                       if track.time_since_update < self.max_age]
+
+        result.update({
+            'track_means': track_means.detach().cpu(),
+            'track_covs': track_covs.detach().cpu(),
+            'track_ids': track_ids,
+            'slot_ids': slot_ids
+        })
+        return result
+
+
+
 @MODELS.register_module()
 class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
@@ -83,6 +170,7 @@ class DecoderMocapModel(BaseMocapModel):
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
+        self.tracker = Tracker()
         # torch.autograd.set_detect_anomaly(True)
         self.num_classes = 2
         self.max_age = max_age
@@ -112,13 +200,14 @@ class DecoderMocapModel(BaseMocapModel):
             if self.include_z:
                 self.num_outputs += 9
             else:
-                self.num_outputs += 4
+                self.num_outputs += 3
         else:
             if self.include_z:
                 self.num_outputs += 3
             else:
                 self.num_outputs += 2
 
+        # self.num_outputs += 8
         output_sa_cfg=dict(type='QKVAttention',
              qk_dim=self.num_outputs,
              num_heads=1, 
@@ -200,19 +289,12 @@ class DecoderMocapModel(BaseMocapModel):
 
     def dist(self, mean, cov):
         if self.predict_full_cov:
-            # r = torch.tanh(self.corr_coef)
-            # N, d = cov.shape
-            # S = cov.new_zeros(N, d, d)
-            # S[..., -1,-1] = cov[..., -1]
-            # S[..., 0, 0] = cov[..., 0]**2
-            # S[..., 1, 1] = cov[..., 1]**2
-            # S[..., 0, 1] = cov[..., 0] * cov[..., 1] * r
-            # S[..., 1, 0] = cov[..., 0] * cov[..., 1] * r
-            dist = D.MultivariateNormal(mean, scale_tril=cov)
+            #dist = D.MultivariateNormal(mean, scale_tril=cov)
+            dist = D.MultivariateNormal(mean, cov)
         else:
-            # dist = D.MultivariateNormal(mean, cov)
-            dist = D.Normal(mean, cov)
-            dist = D.Independent(dist, 1)
+            dist = D.MultivariateNormal(mean, cov)
+            # dist = D.Normal(mean, cov)
+            # dist = D.Independent(dist, 1)
         return dist
 
     
@@ -269,7 +351,6 @@ class DecoderMocapModel(BaseMocapModel):
 
         output_vals = output_vals.reshape(Nt*B, L, self.num_outputs)
         output_vals = self.output_sa(output_vals)
-        # output_vals = output_vals.reshape(Nt, B, L, 7)
         
         #mean = output_vals[..., 0:len(self.mean_scale)]
         if self.include_z:
@@ -289,8 +370,18 @@ class DecoderMocapModel(BaseMocapModel):
             cov = F.softplus(output_vals[..., 3:6])
         elif not self.predict_full_cov and not self.include_z:
             cov = F.softplus(output_vals[..., 2:4])
+            cov = torch.diag_embed(cov)
+        elif self.predict_full_cov and not self.include_z:
+            cov = F.softplus(output_vals[..., 2:4])
+            cov = torch.diag_embed(cov)
+            cov[..., -1, 0] += output_vals[..., 4]
+            B, N, _, _ = cov.shape
+            cov = cov.reshape(B*N, 2, 2)
+            cov = torch.bmm(cov, cov.transpose(-2,-1))
+            cov = cov.reshape(B, N, 2, 2)
 
-        
+            
+
 
         obj_logits = output_vals[..., -1]
 
@@ -329,11 +420,21 @@ class DecoderMocapModel(BaseMocapModel):
         inter_embeds = torch.cat(inter_embeds, dim=-2)
         return inter_embeds
         
-    def forward_test(self, data, **kwargs):
+    def forward_track(self, data, **kwargs):
         mean, cov, cls_logits, obj_logits, _ = self._forward(data, **kwargs)
         mean = mean[-1] #get last time step, there should be no future
         cov = cov[-1]
         obj_logits = obj_logits[-1]
+        result = {
+            'det_means': mean.cpu().detach().cpu(),
+            #'det_covs': torch.diag_embed(cov).detach().cpu(),
+            'det_covs': cov.detach().cpu(),
+            'det_obj_probs': obj_logits.sigmoid().detach().cpu(),
+            # 'track_ids': torch.arange(len(mean))
+        }
+        result = self.tracker(result)
+        return result
+
         # assert len(mean) == 1 #assume batch size of 1
         # mean = mean[0] #Nq x 3 
         # cov = cov[0] #Nq x 3
@@ -351,7 +452,7 @@ class DecoderMocapModel(BaseMocapModel):
         }
         return result
 
-    def forward_track(self, data, **kwargs):
+    def forward_track_(self, data, **kwargs):
         # output_vals = self._forward(data, return_unscaled=True)
         means, covs, cls_logits, obj_logits, _ = self._forward(data, **kwargs)
         means = means[-1] #get last time step, there should be no future
@@ -552,7 +653,7 @@ class DecoderMocapModel(BaseMocapModel):
                 grid = gt_grids[i]
                 No, G, _ = grid.shape
                 grid = grid.reshape(No*G, -1)
-                log_grid_pdf = dist.log_prob(grid.unsqueeze(1))
+                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
                 log_grid_pdf = log_grid_pdf.reshape(No, G, -1)
                 logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
                 pos_neg_log_probs = -logsum
