@@ -1,48 +1,30 @@
-_base_ = [
-    # '../_base_/models/detr.py',
-    # '../../_base_/datasets/mot_challenge.py', 
-    # '../../_base_/default_runtime.py',
-     #'../../_base_/datasets/mot15-half.py', 
-]
-custom_imports = dict(
-        imports=[
-            'mmtrack.models.mocap.decoder',
-            'mmtrack.models.mocap.single',
-            'mmtrack.models.mocap.bg_model',
-            # 'mmtrack.models.trackers.trackformer_tracker'
-        ],
-        allow_failed_imports=False)
+data_root = '/home/csamplawski/data/mmm/2022-09-01'
 
-
-
-model = dict(type='BackgroundModel')
-
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
-
-# img_norm_cfg = dict(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0], to_rgb=True)
-
+img_norm_cfg = dict(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 img_pipeline = [
+    dict(type='DecodeJPEG'),
     dict(type='LoadFromNumpyArray'),
     dict(type='Resize', img_scale=(270, 480), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', **img_norm_cfg),
-    # dict(type='Pad', size_divisor=32),
-    # dict(type='ImageToTensor', keys=['img']),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
 
+r50_pipeline = [
+    dict(type='LoadFromNumpyArray', force_float32=True),
+    dict(type='RandomFlip', flip_ratio=0.0),
+    dict(type='DefaultFormatBundle'),
+    dict(type='Collect', keys=['img']),
+]
 
 depth_pipeline = [
     dict(type='LoadFromNumpyArray', force_float32=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', mean=[0], std=[20000], to_rgb=False),
     dict(type='Normalize', mean=[1], std=[0.5], to_rgb=False),
-    # dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
-    # dict(type='ImageToTensor', keys=['img']),
 ]
 
 azimuth_pipeline = [
@@ -53,23 +35,31 @@ azimuth_pipeline = [
 ]
 
 range_pipeline = [
-    dict(type='LoadFromNumpyArray', force_float32=True),
+    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
     dict(type='Resize', img_scale=(256, 16), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', mean=[4353], std=[705], to_rgb=False),
-    # dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
 
 audio_pipeline = [
-    dict(type='LoadAudio'),
-    dict(type='LoadFromNumpyArray'),
+    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
 
+pipelines = {
+    'zed_camera_left_r50': r50_pipeline,
+    'zed_camera_left': img_pipeline,
+    'zed_camera_depth': depth_pipeline,
+    'azimuth_static': azimuth_pipeline,
+    'range_doppler': range_pipeline,
+    'mic_waveform': audio_pipeline,
+    'realsense_camera_img': img_pipeline,
+    'realsense_camera_depth': img_pipeline
+}
 
 chunks = [
     (1662065698934, 1662065756964), #0 5804
@@ -84,55 +74,70 @@ chunks = [
     (1662069405041, 1662069705031), #9 30000
 ]
 
-#valid_keys=['mocap', 'range_doppler', 'zed_camera_left']
-valid_keys=['mocap', 'zed_camera_left']
-# valid_keys=['mocap', 'zed_camera_left']
+# valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth', 
+        # 'range_doppler', 'azimuth_static', 'mic_waveform',
+        # 'realsense_camera_depth', 'realsense_camera_img']
 
-shuffle = True
-classes = ('truck', )
-data_root = 'data/'
-valset=dict(type='HDF5Dataset',
-    hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
-    start_times=[chunks[0][0]],
-    end_times=[chunks[0][1]],
-    valid_keys=valid_keys,
-    img_pipeline=img_pipeline,
-    depth_pipeline=depth_pipeline,
-    azimuth_pipeline=azimuth_pipeline,
-    range_pipeline=range_pipeline,
-    audio_pipeline=audio_pipeline,
-    vid_path='logs/single_truck/',
-    is_random=False,
-    remove_first_frame=True,
-    max_len=1000,
+# data_root = '/work/csamplawski_umass_edu/data/mmm/2022-09-01'
+
+# classes = ('truck', )
+
+trainset=dict(type='HDF5Dataset',
+    # hdf5_fnames=[
+        # f'{data_root}/mocap.hdf5',
+        # f'{data_root}/node_1/zed_r50.hdf5',
+        # f'{data_root}/node_2/zed_r50.hdf5',
+        # f'{data_root}/node_3/zed_r50.hdf5',
+        # f'{data_root}/node_4/zed_r50.hdf5',
+    # ],
+    start_time=chunks[2][0],
+    end_time=chunks[2][0] + int(2.5*60*1000),
+    # num_future_frames=0,
+    # num_past_frames=5,
+    # valid_keys=['mocap', 'zed_camera_left_r50'],
+    pipelines=pipelines,
+    # max_len=None,
 )
 
+valset=dict(type='HDF5Dataset',
+    # hdf5_fnames=[
+        # f'{data_root}/mocap.hdf5',
+        # f'{data_root}/node_1/zed_r50.hdf5',
+        # f'{data_root}/node_2/zed_r50.hdf5',
+        # f'{data_root}/node_3/zed_r50.hdf5',
+        # f'{data_root}/node_4/zed_r50.hdf5',
+        # f'{data_root}/node_1/zed.hdf5',
+        # f'{data_root}/node_2/zed.hdf5',
+        # f'{data_root}/node_3/zed.hdf5',
+        # f'{data_root}/node_4/zed.hdf5',
+    # ],
+    start_time=chunks[2][0] + int(2.5*60*1000),
+    end_time=chunks[2][1],
+    num_future_frames=0,
+    num_past_frames=5,
+    valid_keys=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
+    pipelines=pipelines,
+    vid_path='exps_r50/truck1_node123_r50/',
+    max_len=500,
+    limit_axis=True,
+    draw_cov=True,
+)
+
+orig_bs = 2
+orig_lr = 1e-4
+factor = 4
 data = dict(
-    samples_per_gpu=32,
+    samples_per_gpu=orig_bs * factor,
     workers_per_gpu=0,
-    shuffle=shuffle,
-    train=dict(type='HDF5Dataset',
-        hdf5_fname=f'{data_root}/data_901_node_1.hdf5',
-        start_times=[chunks[0][0]],
-        end_times=[chunks[0][1]],
-        valid_keys=valid_keys,
-        img_pipeline=img_pipeline,
-        depth_pipeline=depth_pipeline,
-        azimuth_pipeline=azimuth_pipeline,
-        range_pipeline=range_pipeline,
-        audio_pipeline=audio_pipeline,
-        is_random=shuffle,
-        remove_first_frame=True,
-        max_len=None,
-    ),
+    shuffle=True, #trainset shuffle only
+    train=trainset,
     val=valset,
     test=valset
 )
 
-
 optimizer = dict(
     type='AdamW',
-    lr=1e-4*4,
+    lr=orig_lr * factor,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={
@@ -144,9 +149,8 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 1
-lr_config = None
-# lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
+total_epochs = 50
+lr_config = dict(policy='step', step=[int(total_epochs * 0.8)])
 #evaluation = dict(metric=['bbox', 'track'], interval=1, tmpdir='/home/csamplawski/logs/tmp')
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 

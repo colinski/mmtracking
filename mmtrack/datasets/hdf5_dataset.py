@@ -98,15 +98,15 @@ def gen_rectange(pos, rot, w, h, color='black'):
     return rec, grid
 
 
-def init_fig(valid_keys, num_cols=4, colspan=1):
-    assert ('mocap', 'mocap') in valid_keys
+def init_fig(valid_mods, num_cols=4, colspan=1):
+    assert ('mocap', 'mocap') in valid_mods
 
-    mods = [vk[0] for vk in valid_keys if vk != ('mocap', 'mocap')]
+    mods = [vk[0] for vk in valid_mods if vk != ('mocap', 'mocap')]
     num_mods = len(set(mods))
     num_cols = num_mods + 2 + 1
     num_rows = num_mods + 2 + 1
     
-    # num_plots = len(valid_keys)
+    # num_plots = len(valid_mods)
     # num_mods = num_plots - 1
     #num_cols = int(np.ceil(num_mods / num_rows)) + colspan
     # num_rows = num_mods + 1
@@ -123,10 +123,10 @@ def init_fig(valid_keys, num_cols=4, colspan=1):
     node2row = {'node_2': num_rows-1, 'node_4': 0}
     node2col = {'node_3': 0, 'node_1': num_cols-1}
    
-    valid_keys = [vk for vk in valid_keys if vk != ('mocap', 'mocap')]
+    valid_mods = [vk for vk in valid_mods if vk != ('mocap', 'mocap')]
     for node_num, col_num in node2col.items():
         count = 1
-        for i, key in enumerate(valid_keys):
+        for i, key in enumerate(valid_mods):
             if key[1] != node_num:
                 continue
             axes[key] = plt.subplot2grid((num_rows, num_cols), (count, col_num))
@@ -135,7 +135,7 @@ def init_fig(valid_keys, num_cols=4, colspan=1):
     
     for node_num, row_num in node2row.items():
         count = 1
-        for i, key in enumerate(valid_keys):
+        for i, key in enumerate(valid_mods):
             if key[1] != node_num:
                 continue
             axes[key] = plt.subplot2grid((num_rows, num_cols), (row_num, count))
@@ -143,14 +143,14 @@ def init_fig(valid_keys, num_cols=4, colspan=1):
              
             
 
-    # for i, key in enumerate(valid_keys):
+    # for i, key in enumerate(valid_mods):
         # mod, node = key
         # if node == 'node_2':
             # col = num_cols
             # axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
 
     # row, col = 1, 0
-    # for i, key in enumerate(valid_keys):
+    # for i, key in enumerate(valid_mods):
         # axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
         # row += 1
         # if row  == num_rows:
@@ -162,16 +162,20 @@ def init_fig(valid_keys, num_cols=4, colspan=1):
     plt.tight_layout()
     return fig, axes
 
-def convert2dict(f, keys, fname):
+def convert2dict(f, keys, fname, valid_mods, valid_nodes):
     data = {}
     for ms in tqdm(keys, desc='loading %s' % fname):
         data[ms] = {}
         for k, v in f[ms].items():
             if k == 'mocap': #mocap or node_N
                 data[ms]['mocap'] = v[()]
-            else:
+            else: #is node_N
+                if k not in valid_nodes:
+                    continue
                 data[ms][k] = {}
                 for k2, v2 in f[ms][k].items():
+                    if k2 not in valid_mods:
+                        continue
                     if k2 == 'detected_points':
                         data[ms][k][k2] = v2[()]
                     else:
@@ -179,7 +183,7 @@ def convert2dict(f, keys, fname):
     return data
 
 
-def load_chunk(fname, start_time, end_time):
+def load_chunk(fname, valid_mods, valid_nodes):
     with h5py.File(fname, 'r') as f:
         keys = list(f.keys())
         keys = np.array(keys).astype(int)
@@ -189,7 +193,7 @@ def load_chunk(fname, start_time, end_time):
         # end_idx = np.argmin(diffs)
         # keys = keys[start_idx:end_idx]
         keys = list(keys.astype(str))
-        data = convert2dict(f, keys, fname)
+        data = convert2dict(f, keys, fname, valid_mods, valid_nodes)
     return data
 
 
@@ -199,7 +203,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def __init__(self,
                  hdf5_fnames=[],
                  fps=20,
-                 valid_keys=['mocap', 'zed_camera_left', 'zed_camera_depth'],
+                 valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth'],
+                 valid_nodes=[1,2,3,4],
                  start_time=1656096536271,
                  end_time=1656096626261,
                  min_x=-2162.78244, max_x=4157.92774,
@@ -223,7 +228,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.MODALITIES = ['zed_camera_left', 'zed_camera_right', 'zed_camera_depth',
                            'realsense_camera_img', 'realsense_camera_depth',
                            'range_doppler', 'azimuth_static', 'mic_waveform']
-        self.valid_keys = valid_keys
+        self.valid_mods = valid_mods
+        self.valid_nodes = ['node_%d' % n for n in valid_nodes]
         self.class2idx = {'truck': 1, 'node': 0}
         self.min_x = min_x
         self.max_x = max_x
@@ -260,7 +266,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             os.mkdir(cache_dir)
             data = {}
             for fname in hdf5_fnames:
-                chunk = load_chunk(fname, start_time, end_time)
+                chunk = load_chunk(fname, self.valid_mods, self.valid_nodes)
                 for ms, val in chunk.items():
                     if ms in data.keys():
                         for k, v in val.items():
@@ -330,7 +336,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         # buff['zed_camera_left'] = cv2.imencode('.jpg', buff['zed_camera_left'])[1] #save compressed
         # buff['zed_camera_depth'] = np.zeros((10, 10, 1)).astype(np.int16) #will be resized
         # buff['range_doppler'] = np.zeros((10, 10))
-        # buff = {k: v for k, v in buff.items() if k in self.valid_keys}
+        # buff = {k: v for k, v in buff.items() if k in self.valid_mods}
         # buff['missing'] = {}
         # for mod in self.MODALITIES:
             # buff['missing'][mod] = True
@@ -389,20 +395,30 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     final_mask = ~is_node 
                     if not self.include_z:
                         gt_pos = gt_pos[..., 0:2]
+                    gt_pos = gt_pos[final_mask]
+                    gt_grid = grids[final_mask]
+                    if len(gt_pos) < 2:
+                        zeros = torch.zeros(2 - len(gt_pos), gt_pos.shape[-1])
+                        gt_pos = torch.cat([gt_pos, zeros - 1])
+                        
+                        zeros = torch.zeros(2 - len(gt_grid), 450, 2)
+                        gt_grid = torch.cat([gt_grid, zeros - 1])
+
+                        
                     buff[('mocap', 'mocap')] = {
-                        'gt_positions': gt_pos[final_mask],
-                        'gt_labels': gt_labels[final_mask].long(),
-                        'gt_ids': gt_ids[final_mask].long() - 4,
-                        'gt_rot': gt_rot[final_mask],
-                        'gt_corners': corners[final_mask],
-                        'gt_grids': grids[final_mask]
+                        'gt_positions': gt_pos,
+                        #'gt_labels': gt_labels[final_mask].long(),
+                        #'gt_ids': gt_ids[final_mask].long() - 4,
+                        #'gt_rot': gt_rot[final_mask],
+                        #'gt_corners': corners[final_mask],
+                        'gt_grids': gt_grid
                     }
                     num_frames += 1
                     save_frame = True
 
                 if 'node' in key:
                     for k, v in data[key].items():
-                        if k in self.valid_keys:
+                        if k in self.valid_mods:
                             buff[(k, key)] = v
             
             if save_frame and num_frames % factor == 0:

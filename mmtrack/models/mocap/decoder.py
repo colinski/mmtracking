@@ -158,6 +158,7 @@ class DecoderMocapModel(BaseMocapModel):
                  predict_full_cov=False,
                  grid_loss=False,
                  include_z=True,
+                 grid_size=(10,10),
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -238,7 +239,7 @@ class DecoderMocapModel(BaseMocapModel):
         if predict_corners:
             self.corner_loss = nn.MSELoss(reduction='none')
 
-        self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=(10,10), learned=False, out_proj=False)
+        self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=grid_size, learned=False, out_proj=False)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
         
@@ -400,9 +401,9 @@ class DecoderMocapModel(BaseMocapModel):
         T, B, N, C = gt_positions.shape
         gt_positions = gt_positions.reshape(T*B, N, C)
 
-        gt_labels = mocaps['gt_labels']
-        T, B, N = gt_labels.shape
-        gt_labels = gt_labels.reshape(T*B, N)
+        # gt_labels = mocaps['gt_labels']
+        # T, B, N = gt_labels.shape
+        # gt_labels = gt_labels.reshape(T*B, N)
 
         if self.predict_corners:
             gt_corners = mocaps['gt_corners']
@@ -411,8 +412,8 @@ class DecoderMocapModel(BaseMocapModel):
 
         if self.grid_loss:
             gt_grids = mocaps['gt_grids']
-            T, B, N, Np, _ = gt_grids.shape
-            gt_grids = gt_grids.reshape(T*B, N, Np, -1)
+            T, B, N, Np, f = gt_grids.shape
+            gt_grids = gt_grids.reshape(T*B, N, Np, f)
 
         bs = len(mean)
         assert len(gt_positions) == bs
@@ -420,48 +421,57 @@ class DecoderMocapModel(BaseMocapModel):
             obj_probs = F.sigmoid(obj_logits[i])
             dist = self.dist(mean[i], cov[i])
             gt_pos = gt_positions[i]
+            mask = gt_pos[:, 0] != -1
+            gt_pos = gt_pos[mask]
             
-            if self.grid_loss:
-                grid = gt_grids[i]
-                No, G, _ = grid.shape
-                grid = grid.reshape(No*G, -1)
-                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
-                log_grid_pdf = log_grid_pdf.reshape(No, G, -1)
-                logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
-                pos_neg_log_probs = -logsum
-            else:
-                pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
-                pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
-
-
-            assign_idx = linear_assignment(pos_neg_log_probs)
-            
-            mse_loss, pos_loss = 0, 0
-            for pred_idx, gt_idx in assign_idx:
-                pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
-                mse_loss += self.mse_loss(mean[i][pred_idx], gt_pos[gt_idx]).mean()
-            pos_loss /= len(assign_idx)
-            pos_loss = pos_loss * self.pos_loss_weight
-            losses['pos_loss'].append(pos_loss)
-            
-            mse_loss /= len(assign_idx)
-            if self.mse_loss_weight != 0:
-                mse_loss *= self.mse_loss_weight
-                losses['mse_loss'].append(mse_loss)
-
-            obj_targets = pos_neg_log_probs.new_zeros(len(pos_neg_log_probs)) + (1.0 - self.bce_target)
+            obj_targets = mean.new_zeros(len(mean[i])) + (1.0 - self.bce_target) #Nq
             obj_targets = obj_targets.float()
-            obj_targets[assign_idx[:, 0]] = self.bce_target
+            if len(gt_pos) > 0:
+                if self.grid_loss:
+                    grid = gt_grids[i][mask]
+                    No, G, f = grid.shape
+                    grid = grid.reshape(No*G, 2)
+                    log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
+                    log_grid_pdf = log_grid_pdf.reshape(No, G, 100)
+                    logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
+                    pos_neg_log_probs = -logsum
+                else:
+                    pos_log_probs = [dist.log_prob(pos) for pos in gt_pos]
+                    pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
 
-            obj_loss_vals = self.bce_loss(obj_probs.squeeze(), obj_targets)
+
+                assign_idx = linear_assignment(pos_neg_log_probs)
+                
+                mse_loss, pos_loss = 0, 0
+                for pred_idx, gt_idx in assign_idx:
+                    pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                    mse_loss += self.mse_loss(mean[i][pred_idx], gt_pos[gt_idx]).mean()
+                pos_loss /= len(assign_idx)
+                pos_loss = pos_loss * self.pos_loss_weight
+                losses['pos_loss'].append(pos_loss)
+                
+                mse_loss /= len(assign_idx)
+                if self.mse_loss_weight != 0:
+                    mse_loss *= self.mse_loss_weight
+                    losses['mse_loss'].append(mse_loss)
+
+                obj_targets[assign_idx[:, 0]] = self.bce_target
+            
+            # if pos_neg_log_probs.shape[0] > pos_neg_log_probs.shape[1]:
+            # obj_loss_vals = self.bce_loss(obj_probs.squeeze(), obj_targets)
+            obj_loss_vals = self.bce_loss(obj_probs, obj_targets)
             pos_obj_loss = obj_loss_vals[obj_targets == self.bce_target].mean()
             neg_obj_loss = obj_loss_vals[obj_targets == 1.0 - self.bce_target].mean() 
-            losses['pos_obj_loss'].append(pos_obj_loss)
-            losses['neg_obj_loss'].append(neg_obj_loss)
+            if sum(obj_targets == self.bce_target).item() != 0:
+                losses['pos_obj_loss'].append(pos_obj_loss)
+
+            if sum(obj_targets == 1.0 - self.bce_target).item() != 0:
+                losses['neg_obj_loss'].append(neg_obj_loss)
 
             is_obj = obj_probs >= 0.5
-            percent = is_obj.float().mean()
-            losses['percent'].append(percent.detach())
+            percent = is_obj.float().sum()
+            acc = torch.abs(len(gt_pos) - percent)
+            losses['acc'].append(acc.detach())
             
             if self.predict_corners:
                 corner_loss = 0
