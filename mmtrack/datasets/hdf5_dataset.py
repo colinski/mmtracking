@@ -181,14 +181,13 @@ def convert2dict(f, keys, fname):
 
 def load_chunk(fname, start_time, end_time):
     with h5py.File(fname, 'r') as f:
-        # keys = list(f.keys())
-        # keys = np.array(keys).astype(int)
-        keys = f['timesteps'][()]
-        diffs = (keys - start_time)**2
-        start_idx = np.argmin(diffs)
-        diffs = (keys - end_time)**2
-        end_idx = np.argmin(diffs)
-        keys = keys[start_idx:end_idx]
+        keys = list(f.keys())
+        keys = np.array(keys).astype(int)
+        # diffs = (keys - start_time)**2
+        # start_idx = np.argmin(diffs)
+        # diffs = (keys - end_time)**2
+        # end_idx = np.argmin(diffs)
+        # keys = keys[start_idx:end_idx]
         keys = list(keys.astype(str))
         data = convert2dict(f, keys, fname)
     return data
