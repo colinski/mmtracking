@@ -397,6 +397,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         gt_pos = gt_pos[..., 0:2]
                     gt_pos = gt_pos[final_mask]
                     gt_grid = grids[final_mask]
+                    gt_rot = gt_rot[final_mask]
+                    gt_ids = gt_ids[final_mask] - 4
                     if len(gt_pos) < 2:
                         zeros = torch.zeros(2 - len(gt_pos), gt_pos.shape[-1])
                         gt_pos = torch.cat([gt_pos, zeros - 1])
@@ -404,12 +406,17 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         zeros = torch.zeros(2 - len(gt_grid), 450, 2)
                         gt_grid = torch.cat([gt_grid, zeros - 1])
 
+                        zeros = torch.zeros(2 - len(gt_grid), 9)
+                        gt_rot = torch.cat([gt_rot, zeros - 1])
+                        
+                        zeros = torch.zeros(2 - len(gt_grid))
+                        gt_ids = torch.cat([gt_ids, zeros - 1])
                         
                     buff[('mocap', 'mocap')] = {
                         'gt_positions': gt_pos,
                         #'gt_labels': gt_labels[final_mask].long(),
-                        #'gt_ids': gt_ids[final_mask].long() - 4,
-                        #'gt_rot': gt_rot[final_mask],
+                        'gt_ids': gt_ids.long(),
+                        'gt_rot': gt_rot,
                         #'gt_corners': corners[final_mask],
                         'gt_grids': gt_grid
                     }
@@ -617,6 +624,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     num_gt = len(val['gt_positions'])
                     for j in range(num_gt):
                         pos = val['gt_positions'][j]
+                        if pos[0] == -1:
+                            continue
                         rot = val['gt_rot'][j]
                         ID = val['gt_ids'][j]
                         grid = val['gt_grids'][j]

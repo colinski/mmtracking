@@ -158,6 +158,8 @@ class DecoderMocapModel(BaseMocapModel):
                  predict_full_cov=False,
                  grid_loss=False,
                  include_z=True,
+                 add_grid_to_mean=True,
+                 num_queries=None,
                  grid_size=(10,10),
                  *args,
                  **kwargs):
@@ -176,6 +178,9 @@ class DecoderMocapModel(BaseMocapModel):
         self.remove_zero_at_train = remove_zero_at_train
         self.bce_target = bce_target
         self.register_buffer('mean_scale', torch.tensor(mean_scale))
+        self.add_grid_to_mean = add_grid_to_mean
+
+
 
         self.num_outputs = 2 + 1
         if self.include_z:
@@ -218,6 +223,10 @@ class DecoderMocapModel(BaseMocapModel):
             v_dim=None
         )
         
+        # if not self.add_grid_to_mean:
+            # self.output_scale = nn.Linear(self.num_outputs, self.num_outputs)
+
+        
         self.time_attn = None
         if time_attn_cfg is not None:
             self.time_attn = [ResSelfAttn(time_attn_cfg) for _ in range(6)]
@@ -238,7 +247,8 @@ class DecoderMocapModel(BaseMocapModel):
         self.predict_corners = predict_corners
         if predict_corners:
             self.corner_loss = nn.MSELoss(reduction='none')
-
+        
+        self.num_queries = num_queries
         self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=grid_size, learned=False, out_proj=False)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
@@ -293,8 +303,11 @@ class DecoderMocapModel(BaseMocapModel):
         all_embeds = torch.stack(all_embeds, dim=0) 
         Nt, B, L, D = all_embeds.shape
         all_embeds = all_embeds.reshape(Nt*B, L, D)
-
-        global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+        
+        if self.num_queries is not None:
+            global_pos_embeds = all_embeds.new_zeros(1, self.num_queries, 256)
+        else:
+            global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
         global_pos_embeds = global_pos_embeds.expand(B*Nt, -1, -1, -1)
 
         final_embeds = self.global_cross_attn(global_pos_embeds, all_embeds)
@@ -320,8 +333,9 @@ class DecoderMocapModel(BaseMocapModel):
             mean = output_vals[..., 0:3]
         else:
             mean = output_vals[..., 0:2]
-        mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
-        mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
+        if self.add_grid_to_mean:
+            mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
+            mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
         mean = mean.sigmoid()
         mean = mean * self.mean_scale
 
@@ -432,7 +446,7 @@ class DecoderMocapModel(BaseMocapModel):
                     No, G, f = grid.shape
                     grid = grid.reshape(No*G, 2)
                     log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
-                    log_grid_pdf = log_grid_pdf.reshape(No, G, 100)
+                    log_grid_pdf = log_grid_pdf.reshape(No, G, len(mean[i]))
                     logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
                     pos_neg_log_probs = -logsum
                 else:
