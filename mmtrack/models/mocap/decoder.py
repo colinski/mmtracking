@@ -161,6 +161,7 @@ class DecoderMocapModel(BaseMocapModel):
                  add_grid_to_mean=True,
                  num_queries=None,
                  grid_size=(10,10),
+                 match_by_id=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -179,8 +180,7 @@ class DecoderMocapModel(BaseMocapModel):
         self.bce_target = bce_target
         self.register_buffer('mean_scale', torch.tensor(mean_scale))
         self.add_grid_to_mean = add_grid_to_mean
-
-
+        self.match_by_id = match_by_id
 
         self.num_outputs = 2 + 1
         if self.include_z:
@@ -415,9 +415,9 @@ class DecoderMocapModel(BaseMocapModel):
         T, B, N, C = gt_positions.shape
         gt_positions = gt_positions.reshape(T*B, N, C)
 
-        # gt_labels = mocaps['gt_labels']
-        # T, B, N = gt_labels.shape
-        # gt_labels = gt_labels.reshape(T*B, N)
+        gt_ids = mocaps['gt_ids']
+        T, B, f = gt_ids.shape
+        gt_ids = gt_ids.reshape(T*B, f)
 
         if self.predict_corners:
             gt_corners = mocaps['gt_corners']
@@ -454,7 +454,10 @@ class DecoderMocapModel(BaseMocapModel):
                     pos_neg_log_probs = -torch.stack(pos_log_probs, dim=-1) #Nq x num_objs
 
 
-                assign_idx = linear_assignment(pos_neg_log_probs)
+                if self.match_by_id:
+                    assign_idx = torch.stack([gt_ids[i]]*2, dim=-1).cpu()
+                else:
+                    assign_idx = linear_assignment(pos_neg_log_probs)
                 
                 mse_loss, pos_loss = 0, 0
                 for pred_idx, gt_idx in assign_idx:
