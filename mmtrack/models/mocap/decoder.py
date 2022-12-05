@@ -162,6 +162,7 @@ class DecoderMocapModel(BaseMocapModel):
                  num_queries=None,
                  grid_size=(10,10),
                  match_by_id=False,
+                 autoregressive=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -181,6 +182,7 @@ class DecoderMocapModel(BaseMocapModel):
         self.register_buffer('mean_scale', torch.tensor(mean_scale))
         self.add_grid_to_mean = add_grid_to_mean
         self.match_by_id = match_by_id
+        self.autoregressive = autoregressive
 
         self.num_outputs = 2 + 1
         if self.include_z:
@@ -249,7 +251,10 @@ class DecoderMocapModel(BaseMocapModel):
             self.corner_loss = nn.MSELoss(reduction='none')
         
         self.num_queries = num_queries
-        self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=grid_size, learned=False, out_proj=False)
+        if self.num_queries is not None:
+            self.global_pos_encoding = nn.Embedding(self.num_queries, 256)
+        else: 
+            self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=grid_size, learned=False, out_proj=False)
         self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
         
@@ -293,6 +298,39 @@ class DecoderMocapModel(BaseMocapModel):
             else:
                 return self.forward_test(data, **kwargs)
 
+    def _ar_forward(self, datas, return_unscaled=False, **kwargs):
+        all_embeds, all_mocap = [], []
+        for t, data in enumerate(datas):
+            embeds = self._forward_single(data)
+            all_mocap.append(data[('mocap', 'mocap')])
+            all_embeds.append(embeds)
+        
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        Nt, B, L, D = all_embeds.shape
+        all_embeds = all_embeds.reshape(Nt*B, L, D)
+        
+        if self.num_queries is not None:
+            #global_pos_embeds = all_embeds.new_zeros(1, self.num_queries, 256)
+            global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0)
+        else:
+            global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+        global_pos_embeds = global_pos_embeds.expand(B*Nt, -1, -1, -1)
+
+        final_embeds = self.global_cross_attn(global_pos_embeds, all_embeds)
+        final_embeds = final_embeds.reshape(B*Nt, -1, D)
+        _, L, D = final_embeds.shape
+        
+        final_embeds = self.ctn(final_embeds)
+        
+        output_vals = self.output_head(final_embeds) #B L No
+        output_vals = output_vals.reshape(Nt, B, L, self.num_outputs)
+        import ipdb; ipdb.set_trace() # noqa
+        
+        outputs = []
+        curr = output_vals[0]
+
+
+
     def _forward(self, datas, return_unscaled=False, **kwargs):
         all_embeds, all_mocap = [], []
         for t, data in enumerate(datas):
@@ -305,7 +343,8 @@ class DecoderMocapModel(BaseMocapModel):
         all_embeds = all_embeds.reshape(Nt*B, L, D)
         
         if self.num_queries is not None:
-            global_pos_embeds = all_embeds.new_zeros(1, self.num_queries, 256)
+            #global_pos_embeds = all_embeds.new_zeros(1, self.num_queries, 256)
+            global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0)
         else:
             global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
         global_pos_embeds = global_pos_embeds.expand(B*Nt, -1, -1, -1)
@@ -407,7 +446,10 @@ class DecoderMocapModel(BaseMocapModel):
     
     def forward_train(self, data, **kwargs):
         losses = defaultdict(list)
-        mean, cov, cls_logits, obj_logits, corners = self._forward(data, **kwargs)
+        if self.autoregressive:
+            mean, cov, cls_logits, obj_logits, corners = self._ar_forward(data, **kwargs)
+        else:
+            mean, cov, cls_logits, obj_logits, corners = self._forward(data, **kwargs)
         mocaps = [d[('mocap', 'mocap')] for d in data]
         mocaps = mmcv.parallel.collate(mocaps)
 

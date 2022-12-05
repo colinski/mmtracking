@@ -181,7 +181,7 @@ trainset2=dict(type='HDF5Dataset',
 )
 
 
-data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
+data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
 valset=dict(type='HDF5Dataset',
     hdf5_fnames=[
         f'{data_root}/mocap.hdf5',
@@ -210,12 +210,13 @@ valset=dict(type='HDF5Dataset',
     uid=4321,
     num_future_frames=0,
     num_past_frames=5,
-    valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_lef'],
+    valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
     valid_nodes=valid_nodes,
     pipelines=pipelines,
     limit_axis=True,
     draw_cov=True,
     include_z=False,
+    max_len=500,
 )
 
 # data = dict(
@@ -258,9 +259,11 @@ model = dict(type='DecoderMocapModel',
     include_z=False,
     mean_scale=[7,5],
     pos_loss_weight=0.1,
-    predict_full_cov=True
-    # init_cfg=dict(type='Pretrained', checkpoint='logs/single_truck_901_zed/latest.pth')
+    predict_full_cov=True,
+    #num_queries=5,
+    add_grid_to_mean=True
 )
+
 
 # data_root = '/home/csamplawski/eight/data_901/trucks1_lightsT_obstaclesF/test'
 # trainset0=dict(type='HDF5Dataset',
@@ -314,11 +317,12 @@ orig_bs = 2
 orig_lr = 1e-4 
 factor = 4
 data = dict(
-    samples_per_gpu=orig_bs * factor * 8,
+    samples_per_gpu=orig_bs * factor,
     workers_per_gpu=0,
     shuffle=True, #trainset shuffle only
     train=[trainset0, trainset1, trainset2],
     val=valset,
+    test=valset
 )
 
 optimizer = dict(

@@ -74,9 +74,9 @@ model = dict(type='DecoderMocapModel',
     mean_scale=[7,5],
     pos_loss_weight=0.1,
     predict_full_cov=True,
-    num_queries=2,
+    num_queries=5,
     add_grid_to_mean=False,
-    match_by_id=True
+    #match_by_id=True
 )
 
 

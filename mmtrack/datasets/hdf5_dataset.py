@@ -406,10 +406,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         zeros = torch.zeros(2 - len(gt_grid), 450, 2)
                         gt_grid = torch.cat([gt_grid, zeros - 1])
 
-                        zeros = torch.zeros(2 - len(gt_grid), 9)
+                        zeros = torch.zeros(2 - len(gt_rot), 9)
                         gt_rot = torch.cat([gt_rot, zeros - 1])
                         
-                        zeros = torch.zeros(2 - len(gt_grid))
+                        zeros = torch.zeros(2 - len(gt_ids))
                         gt_ids = torch.cat([gt_ids, zeros - 1])
                         
                     buff[('mocap', 'mocap')] = {
