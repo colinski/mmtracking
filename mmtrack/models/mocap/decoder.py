@@ -170,7 +170,7 @@ class DecoderMocapModel(BaseMocapModel):
         self.num_classes = 2
         self.max_age = max_age
         self.min_hits = min_hits
-        self.tracks = []
+        self.tracks = None
         self.frame_count = 0 
         self.track_eval = track_eval
         self.mse_loss_weight = mse_loss_weight
@@ -233,6 +233,21 @@ class DecoderMocapModel(BaseMocapModel):
         if time_attn_cfg is not None:
             self.time_attn = [ResSelfAttn(time_attn_cfg) for _ in range(6)]
             self.time_attn = nn.Sequential(*self.time_attn)
+
+        if self.autoregressive:
+            ar_attn_cfg=dict(type='QKVAttention',
+                qk_dim=self.num_outputs,
+                num_heads=1, 
+                in_proj=True,
+                out_proj=True,
+                attn_drop=0.0, 
+                seq_drop=0.0,
+                return_weights=False,
+                v_dim=None
+            )
+            self.ar_cross_attn = [ResCrossAttn(ar_attn_cfg) for _ in range(6)]
+            self.ar_cross_attn = nn.ModuleList(self.ar_cross_attn)
+
 
         self.backbones = nn.ModuleDict()
         for key, cfg in backbone_cfgs.items():
@@ -298,13 +313,76 @@ class DecoderMocapModel(BaseMocapModel):
             else:
                 return self.forward_test(data, **kwargs)
 
-    def _ar_forward(self, datas, return_unscaled=False, **kwargs):
-        all_embeds, all_mocap = [], []
-        for t, data in enumerate(datas):
-            embeds = self._forward_single(data)
-            all_mocap.append(data[('mocap', 'mocap')])
-            all_embeds.append(embeds)
+    def _ar_forward_test(self, datas, return_unscaled=False, **kwargs):
+        all_embeds = [self._forward_single(data) for data in datas]
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        Nt, B, L, D = all_embeds.shape
+        all_embeds = all_embeds.reshape(Nt*B, L, D)
         
+        if self.num_queries is not None:
+            #global_pos_embeds = all_embeds.new_zeros(1, self.num_queries, 256)
+            global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0)
+        else:
+            global_pos_embeds = self.global_pos_encoding(None).unsqueeze(0)
+        global_pos_embeds = global_pos_embeds.expand(B*Nt, -1, -1, -1)
+
+        final_embeds = self.global_cross_attn(global_pos_embeds, all_embeds)
+        final_embeds = final_embeds.reshape(B*Nt, -1, D)
+        _, L, D = final_embeds.shape
+        
+        final_embeds = self.ctn(final_embeds)
+        output_vals = self.output_head(final_embeds) #B L No
+        output_vals = output_vals.reshape(Nt, B, L, self.num_outputs)[-1][0]
+        output_vals = output_vals.detach()
+        
+        det_mean, det_cov, _ = self.convert(output_vals.unsqueeze(0))
+        det_mean, det_cov = det_mean.squeeze(), det_cov.squeeze()
+        result = {
+            'det_means': det_mean.cpu(),
+            'det_covs': det_cov.cpu(),
+        }
+
+
+        if self.tracks is None:
+            self.tracks = output_vals
+        else:
+            for layer in self.ar_cross_attn:
+                self.tracks = layer(self.tracks, output_vals)
+
+        track_mean, track_cov, _ = self.convert(self.tracks.unsqueeze(0))
+        track_mean, track_cov = track_mean.squeeze(), track_cov.squeeze()
+
+
+        result.update({
+            'track_means': track_mean.detach().cpu(),
+            'track_covs': track_cov.detach().cpu(),
+            'track_ids': torch.arange(2).long(),
+            'slot_ids': torch.arange(2).long()
+        })
+
+        return result
+
+
+    def _ar_forward(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
+        # gt_positions = gt_positions.reshape(T*B, N, C)
+
+        gt_ids = mocaps['gt_ids']
+        T, B, f = gt_ids.shape
+        gt_ids = gt_ids.transpose(0,1)
+        # gt_ids = gt_ids.reshape(T*B, f)
+
+        gt_grids = mocaps['gt_grids']
+        T, B, N, Np, f = gt_grids.shape
+        gt_grids = gt_grids.transpose(0,1)
+        # gt_grids = gt_grids.reshape(T*B, N, Np, f)
+
+        all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0) 
         Nt, B, L, D = all_embeds.shape
         all_embeds = all_embeds.reshape(Nt*B, L, D)
@@ -324,11 +402,72 @@ class DecoderMocapModel(BaseMocapModel):
         
         output_vals = self.output_head(final_embeds) #B L No
         output_vals = output_vals.reshape(Nt, B, L, self.num_outputs)
-        import ipdb; ipdb.set_trace() # noqa
-        
-        outputs = []
-        curr = output_vals[0]
+        output_vals = output_vals.transpose(0,1)
 
+        bs = len(output_vals)
+        all_outputs = []
+        for i in range(bs):
+            T = len(output_vals[i])
+            for j in range(T):
+                if j == 0:
+                    curr = output_vals[i][j]
+                else:
+                    for layer in self.ar_cross_attn:
+                        curr = layer(curr, output_vals[i][j])
+                mean, cov, obj_logits = self.convert(curr.unsqueeze(0))
+                mean, cov, obj_logits = mean.squeeze(), cov.squeeze(), obj_logits.squeeze()
+                dist = self.dist(mean, cov)
+                grid = gt_grids[i][j]
+                No, G, f = grid.shape
+                grid = grid.reshape(No*G, 2)
+                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
+                log_grid_pdf = log_grid_pdf.reshape(No, G, len(mean))
+                logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
+                pos_neg_log_probs = -logsum
+                if self.match_by_id:
+                    assign_idx = torch.stack([gt_ids[i]]*2, dim=-1).cpu()
+                else:
+                    assign_idx = linear_assignment(pos_neg_log_probs)
+                
+                pos_loss = 0
+                for pred_idx, gt_idx in assign_idx:
+                    pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                pos_loss /= len(assign_idx)
+                pos_loss = pos_loss * self.pos_loss_weight
+                losses['pos_loss'].append(pos_loss)
+
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
+    
+    def convert(self, output_vals):
+        if self.include_z:
+            mean = output_vals[..., 0:3]
+        else:
+            mean = output_vals[..., 0:2]
+        if self.add_grid_to_mean:
+            mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
+            mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
+        mean = mean.sigmoid()
+        mean = mean * self.mean_scale
+
+        if self.predict_full_cov and self.include_z:
+            cov = F.softplus(output_vals[..., 3:3+9])
+            cov = cov.view(B*Nt, L, 3,3).tril()
+        elif not self.predict_full_cov and self.include_z:
+            cov = F.softplus(output_vals[..., 3:6])
+        elif not self.predict_full_cov and not self.include_z:
+            cov = F.softplus(output_vals[..., 2:4])
+            cov = torch.diag_embed(cov)
+        elif self.predict_full_cov and not self.include_z:
+            cov = F.softplus(output_vals[..., 2:4])
+            cov = torch.diag_embed(cov)
+            cov[..., -1, 0] += output_vals[..., 4]
+            B, N, _, _ = cov.shape
+            cov = cov.reshape(B*N, 2, 2)
+            cov = torch.bmm(cov, cov.transpose(-2,-1))
+            cov = cov.reshape(B, N, 2, 2)
+        obj_logits = output_vals[..., -1]
+        return mean, cov, obj_logits
 
 
     def _forward(self, datas, return_unscaled=False, **kwargs):
@@ -430,6 +569,8 @@ class DecoderMocapModel(BaseMocapModel):
         return inter_embeds
         
     def forward_track(self, data, **kwargs):
+        if self.autoregressive:
+            return self._ar_forward_test(data, **kwargs)
         mean, cov, cls_logits, obj_logits, _ = self._forward(data, **kwargs)
         mean = mean[-1] #get last time step, there should be no future
         cov = cov[-1]
@@ -447,7 +588,7 @@ class DecoderMocapModel(BaseMocapModel):
     def forward_train(self, data, **kwargs):
         losses = defaultdict(list)
         if self.autoregressive:
-            mean, cov, cls_logits, obj_logits, corners = self._ar_forward(data, **kwargs)
+            return self._ar_forward(data, **kwargs)
         else:
             mean, cov, cls_logits, obj_logits, corners = self._forward(data, **kwargs)
         mocaps = [d[('mocap', 'mocap')] for d in data]
