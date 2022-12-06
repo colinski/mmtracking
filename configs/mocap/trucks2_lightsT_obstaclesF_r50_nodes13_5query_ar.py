@@ -85,7 +85,7 @@ orig_bs = 2
 orig_lr = 1e-4 
 factor = 4
 data = dict(
-    samples_per_gpu=orig_bs * factor,
+    samples_per_gpu=orig_bs * factor * 8,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
@@ -107,7 +107,7 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 1
+total_epochs = 50
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)]) 
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
