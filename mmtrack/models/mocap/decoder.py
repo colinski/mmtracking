@@ -236,11 +236,11 @@ class DecoderMocapModel(BaseMocapModel):
 
         if self.autoregressive:
             ar_attn_cfg=dict(type='QKVAttention',
-                qk_dim=self.num_outputs,
-                num_heads=1, 
+                qk_dim=256,
+                num_heads=8,
                 in_proj=True,
                 out_proj=True,
-                attn_drop=0.0, 
+                attn_drop=0.1, 
                 seq_drop=0.0,
                 return_weights=False,
                 v_dim=None
@@ -330,9 +330,9 @@ class DecoderMocapModel(BaseMocapModel):
         final_embeds = final_embeds.reshape(B*Nt, -1, D)
         _, L, D = final_embeds.shape
         
-        final_embeds = self.ctn(final_embeds)
-        output_vals = self.output_head(final_embeds) #B L No
-        output_vals = output_vals.reshape(Nt, B, L, self.num_outputs)[-1][0]
+        output_val = self.ctn(final_embeds)
+        # output_vals = self.output_head(final_embeds) #B L No
+        output_vals = output_vals.reshape(Nt, B, L, -1)[-1][0]
         output_vals = output_vals.detach()
         
         det_mean, det_cov, _ = self.convert(output_vals.unsqueeze(0))
@@ -398,11 +398,11 @@ class DecoderMocapModel(BaseMocapModel):
         final_embeds = final_embeds.reshape(B*Nt, -1, D)
         _, L, D = final_embeds.shape
         
-        final_embeds = self.ctn(final_embeds)
+        output_vals = self.ctn(final_embeds)
         
-        output_vals = self.output_head(final_embeds) #B L No
-        output_vals = output_vals.reshape(Nt, B, L, self.num_outputs)
-        output_vals = output_vals.transpose(0,1)
+        # output_vals = self.output_head(final_embeds) #B L No
+        output_vals = output_vals.reshape(Nt, B, L, -1)
+        output_vals = output_vals.transpose(0,1) #B x Nt x L x No
 
         bs = len(output_vals)
         all_outputs = []
@@ -440,6 +440,7 @@ class DecoderMocapModel(BaseMocapModel):
         return losses
     
     def convert(self, output_vals):
+        output_vals = self.output_head(output_vals)
         if self.include_z:
             mean = output_vals[..., 0:3]
         else:
