@@ -330,7 +330,7 @@ class DecoderMocapModel(BaseMocapModel):
         final_embeds = final_embeds.reshape(B*Nt, -1, D)
         _, L, D = final_embeds.shape
         
-        output_val = self.ctn(final_embeds)
+        output_vals = self.ctn(final_embeds)
         # output_vals = self.output_head(final_embeds) #B L No
         output_vals = output_vals.reshape(Nt, B, L, -1)[-1][0]
         output_vals = output_vals.detach()
