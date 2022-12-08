@@ -361,9 +361,74 @@ class DecoderMocapModel(BaseMocapModel):
         })
 
         return result
-
-
+    
     def _ar_forward(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
+        # gt_positions = gt_positions.reshape(T*B, N, C)
+
+        gt_ids = mocaps['gt_ids']
+        T, B, f = gt_ids.shape
+        gt_ids = gt_ids.transpose(0,1)
+        # gt_ids = gt_ids.reshape(T*B, f)
+
+        gt_grids = mocaps['gt_grids']
+        T, B, N, Np, f = gt_grids.shape
+        gt_grids = gt_grids.transpose(0,1)
+        # gt_grids = gt_grids.reshape(T*B, N, Np, f)
+
+        all_embeds = [self._forward_single(data) for data in datas]
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        # T, B, L, D = all_embeds.shape
+        # all_embeds = all_embeds.reshape(T*B, L, D)
+        all_embeds = all_embeds.transpose(0, 1) #B T L D
+        
+
+
+        
+        # output_vals = self.ctn(final_embeds)
+        # output_vals = self.output_head(final_embeds) #B L No
+        # output_vals = output_vals.reshape(Nt, B, L, -1)
+        # output_vals = output_vals.transpose(0,1) #B x Nt x L x No
+
+        # bs = len(output_vals)
+        all_outputs = []
+        for i in range(B):
+            global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+            for j in range(T):
+                global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+                curr = self.ctn(global_pos_embeds)
+                mean, cov, obj_logits = self.convert(curr)
+                mean, cov, obj_logits = mean.squeeze(), cov.squeeze(), obj_logits.squeeze()
+                dist = self.dist(mean, cov)
+                grid = gt_grids[i][j]
+                No, G, f = grid.shape
+                grid = grid.reshape(No*G, 2)
+                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
+                log_grid_pdf = log_grid_pdf.reshape(No, G, len(mean))
+                logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
+                pos_neg_log_probs = -logsum
+                if self.match_by_id:
+                    assign_idx = torch.stack([gt_ids[i]]*2, dim=-1).cpu()
+                else:
+                    assign_idx = linear_assignment(pos_neg_log_probs)
+                
+                pos_loss = 0
+                for pred_idx, gt_idx in assign_idx:
+                    pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                pos_loss /= len(assign_idx)
+                pos_loss = pos_loss * self.pos_loss_weight
+                losses['pos_loss'].append(pos_loss)
+
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
+
+
+    def _ar_forwardv1(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
