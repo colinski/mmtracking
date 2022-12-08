@@ -312,8 +312,37 @@ class DecoderMocapModel(BaseMocapModel):
                 return self.forward_track(data, **kwargs)
             else:
                 return self.forward_test(data, **kwargs)
-
+    
     def _ar_forward_test(self, datas, return_unscaled=False, **kwargs):
+        all_embeds = [self._forward_single(data) for data in datas]
+        all_embeds = torch.stack(all_embeds, dim=0)[-1] # 1 x L x D
+
+        det_mean, det_cov, _ = self.convert(all_embeds)
+        det_mean, det_cov = det_mean.squeeze(), det_cov.squeeze()
+        result = {
+            'det_means': det_mean.cpu(),
+            'det_covs': det_cov.cpu(),
+        }
+
+        if self.tracks is None:
+            self.tracks = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
+
+        self.tracks = self.global_cross_attn(self.tracks, all_embeds)
+        curr = self.ctn(self.tracks)
+
+        track_mean, track_cov, _ = self.convert(curr)
+        track_mean, track_cov = track_mean.squeeze(), track_cov.squeeze()
+
+        result.update({
+            'track_means': track_mean.detach().cpu(),
+            'track_covs': track_cov.detach().cpu(),
+            'track_ids': torch.arange(2).long(),
+            'slot_ids': torch.arange(2).long()
+        })
+
+        return result
+
+    def _ar_forward_testv1(self, datas, return_unscaled=False, **kwargs):
         all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0) 
         Nt, B, L, D = all_embeds.shape
@@ -386,9 +415,6 @@ class DecoderMocapModel(BaseMocapModel):
         # T, B, L, D = all_embeds.shape
         # all_embeds = all_embeds.reshape(T*B, L, D)
         all_embeds = all_embeds.transpose(0, 1) #B T L D
-        
-
-
         
         # output_vals = self.ctn(final_embeds)
         # output_vals = self.output_head(final_embeds) #B L No
