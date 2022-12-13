@@ -57,7 +57,7 @@ r50_backbone_cfg=[
     ),
 ]
 
-r50_model_cfg=dict(type='SingleModalityModel', ffn_cfg=None)
+r50_model_cfg=dict(type='SingleModalityModel', ffn_cfg=None, output_style='feats')
 
 model_cfgs = {('zed_camera_left_r50', 'node_1'): r50_model_cfg,
               ('zed_camera_left_r50', 'node_3'): r50_model_cfg}
@@ -76,8 +76,9 @@ model = dict(type='DecoderMocapModel',
     predict_full_cov=True,
     num_queries=2,
     add_grid_to_mean=False,
-    autoregressive=True
-    #match_by_id=True
+    autoregressive=True,
+    global_ca_layers=6,
+    match_by_id=True
 )
 
 
@@ -85,7 +86,7 @@ orig_bs = 2
 orig_lr = 1e-4 
 factor = 4
 data = dict(
-    samples_per_gpu=orig_bs * factor,
+    samples_per_gpu=8*2,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
@@ -95,7 +96,7 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=orig_lr * factor,
+    lr=4e-4,
     weight_decay=0.0001,
     paramwise_cfg=dict(
         custom_keys={
@@ -107,8 +108,8 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 150
-lr_config = dict(policy='step', step=[int(total_epochs * 0.8)]) 
+total_epochs = 50
+lr_config = dict(policy='step', step=[20,40], gamma=0.05)
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
 find_unused_parameters = True
@@ -118,7 +119,7 @@ log_config = dict(
     interval=1,
     hooks=[
         dict(type='TextLoggerHook'),
-        #dict(type='TensorboardLoggerHook'),
+        dict(type='TensorboardLoggerHook'),
     ])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'

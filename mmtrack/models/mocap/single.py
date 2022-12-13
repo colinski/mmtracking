@@ -100,10 +100,12 @@ class SingleModalityModel(BaseModule):
                      v_dim=None
                  ),
                  ffn_cfg=dict(type='SLP', in_channels=256),
+                 output_style='embeds',
                  bg_cfg=None,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
+        self.output_style = output_style
         
         
         self.backbone = backbone_cfg
@@ -127,7 +129,7 @@ class SingleModalityModel(BaseModule):
         
     
     #def forward(self, data, return_loss=True, **kwargs):
-    def forward(self, x):
+    def forward(self, x, pos_embeds=None):
         if self.backbone:
             feats = self.backbone(x)
         else:
@@ -142,10 +144,17 @@ class SingleModalityModel(BaseModule):
             feats = feats[0]
         feats = feats.permute(0, 2, 3, 1) #feat dim to end
         B, H, W, D = feats.shape
-
-        pos_embeds = self.pos_encoding(None).unsqueeze(0)
-        pos_embeds = pos_embeds.expand(B, -1, -1, -1)
-        output_embeds = self.cross_attn(pos_embeds, feats)
+        
+        if pos_embeds is None:
+            pos_embeds = self.pos_encoding(None).unsqueeze(0)
+            pos_embeds = pos_embeds.expand(B, -1, -1, -1)
+        if self.output_style == 'embeds':
+            output_embeds = self.cross_attn(pos_embeds, feats)
+        elif self.output_style == 'feats':
+            output_embeds = self.cross_attn(feats, pos_embeds)
+        else:
+            print('output_style must be embeds or feats')
+            assert 1==2
         output_embeds = output_embeds.reshape(B, -1, D)
         if self.ffn is not None:
             output_embeds = self.ffn(output_embeds)

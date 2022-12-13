@@ -131,7 +131,7 @@ class DecoderMocapModel(BaseMocapModel):
                      num_heads=8, 
                      in_proj=True, 
                      out_proj=True,
-                     attn_drop=0.1, 
+                     attn_drop=0.0, 
                      seq_drop=0.0,
                      return_weights=False,
                      v_dim=None
@@ -163,6 +163,7 @@ class DecoderMocapModel(BaseMocapModel):
                  grid_size=(10,10),
                  match_by_id=False,
                  autoregressive=False,
+                 global_ca_layers=1,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -270,7 +271,12 @@ class DecoderMocapModel(BaseMocapModel):
             self.global_pos_encoding = nn.Embedding(self.num_queries, 256)
         else: 
             self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=grid_size, learned=False, out_proj=False)
-        self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
+        
+        self.global_ca_layers = global_ca_layers
+        if global_ca_layers > 1:
+            self.global_cross_attn = nn.ModuleList([ResCrossAttn(cross_attn_cfg)]*global_ca_layers)
+        else:
+            self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
         
         self.ctn = nn.Sequential(
@@ -314,11 +320,34 @@ class DecoderMocapModel(BaseMocapModel):
                 return self.forward_test(data, **kwargs)
     
     def _ar_forward_test(self, datas, return_unscaled=False, **kwargs):
+        if self.tracks is None:
+            self.tracks = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
+
+
+
+        self.tracks = self._forward_single_ar(datas[-1], self.tracks)
+
+        det_mean, det_cov, det_obj_probs = self.convert(self.ctn(self.tracks))
+        det_mean, det_cov, det_obj_probs = det_mean[0], det_cov[0], det_obj_probs[0]
+        
+        result = {
+            'det_means': det_mean.detach().cpu(),
+            'det_covs': det_cov.detach().cpu(),
+            'det_obj_probs': torch.ones(len(det_mean)).float()
+            # 'track_ids': torch.arange(2).long(),
+            # 'slot_ids': torch.arange(2).long()
+        }
+        result = self.tracker(result)
+
+
+        return result
+
+    def _ar_forward_testv2(self, datas, return_unscaled=False, **kwargs):
         all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0)[-1] # 1 x L x D
 
-        det_mean, det_cov, _ = self.convert(all_embeds)
-        det_mean, det_cov = det_mean.squeeze(), det_cov.squeeze()
+        det_mean, det_cov, det_obj_probs = self.convert(all_embeds)
+        det_mean, det_cov, det_obj_probs[0] = det_mean[0], det_cov[0], det_obj_probs[0]
         result = {
             'det_means': det_mean.cpu(),
             'det_covs': det_cov.cpu(),
@@ -326,19 +355,30 @@ class DecoderMocapModel(BaseMocapModel):
 
         if self.tracks is None:
             self.tracks = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
+        
 
-        self.tracks = self.global_cross_attn(self.tracks, all_embeds)
+        if self.global_ca_layers > 1:
+            for layer in self.global_cross_attn:
+                self.tracks = layer(self.tracks, all_embeds)
+        else:
+            self.tracks = self.global_cross_attn(self.tracks, all_embeds)
+
+        # self.tracks = self.global_cross_attn(self.tracks, all_embeds)
         curr = self.ctn(self.tracks)
 
         track_mean, track_cov, _ = self.convert(curr)
-        track_mean, track_cov = track_mean.squeeze(), track_cov.squeeze()
+        # track_mean, track_cov = track_mean.squeeze(), track_cov.squeeze()
+        track_mean, track_cov = track_mean[0], track_cov[0]
 
-        result.update({
-            'track_means': track_mean.detach().cpu(),
-            'track_covs': track_cov.detach().cpu(),
-            'track_ids': torch.arange(2).long(),
-            'slot_ids': torch.arange(2).long()
-        })
+        result = {
+            'det_means': track_mean.detach().cpu(),
+            'det_covs': track_cov.detach().cpu(),
+            'det_obj_probs': torch.ones(len(track_mean)).float()
+            # 'track_ids': torch.arange(2).long(),
+            # 'slot_ids': torch.arange(2).long()
+        }
+        result = self.tracker(result)
+
 
         return result
 
@@ -391,13 +431,15 @@ class DecoderMocapModel(BaseMocapModel):
 
         return result
     
-    def _ar_forward(self, datas, return_unscaled=False, **kwargs):
+    def _ar_forwardv2(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
 
         gt_positions = mocaps['gt_positions']
         gt_positions = gt_positions.transpose(0,1)
+        # B, T, L, f = gt_positions.shape
+        # gt_positions = gt_positions.reshape(B*T, L, f)
         # gt_positions = gt_positions.reshape(T*B, N, C)
 
         gt_ids = mocaps['gt_ids']
@@ -426,10 +468,15 @@ class DecoderMocapModel(BaseMocapModel):
         for i in range(B):
             global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
             for j in range(T):
-                global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+                if self.global_ca_layers > 1:
+                    for layer in self.global_cross_attn:
+                        global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+                else:
+                    global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+
                 curr = self.ctn(global_pos_embeds)
                 mean, cov, obj_logits = self.convert(curr)
-                mean, cov, obj_logits = mean.squeeze(), cov.squeeze(), obj_logits.squeeze()
+                mean, cov, obj_logits = mean[0], cov[0], obj_logits[0]
                 dist = self.dist(mean, cov)
                 grid = gt_grids[i][j]
                 No, G, f = grid.shape
@@ -439,14 +486,71 @@ class DecoderMocapModel(BaseMocapModel):
                 logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
                 pos_neg_log_probs = -logsum
                 if self.match_by_id:
-                    assign_idx = torch.stack([gt_ids[i]]*2, dim=-1).cpu()
+                    assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
                 else:
                     assign_idx = linear_assignment(pos_neg_log_probs)
                 
-                pos_loss = 0
+                pos_loss, count = 0, 0
                 for pred_idx, gt_idx in assign_idx:
+                    if pred_idx.item() == -1 or gt_idx.item() == -1:
+                        continue
                     pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
-                pos_loss /= len(assign_idx)
+                    count += 1
+                pos_loss /= count
+                pos_loss = pos_loss * self.pos_loss_weight
+                losses['pos_loss'].append(pos_loss)
+
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
+
+    def _ar_forward(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
+
+        gt_ids = mocaps['gt_ids']
+        T, B, f = gt_ids.shape
+        gt_ids = gt_ids.transpose(0,1)
+
+        gt_grids = mocaps['gt_grids']
+        T, B, N, Np, f = gt_grids.shape
+        gt_grids = gt_grids.transpose(0,1)
+
+        
+       
+        global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+        global_pos_embeds = global_pos_embeds.expand(B, -1, -1) #B x 2 x 256
+       
+        
+        all_outputs = []
+        for j in range(T):
+            global_pos_embeds = self._forward_single_ar(datas[j], global_pos_embeds)
+            curr = self.ctn(global_pos_embeds)
+            mean, cov, obj_logits = self.convert(curr)
+            for i in range(B):
+                dist = self.dist(mean[i], cov[i])
+                grid = gt_grids[i][j]
+                No, G, f = grid.shape
+                grid = grid.reshape(No*G, 2)
+                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * 1.5
+                log_grid_pdf = log_grid_pdf.reshape(No, G, len(mean[i]))
+                logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
+                pos_neg_log_probs = -logsum
+                if self.match_by_id:
+                    assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
+                else:
+                    assign_idx = linear_assignment(pos_neg_log_probs)
+                
+                pos_loss, count = 0, 0
+                for pred_idx, gt_idx in assign_idx:
+                    if pred_idx.item() == -1 or gt_idx.item() == -1:
+                        continue
+                    pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                    count += 1
+                pos_loss /= count
                 pos_loss = pos_loss * self.pos_loss_weight
                 losses['pos_loss'].append(pos_loss)
 
@@ -636,6 +740,29 @@ class DecoderMocapModel(BaseMocapModel):
             corner_vals = corner_vals.sigmoid()
             corner_vals = corner_vals * self.mean_scale[0:2]
         return mean, cov, None, obj_logits, corner_vals
+    
+    def _forward_single_ar(self, data, Q):
+        # inter_embeds = []
+        for key in data.keys():
+            mod, node = key
+            if mod == 'mocap':
+                continue
+            if mod not in self.backbones.keys():
+                continue
+            backbone = self.backbones[mod]
+            model = self.models[mod + '_' + node]
+            try:
+                feats = backbone(data[key]['img'])
+            except:
+                feats = backbone([data[key]['img']])
+            Q = model(feats, pos_embeds=Q)
+            # inter_embeds.append(embeds)
+
+        # if len(inter_embeds) == 0:
+            # import ipdb; ipdb.set_trace() # noqa
+        
+        # inter_embeds = torch.cat(inter_embeds, dim=-2)
+        return Q
 
     def _forward_single(self, data, return_unscaled=False, **kwargs):
         inter_embeds = []

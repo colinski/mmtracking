@@ -73,7 +73,7 @@ model = dict(type='DecoderMocapModel',
     include_z=False,
     mean_scale=[7,5],
     pos_loss_weight=0.1,
-    predict_full_cov=True,
+    predict_full_cov=False,
     num_queries=2,
     add_grid_to_mean=False,
     autoregressive=True
@@ -107,7 +107,7 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 150
+total_epochs = 50
 lr_config = dict(policy='step', step=[int(total_epochs * 0.8)]) 
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
