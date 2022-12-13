@@ -10,7 +10,20 @@ valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth', 'zed_camera_left_r50
 valid_nodes=[1,3]
 
 # data_root = 'data/mmm/2022-09-01/trucks0_lightsT_obstaclesF/train'
+
+traincacher=dict(type='DataCacher',
+    cache_dir='/dev/shm/cache_train/',
+    num_future_frames=0,
+    num_past_frames=9,
+    valid_nodes=[1,3],
+    valid_mods=['mocap', 'zed_camera_left_r50'],
+    include_z=False,
+)
+
+
+
 trainset=dict(type='HDF5Dataset',
+    cacher_cfg=traincacher,
     name='train',
     uid=9234,
     num_future_frames=0,
@@ -22,17 +35,26 @@ trainset=dict(type='HDF5Dataset',
 
 
 # data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
+
+
 valset=dict(type='HDF5Dataset',
-    name='val',
-    uid=4321,
+    cacher_cfg=dict(type='DataCacher',
+        cache_dir='/dev/shm/cache_val/',
+        valid_nodes=[1,3],
+        valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
+        include_z=False,
+        max_len=500,
+    ),
+    # name='val',
+    # uid=321,
     num_future_frames=0,
     num_past_frames=0,
-    valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
-    valid_nodes=[1,3],
+    # valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
+    # valid_nodes=[1,3],
     limit_axis=True,
     draw_cov=True,
-    include_z=False,
-    max_len=500,
+    # include_z=False,
+    # max_len=500,
 )
 
 # data = dict(

@@ -23,144 +23,14 @@ import torch.distributions as D
 from scipy.spatial import distance
 from trackeval.metrics import CLEAR
 import matplotlib
+from .viz import init_fig, gen_rectange, gen_ellipse
+from mmtrack.datasets import build_dataset
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
         'size'   : 22}
 
 matplotlib.rc('font', **font)
-
-#https://gamedev.stackexchange.com/questions/86755/how-to-calculate-corner-positions-marks-of-a-rotated-tilted-rectangle
-def is_on_right_side(points, v1, v2):
-    x0, y0 = v1
-    x1, y1 = v2
-    a = y1 - y0
-    b = x0 - x1
-    c = - a*x0 - b*y0
-    return a*points[:,0] + b*points[:,1] + c >= 0
-
-def points_in_rec(points, rec):
-    corners = rec.get_corners()
-    num_corners = len(corners)
-    is_right = [is_on_right_side(points, corners[i], corners[(i + 1) % num_corners]) for i in range(num_corners)]
-    is_right = np.stack(is_right, axis=1)
-    all_left = ~np.any(is_right, axis=1)
-    all_right = np.all(is_right, axis=1)
-    final = all_left | all_right
-    return final
-
-def rot_matrix(angle):
-    rad = 2*np.pi * (angle/360)
-    R = [np.cos(rad), np.sin(rad),-np.sin(rad), np.cos(rad)]
-    R = np.array(R).reshape(2,2)
-    R = torch.from_numpy(R).float()
-    return R
-
-
-#https://stackoverflow.com/questions/12301071/multidimensional-confidence-intervals/12321306#12321306
-def gen_ellipse(pos, cov, nstd=2, **kwargs):
-    if len(pos) > 2:
-        pos = pos[0:2]
-        cov = cov[0:2, 0:2]
-    def eigsorted(cov):
-        vals, vecs = np.linalg.eigh(cov)
-        order = vals.argsort()[::-1]
-        return vals[order], vecs[:,order]
-
-    vals, vecs = eigsorted(cov)
-    theta = np.degrees(np.arctan2(*vecs[:,0][::-1]))
-    width, height = 2 * nstd * np.sqrt(vals)
-    ellip = Ellipse(xy=pos, width=width, height=height, angle=theta, **kwargs)
-    return ellip
-
-def gen_rectange(pos, rot, w, h, color='black'):
-    if rot[4] <= 0:
-        rads = np.arcsin(rot[3]) / (2*np.pi)
-    else:
-        rads = np.arcsin(rot[1]) / (2*np.pi)
-
-    angle = rads * 360
-    rec = Rectangle(xy=([pos[0]-w/2, pos[1]-h/2]), width=w, height=h, angle=angle, rotation_point='center',
-                        edgecolor=color, fc='None', lw=1, linestyle='--')
-    corners = rec.get_corners()
-
-    x = np.arange(0.5,30,1) / 100.0
-    y = np.arange(0.5,15,1) / 100.0
-    X, Y = np.meshgrid(x,y)
-    grid = np.stack([X,Y])
-    grid = torch.from_numpy(grid).float()
-    grid = grid.permute(1,2,0)
-    grid = grid.reshape(-1,2)
-    R = rot_matrix(angle)
-    grid = torch.mm(grid, R)
-    grid[:,0] += corners[0][0]
-    grid[:,1] += corners[0][1]
-    return rec, grid
-
-
-def init_fig(valid_mods, num_cols=4, colspan=1):
-    assert ('mocap', 'mocap') in valid_mods
-
-    mods = [vk[0] for vk in valid_mods if vk != ('mocap', 'mocap')]
-    num_mods = len(set(mods))
-    num_cols = num_mods + 2 + 1
-    num_rows = num_mods + 2 + 1
-    
-    # num_plots = len(valid_mods)
-    # num_mods = num_plots - 1
-    #num_cols = int(np.ceil(num_mods / num_rows)) + colspan
-    # num_rows = num_mods + 1
-
-    # num_rows, num_cols = 2 + 5, 7 + 2
-    # num_cols = 4
-    fig = plt.figure(figsize=(num_cols*16, num_rows*9))
-    # fig = plt.figure(figsize=(16, 9))
-    axes = {}
-    #axes[('mocap', 'mocap')] = plt.subplot2grid((num_rows, num_cols), (0, 0), rowspan=num_rows, colspan=colspan)
-    axes[('mocap', 'mocap')] = plt.subplot2grid((num_rows, num_cols), (1, 1), rowspan=num_mods + 1, colspan=num_mods+1)
-
-    #row, col = 0, colspan
-    node2row = {'node_2': num_rows-1, 'node_4': 0}
-    node2col = {'node_3': 0, 'node_1': num_cols-1}
-   
-    valid_mods = [vk for vk in valid_mods if vk != ('mocap', 'mocap')]
-    for node_num, col_num in node2col.items():
-        count = 1
-        for i, key in enumerate(valid_mods):
-            if key[1] != node_num:
-                continue
-            axes[key] = plt.subplot2grid((num_rows, num_cols), (count, col_num))
-            count += 1
-
-    
-    for node_num, row_num in node2row.items():
-        count = 1
-        for i, key in enumerate(valid_mods):
-            if key[1] != node_num:
-                continue
-            axes[key] = plt.subplot2grid((num_rows, num_cols), (row_num, count))
-            count += 1
-             
-            
-
-    # for i, key in enumerate(valid_mods):
-        # mod, node = key
-        # if node == 'node_2':
-            # col = num_cols
-            # axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
-
-    # row, col = 1, 0
-    # for i, key in enumerate(valid_mods):
-        # axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
-        # row += 1
-        # if row  == num_rows:
-            # row = 0
-            # col += 1
-
-    # fig.suptitle('Title', fontsize=11)
-    fig.subplots_adjust(wspace=0, hspace=0)
-    plt.tight_layout()
-    return fig, axes
 
 def convert2dict(f, keys, fname, valid_mods, valid_nodes):
     data = {}
@@ -201,58 +71,58 @@ def load_chunk(fname, valid_mods, valid_nodes):
 class HDF5Dataset(Dataset, metaclass=ABCMeta):
     CLASSES = None
     def __init__(self,
-                 hdf5_fnames=[],
-                 fps=20,
-                 valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth'],
-                 valid_nodes=[1,2,3,4],
-                 start_time=1656096536271,
-                 end_time=1656096626261,
-                 min_x=-2162.78244, max_x=4157.92774,
-                 min_y=-1637.84491, max_y=2930.06133,
-                 min_z=0.000000000, max_z=903.616290,
-                 name='train',
-                 uid=0,
-                 normalized_position=False,
+                 # hdf5_fnames=[],
+                 cacher_cfg=None,
+                 # fps=20,
+                 # valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth'],
+                 # valid_nodes=[1,2,3,4],
+                 # start_time=1656096536271,
+                 # end_time=1656096626261,
+                 # min_x=-2162.78244, max_x=4157.92774,
+                 # min_y=-1637.84491, max_y=2930.06133,
+                 # min_z=0.000000000, max_z=903.616290,
+                 # name='train',
+                 # uid=0,
+                 # normalized_position=False,
                  pipelines={},
                  num_past_frames=0,
                  num_future_frames=0,
                  test_mode=False,
-                 remove_first_frame=False,
-                 max_len=None,
+                 # remove_first_frame=False,
+                 # max_len=None,
                  limit_axis=True,
                  draw_cov=True,
                  truck_w=30/100,
                  truck_h=15/100,
                  include_z=True,
                  **kwargs):
-        self.MODALITIES = ['zed_camera_left', 'zed_camera_right', 'zed_camera_depth',
-                           'realsense_camera_img', 'realsense_camera_depth',
-                           'range_doppler', 'azimuth_static', 'mic_waveform']
-        self.valid_mods = valid_mods
-        self.valid_nodes = ['node_%d' % n for n in valid_nodes]
-        self.class2idx = {'truck': 1, 'node': 0}
-        self.min_x = min_x
-        self.max_x = max_x
-        self.len_x = 7000
-        self.min_y = min_y
-        self.max_y = max_y
-        self.len_y = 5000
-        self.min_z = min_z
-        self.max_z = max_z
-        self.len_z = 1000
-        self.normalized_position = normalized_position
+        # self.valid_mods = valid_mods
+        # self.valid_nodes = ['node_%d' % n for n in valid_nodes]
+        # self.class2idx = {'truck': 1, 'node': 0}
+        # self.min_x = min_x
+        # self.max_x = max_x
+        # self.len_x = 7000
+        # self.min_y = min_y
+        # self.max_y = max_y
+        # self.len_y = 5000
+        # self.min_z = min_z
+        # self.max_z = max_z
+        # self.len_z = 1000
+        # self.normalized_position = normalized_position
         self.truck_w = truck_w
         self.truck_h = truck_h
-        self.include_z = include_z
-        self.name = name
-        self.uid = uid
+        # self.include_z = include_z
+        # self.name = name
+        # self.uid = uid
+        self.cacher = build_dataset(cacher_cfg)
+        self.fnames, self.active_keys = self.cacher.cache()
 
         #self.max_len = np.sqrt(7**2 + 5**2)
         self.max_len = 1
         
         # rank, ws = get_dist_info()
-        self.fnames = hdf5_fnames
-        self.fps = fps
+        # self.fnames = hdf5_fnames
+        self.fps = self.cacher.fps
         self.limit_axis = limit_axis
         self.draw_cov = draw_cov
         self.num_future_frames = num_future_frames
@@ -261,62 +131,62 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.node_pos = None
         self.node_ids = None
         
-        cache_dir = f'/dev/shm/cache_{self.uid}/'
-        if not os.path.exists(cache_dir):
-            os.mkdir(cache_dir)
-            data = {}
-            for fname in hdf5_fnames:
-                chunk = load_chunk(fname, self.valid_mods, self.valid_nodes)
-                for ms, val in chunk.items():
-                    if ms in data.keys():
-                        for k, v in val.items():
-                            if k in data[ms].keys():
-                                data[ms][k].update(v)
-                            else:
-                                data[ms][k] = v
-                    else:
-                        data[ms] = val
+        # cache_dir = f'/dev/shm/cache_{self.uid}/'
+        # if not os.path.exists(cache_dir):
+            # os.mkdir(cache_dir)
+            # data = {}
+            # for fname in hdf5_fnames:
+                # chunk = load_chunk(fname, self.valid_mods, self.valid_nodes)
+                # for ms, val in chunk.items():
+                    # if ms in data.keys():
+                        # for k, v in val.items():
+                            # if k in data[ms].keys():
+                                # data[ms][k].update(v)
+                            # else:
+                                # data[ms][k] = v
+                    # else:
+                        # data[ms] = val
 
 
-            buffers = self.fill_buffers(data)
-            self.active_keys = sorted(buffers[-1].keys())
+            # buffers = self.fill_buffers(data)
+            # self.active_keys = sorted(buffers[-1].keys())
             
-            count = 0
-            for i in range(len(buffers)):
-                missing = False
-                for key in self.active_keys:
-                    if key not in buffers[i].keys():
-                        missing = True
-                if missing:
-                    count += 1
-                    continue
-                else:
-                    break
-            buffers = buffers[count:]
+            # count = 0
+            # for i in range(len(buffers)):
+                # missing = False
+                # for key in self.active_keys:
+                    # if key not in buffers[i].keys():
+                        # missing = True
+                # if missing:
+                    # count += 1
+                    # continue
+                # else:
+                    # break
+            # buffers = buffers[count:]
 
-            if remove_first_frame:
-                buffers = buffers[1:]
-            if max_len is not None:
-                buffers = buffers[0:max_len]
+            # if remove_first_frame:
+                # buffers = buffers[1:]
+            # if max_len is not None:
+                # buffers = buffers[0:max_len]
             
             
-            final_dir = f'{cache_dir}/{self.name}'
-            if not os.path.exists(final_dir):
-                os.mkdir(final_dir)
-            self.fnames = []
-            for i in trange(len(buffers)):
-                buff = buffers[i]
-                fname = '%s/tmp_%09d.pickle' % (final_dir, i)
-                with open(fname, 'wb') as f:
-                    pickle.dump(buff, f)
-                self.fnames.append(fname)
+            # final_dir = f'{cache_dir}/{self.name}'
+            # if not os.path.exists(final_dir):
+                # os.mkdir(final_dir)
+            # self.fnames = []
+            # for i in trange(len(buffers)):
+                # buff = buffers[i]
+                # fname = '%s/tmp_%09d.pickle' % (final_dir, i)
+                # with open(fname, 'wb') as f:
+                    # pickle.dump(buff, f)
+                # self.fnames.append(fname)
     
-        self.fnames = glob.glob(f'{cache_dir}/{self.name}/*.pickle')
-        print(self.fnames)
-        with open(self.fnames[-1], 'rb') as f:
-            buff = pickle.load(f)
-            self.active_keys = sorted(buff.keys())
-        self.fnames = sorted(self.fnames)[0:max_len]
+        # self.fnames = glob.glob(f'{cache_dir}/{self.name}/*.pickle')
+        # print(self.fnames)
+        # with open(self.fnames[-1], 'rb') as f:
+            # buff = pickle.load(f)
+            # self.active_keys = sorted(buff.keys())
+        # self.fnames = sorted(self.fnames)[0:max_len]
         # self.nodes = set([key[1] for key in self.active_keys if 'node' in key[1]])
 
         self.pipelines = {}
