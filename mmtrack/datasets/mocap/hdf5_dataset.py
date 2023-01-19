@@ -23,7 +23,7 @@ import torch.distributions as D
 from scipy.spatial import distance
 from trackeval.metrics import CLEAR
 import matplotlib
-from .viz import init_fig, gen_rectange, gen_ellipse
+from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 from mmtrack.datasets import build_dataset
 
 font = {#'family' : 'normal',
@@ -92,9 +92,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                  # max_len=None,
                  limit_axis=True,
                  draw_cov=True,
-                 truck_w=30/100,
-                 truck_h=15/100,
-                 include_z=True,
+                 truck_w=30,
+                 truck_h=15,
+                 include_z=False,
                  **kwargs):
         # self.valid_mods = valid_mods
         # self.valid_nodes = ['node_%d' % n for n in valid_nodes]
@@ -130,6 +130,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
         self.node_pos = None
         self.node_ids = None
+
+        self.colors = ['red', 'green', 'orange', 'black', 'yellow', 'blue']
         
         # cache_dir = f'/dev/shm/cache_{self.uid}/'
         # if not os.path.exists(cache_dir):
@@ -213,6 +215,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         # return buff
 
     def fill_buffers(self, all_data):
+        assert 1==2
         buffers = []
         # buff = self.init_buffer()
         buff = {}
@@ -233,12 +236,14 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         gt_pos[..., 0] += np.abs(self.min_x)
                         gt_pos[..., 1] += np.abs(self.min_y)
                         gt_pos[..., 2] += np.abs(self.min_z)
-                        gt_pos /= 1000
+                        gt_pos /= 10
                     gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
+                    # gt_rot = torch.cat([gt_rot[..., 0:2], gt_rot[..., 3:5]], dim=-1)
                     
                     corners, grids = [], []
                     for k in range(len(gt_rot)):
-                        rec, grid = gen_rectange(gt_pos[k], gt_rot[k], w=self.truck_w, h=self.truck_h)
+                        angle = rot2angle(gt_rot[k], return_rads=False)
+                        rec, grid = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
                         corners.append(rec.get_corners())
                         if self.include_z:
                             z_val = gt_pos[k][-1]
@@ -266,7 +271,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     if not self.include_z:
                         gt_pos = gt_pos[..., 0:2]
                     gt_pos = gt_pos[final_mask]
-                    gt_grid = grids[final_mask]
+                    gt_grid = grids[final_mask] 
                     gt_rot = gt_rot[final_mask]
                     gt_ids = gt_ids[final_mask] - 4
                     if len(gt_pos) < 2:
@@ -367,7 +372,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         return buffs
     
     def eval_mot(self, outputs, **eval_kwargs):
-        all_gt_pos, all_gt_labels, all_gt_ids, all_gt_rot = [], [], [], []
+        all_gt_pos, all_gt_labels, all_gt_ids, all_gt_rot, all_gt_grids = [], [], [], [], []
         for i in trange(len(self)):
             data = self[i][-1] #get last frame, eval shouldnt have future
             for key, val in data.items():
@@ -375,13 +380,15 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 if mod == 'mocap':
                     all_gt_pos.append(val['gt_positions'])
                     all_gt_ids.append(val['gt_ids'])
-                    all_gt_labels.append(val['gt_labels'])
+                    # all_gt_labels.append(val['gt_labels'])
                     all_gt_rot.append(val['gt_rot'])
+                    all_gt_grids.append(val['gt_grids'])
 
         all_gt_pos = torch.stack(all_gt_pos) #num_frames x num_objs x 3
-        all_gt_labels = torch.stack(all_gt_labels)
+        # all_gt_labels = torch.stack(all_gt_labels)
         all_gt_ids = torch.stack(all_gt_ids)
         all_gt_rot = torch.stack(all_gt_rot)
+        all_gt_grids = torch.stack(all_gt_grids)
 
         res = {}
         res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
@@ -390,38 +397,53 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         res['tracker_ids'] = []
         res['gt_ids'] = all_gt_ids.numpy()
         res['similarity_scores'] = []
+        res['grid_scores'] = []
         res['num_tracker_dets'] = 0
-        
+
+        from mmtrack.models.mocap.decoderv3 import calc_grid_loss 
         all_probs, all_dists = [], []
         for i in range(res['num_timesteps']):
-            pred_mean = torch.from_numpy(outputs['pred_position_mean'][i][0])
-            pred_cov = torch.from_numpy(outputs['pred_position_cov'][i][0])
-            pred_ids = torch.from_numpy(outputs['track_ids'][i][0])
-            res['num_tracker_dets'] += len(pred_mean)
+            pred_means = outputs['track_means'][i]
+            pred_covs = outputs['track_covs'][i]
+            pred_ids = outputs['track_ids'][i]
+            res['num_tracker_dets'] += len(pred_ids)
             res['tracker_ids'].append(pred_ids.numpy())
             gt_pos = all_gt_pos[i]
             gt_rot = all_gt_rot[i]
+            gt_grid = all_gt_grids[i]
+            
+            dist = D.MultivariateNormal(pred_means.unsqueeze(0), pred_covs.unsqueeze(0))
+            loss_vals = calc_grid_loss(dist, gt_grid)
             
             dists, probs = [], []
             scores = []
-            for j in range(len(pred_mean)):
+            grid_scores = []
+            for j in range(len(pred_means)):
                 # dist = torch.norm(pred_mean[j][0:2] - gt_pos[:,0:2], dim=1)
                 # dists.append(dist)
-                dist = D.MultivariateNormal(pred_mean[j], pred_cov[j])
-                # dist = D.Normal(pred_mean[j], torch.diag(pred_cov[j]))
+
+                dist = D.MultivariateNormal(pred_means[j], pred_covs[j])
                 # dist = D.Independent(dist, 1) #Nq independent Gaussians
-                samples = dist.sample([1000])
+                samples = dist.sample([10000])
                 
                 num_gt = len(gt_pos)
                 for k in range(num_gt):
-                    rec, _ = gen_rectange(gt_pos[k], gt_rot[k], w=self.truck_w, h=self.truck_h)
+                    grid = gt_grid[k]
+                    log_probs = dist.log_prob(grid) #*1.5
+                    logsum = torch.logsumexp(log_probs.flatten(), dim=0)
+                    grid_scores.append(logsum)
+                    angle = rot2angle(gt_rot[k], return_rads=False)
+                    rec, _ = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
                     mask = points_in_rec(samples, rec)
-                    scores.append(np.mean(mask))
+                    #scores.append(np.mean(mask))
+                    scores.append(logsum.exp())
 
             if len(scores) == 0:
                 scores = torch.empty(len(gt_pos), 0).numpy()
             else:
-                scores = torch.tensor(scores).reshape(len(pred_mean), -1)
+                scores = torch.tensor(scores).reshape(len(pred_means), -1)
+                grid_scores = torch.tensor(grid_scores).reshape(len(pred_means), -1)
+                grid_scores = grid_scores.numpy().T
                 scores = scores.numpy().T
 
             # if len(dists) != 0:
@@ -432,9 +454,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             # else:
                 # dists = torch.empty(len(gt_pos), 0).numpy()
             res['similarity_scores'].append(scores)
+            res['grid_scores'].append(grid_scores)
             # all_dists.append(dists)
             # all_probs.append(probs)
-
+        
+        scores = np.stack(res['similarity_scores'])
+        grid_scores = np.stack(res['grid_scores'])
         logdir = eval_kwargs['logdir']
         fname = f'{logdir}/res.json'
         #met=CLEAR({'THRESHOLD': 1-(0.3/self.max_len)}) 
@@ -481,9 +506,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     save_frame = True
                     axes[key].clear()
                     axes[key].grid('on', linewidth=3)
+                    # axes[key].set_facecolor('gray')
                     if self.limit_axis:
-                        axes[key].set_xlim(0,7)
-                        axes[key].set_ylim(0,5)
+                        axes[key].set_xlim(0,700)
+                        axes[key].set_ylim(0,500)
                         axes[key].set_aspect('equal')
                     
                     # for j in range(len(self.node_pos)):
@@ -503,38 +529,53 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         color = colors[ID]
                         
                         axes[key].scatter(pos[0], pos[1], marker=markers[ID], color=color) 
-                       
-                        rec, _ = gen_rectange(pos, rot, w=self.truck_w, h=self.truck_h, color=color)
+                        
+                        angle = rot2angle(rot, return_rads=False)
+                        rec, _ = gen_rectange(pos, angle, w=self.truck_w, h=self.truck_h, color=color)
                         axes[key].add_patch(rec)
 
                         r=self.truck_w/2
-                        axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05, head_length=0.05, fc=color, ec=color)
+                        axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
 
                         # axes[key].scatter(grid[...,0], grid[...,1], s=0.5, color='red')
 
                         # axes[key].text(pos[0], pos[1], '%0.2f %0.2f\n%0.2f %0.2f' % (rot[0],rot[1], rot[3], rot[4]))
                             
                     
-                    pred_means = outputs['det_means'][i]
-                    for j in range(len(pred_means)):
-                        mean = pred_means[j]
-                        axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
+                    if len(outputs['det_means']) > 0:
+                        pred_means = outputs['det_means'][i]
+                        for j in range(len(pred_means)):
+                            mean = pred_means[j]
+                            axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
                     
                     # if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
-                    pred_means = outputs['track_means'][i]
+                    pred_means = outputs['track_means'][i] 
                     pred_covs = outputs['track_covs'][i]
+                    pred_rots = outputs['track_rot'][i]
                     ids = outputs['track_ids'][i].to(int)
                     slot_ids = outputs['slot_ids'][i].to(int)
                     print(pred_means, pred_covs)
                     for j in range(len(pred_means)):
+                        rot = pred_rots[j]
                         mean = pred_means[j]
-                        axes[key].scatter(mean[0], mean[1], color='blue', marker=f'+', lw=1, s=20*4**2)
+                        try:
+                            angle = torch.arctan(rot[0]/rot[1]) * 360
+                        except:
+                            import ipdb; ipdb.set_trace() # noqa
+                        color = self.colors[j % len(self.colors)]
+                        
+                        rec, _ = gen_rectange(mean, angle, w=self.truck_w, h=self.truck_h, color=color)
+                        axes[key].add_patch(rec)
+
+
+                        axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
                         cov = pred_covs[j]
                         ID = ids[j]
                         sID = slot_ids[j]
-                        axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': 'blue'})
+                        #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
+                        axes[key].text(mean[0], mean[1], s=f'{ID}', fontdict={'color': color})
                         if self.draw_cov:
-                            ellipse = gen_ellipse(mean, cov, edgecolor='blue', fc='None', lw=1, linestyle='--')
+                            ellipse = gen_ellipse(mean, cov, edgecolor=color, fc='None', lw=2, linestyle='--')
                             axes[key].add_patch(ellipse)
                     
                     

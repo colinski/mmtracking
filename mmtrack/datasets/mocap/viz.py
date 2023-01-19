@@ -73,15 +73,20 @@ def gen_ellipse(pos, cov, nstd=2, **kwargs):
     ellip = Ellipse(xy=pos, width=width, height=height, angle=theta, **kwargs)
     return ellip
 
-def gen_rectange(pos, rot, w, h, color='black'):
+def rot2angle(rot, return_rads=True):
     if rot[4] <= 0:
         rads = np.arcsin(rot[3]) / (2*np.pi)
     else:
         rads = np.arcsin(rot[1]) / (2*np.pi)
+    if not return_rads:
+        rads *= 360
+    return rads
 
-    angle = rads * 360
+
+def gen_rectange(pos, angle, w, h, color='black'):
+    # angle = rot2angle(rot, return_rads=False)
     rec = Rectangle(xy=([pos[0]-w/2, pos[1]-h/2]), width=w, height=h, angle=angle, rotation_point='center',
-                        edgecolor=color, fc='None', lw=1, linestyle='--')
+                        edgecolor=color, fc='None', lw=5)
     corners = rec.get_corners()
 
     x = np.arange(0.5,30,1) / 100.0
@@ -97,6 +102,62 @@ def gen_rectange(pos, rot, w, h, color='black'):
     grid[:,1] += corners[0][1]
     return rec, grid
 
+def init_fig_(valid_mods, num_cols=4, colspan=1):
+    assert ('mocap', 'mocap') in valid_mods
+
+    mods = [vk[0] for vk in valid_mods if vk != ('mocap', 'mocap')]
+    mods = sorted(list(set(mods)))
+    num_mods = len(mods)
+    num_cols = num_mods + 1
+    num_rows = 4
+    
+    fig = plt.figure(figsize=(num_cols*10, num_rows*10))
+    axes = {}
+    axes[('mocap', 'mocap')] = plt.subplot2grid((num_rows, num_cols), (1, 0), 
+            rowspan=1, colspan=1)
+
+    axes[('mocap', 'mocap')].linewidth = 5
+    axes[('mocap', 'mocap')].node_size = 20*4**2
+
+    valid_mods = [vk for vk in valid_mods if vk != ('mocap', 'mocap')]
+    for i, key in enumerate(valid_mods):
+        col = mods.index(key[0])
+        row = int(key[1].split('_')[-1]) - 1
+        # row += 2
+        col += 1
+
+        # x, y = i % num_mods, num + num_mods
+        print(row, col, key)
+        axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
+    fig.subplots_adjust(wspace=0, hspace=0)
+    plt.tight_layout()
+    return fig, axes
+
+def init_fig_vert(valid_mods, num_cols=4, colspan=1):
+    assert ('mocap', 'mocap') in valid_mods
+
+    mods = [vk[0] for vk in valid_mods if vk != ('mocap', 'mocap')]
+    mods = sorted(list(set(mods)))
+    num_mods = len(mods)
+    num_cols = 2 + 4
+    num_rows = num_mods
+    
+    fig = plt.figure(figsize=(num_cols*10, num_rows*10))
+    axes = {}
+    axes[('mocap', 'mocap')] = plt.subplot2grid((num_rows, num_cols), (0, 0), 
+            rowspan=2, colspan=2)
+
+    valid_mods = [vk for vk in valid_mods if vk != ('mocap', 'mocap')]
+    for i, key in enumerate(valid_mods):
+        row = mods.index(key[0])
+        col = int(key[1].split('_')[-1]) - 1
+        col += 2
+        # x, y = i % num_mods, num + num_mods
+        print(row, col, key)
+        axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
+    fig.subplots_adjust(wspace=0, hspace=0)
+    plt.tight_layout()
+    return fig, axes
 
 def init_fig(valid_mods, num_cols=4, colspan=1):
     assert ('mocap', 'mocap') in valid_mods
@@ -106,18 +167,12 @@ def init_fig(valid_mods, num_cols=4, colspan=1):
     num_cols = num_mods + 2 + 1
     num_rows = num_mods + 2 + 1
     
-    # num_plots = len(valid_mods)
-    # num_mods = num_plots - 1
-    #num_cols = int(np.ceil(num_mods / num_rows)) + colspan
-    # num_rows = num_mods + 1
-
-    # num_rows, num_cols = 2 + 5, 7 + 2
-    # num_cols = 4
     fig = plt.figure(figsize=(num_cols*16, num_rows*9))
-    # fig = plt.figure(figsize=(16, 9))
     axes = {}
-    #axes[('mocap', 'mocap')] = plt.subplot2grid((num_rows, num_cols), (0, 0), rowspan=num_rows, colspan=colspan)
     axes[('mocap', 'mocap')] = plt.subplot2grid((num_rows, num_cols), (1, 1), rowspan=num_mods + 1, colspan=num_mods+1)
+
+    axes[('mocap', 'mocap')].linewidth = 20
+    axes[('mocap', 'mocap')].node_size = 20*16**2
 
     #row, col = 0, colspan
     node2row = {'node_2': num_rows-1, 'node_4': 0}
@@ -141,21 +196,6 @@ def init_fig(valid_mods, num_cols=4, colspan=1):
             axes[key] = plt.subplot2grid((num_rows, num_cols), (row_num, count))
             count += 1
              
-    # for i, key in enumerate(valid_mods):
-        # mod, node = key
-        # if node == 'node_2':
-            # col = num_cols
-            # axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
-
-    # row, col = 1, 0
-    # for i, key in enumerate(valid_mods):
-        # axes[key] = plt.subplot2grid((num_rows, num_cols), (row, col))
-        # row += 1
-        # if row  == num_rows:
-            # row = 0
-            # col += 1
-
-    # fig.suptitle('Title', fontsize=11)
     fig.subplots_adjust(wspace=0, hspace=0)
     plt.tight_layout()
     return fig, axes

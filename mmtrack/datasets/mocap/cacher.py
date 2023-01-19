@@ -23,7 +23,7 @@ import torch.distributions as D
 from scipy.spatial import distance
 from trackeval.metrics import CLEAR
 import matplotlib
-from .viz import init_fig, gen_rectange, gen_ellipse
+from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle
 
 def convert2dict(f, keys, fname, valid_mods, valid_nodes):
     data = {}
@@ -186,7 +186,8 @@ class DataCacher(object):
                     
                     corners, grids = [], []
                     for k in range(len(gt_rot)):
-                        rec, grid = gen_rectange(gt_pos[k], gt_rot[k], w=self.truck_w, h=self.truck_h)
+                        angle = rot2angle(gt_rot[k], return_rads=False)
+                        rec, grid = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
                         corners.append(rec.get_corners())
                         if self.include_z:
                             z_val = gt_pos[k][-1]
@@ -202,9 +203,10 @@ class DataCacher(object):
                     gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
                     gt_ids = torch.tensor([d['id'] for d in mocap_data])
                     is_node = gt_labels == 0
-                    # if self.node_pos is None: 
-                        # self.node_pos = gt_pos[is_node]
-                        # self.node_ids = gt_ids[is_node]
+                    
+                    node_pos = gt_pos[is_node] * 100
+                    node_pos = node_pos[..., 0:2]
+                    node_ids = gt_ids[is_node]
                     
                     # gt_pos = gt_pos[~is_node]
                     # z_is_zero = gt_pos[:, -1] == 0.0
@@ -213,9 +215,9 @@ class DataCacher(object):
                     final_mask = ~is_node 
                     if not self.include_z:
                         gt_pos = gt_pos[..., 0:2]
-                    gt_pos = gt_pos[final_mask]
-                    gt_grid = grids[final_mask]
-                    gt_rot = gt_rot[final_mask]
+                    gt_pos = gt_pos[final_mask] * 100
+                    gt_grid = grids[final_mask] * 100
+                    gt_rot = gt_rot[final_mask] 
                     gt_ids = gt_ids[final_mask] - 4
                     if len(gt_pos) < 2:
                         zeros = torch.zeros(2 - len(gt_pos), gt_pos.shape[-1])
@@ -236,7 +238,9 @@ class DataCacher(object):
                         'gt_ids': gt_ids.long(),
                         'gt_rot': gt_rot,
                         #'gt_corners': corners[final_mask],
-                        'gt_grids': gt_grid
+                        'gt_grids': gt_grid,
+                        'node_pos': node_pos,
+                        'node_ids': node_ids
                     }
                     num_frames += 1
                     save_frame = True
