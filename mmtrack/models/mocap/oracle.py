@@ -31,6 +31,7 @@ from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 
 from pyro.contrib.tracking.measurements import PositionMeasurement
+from mmtrack.models.mocap.tracker import Tracker
 
 
 def linear_assignment(cost_matrix):
@@ -45,7 +46,7 @@ def linear_assignment(cost_matrix):
 @MODELS.register_module()
 class OracleModel(BaseMocapModel):
     def __init__(self,
-                 cov=[1,1,1],
+                 cov=[0.001,0.001],
                  mean_cov=None,
                  max_age=5,
                  min_hits=3,
@@ -65,6 +66,7 @@ class OracleModel(BaseMocapModel):
         self.frame_count = 0 
         self.track_eval = track_eval
         self.no_update = no_update
+        self.tracker = Tracker()
 
     
     #def forward(self, data, return_loss=True, **kwargs):
@@ -88,7 +90,7 @@ class OracleModel(BaseMocapModel):
 
 
     def forward_train(self, data, **kwargs):
-        pass
+        return {'dummy_loss': self.dummy_loss.mean()}
 
     def _forward(self, data, **kwargs):
         # try:
@@ -100,11 +102,19 @@ class OracleModel(BaseMocapModel):
             mean = dist.sample([1])[0]
         else:
             mean = gt_pos
-        return mean, self.cov.cuda()
+        result = {
+            'det_means': mean.cpu(),
+           'det_covs': torch.diag_embed(self.cov).cpu(),
+            # 'det_covs': self.cov.cpu(),
+            'det_obj_probs': torch.ones(len(mean)).float()
+        }
+        return result
 
 
     def forward_track(self, data, **kwargs):
-        means, covs = self._forward(data)
+        # means, covs = self._forward(data)
+        det = self._forward(data)
+        return self.tracker(det)
         # gt_labels = data['mocap']['gt_labels'][0][-2].unsqueeze(0)
         # is_node = gt_labels == 0
         # final_mask = ~is_node
@@ -237,7 +247,7 @@ class OracleModel(BaseMocapModel):
         losses = self(data)
         loss, log_vars = self._parse_losses(losses)
         
-        num_samples = len(data['mocap']['gt_positions'])
+        num_samples = len(data[0][('mocap','mocap')]['gt_positions'])
 
         outputs = dict(
             loss=loss, log_vars=log_vars, num_samples=num_samples)
