@@ -7,7 +7,7 @@ valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth', 'zed_camera_left_r50
             'range_doppler', 'azimuth_static', 'mic_waveform',
             'realsense_camera_depth', 'realsense_camera_img']
 
-valid_nodes=[1,3]
+valid_nodes=[1,2,3,4]
 
 # data_root = 'data/mmm/2022-09-01/trucks0_lightsT_obstaclesF/train'
 
@@ -15,7 +15,7 @@ traincacher=dict(type='DataCacher',
     cache_dir='/dev/shm/cache_train/',
     num_future_frames=0,
     num_past_frames=9,
-    valid_nodes=[1,3],
+    valid_nodes=[1,2,3,4],
     valid_mods=['mocap', 'zed_camera_left_r50'],
     include_z=False,
 )
@@ -28,7 +28,7 @@ trainset=dict(type='HDF5Dataset',
     uid=9234,
     num_future_frames=0,
     num_past_frames=9,
-    valid_nodes=[1,3],
+    valid_nodes=[1,2,3,4],
     valid_mods=['mocap', 'zed_camera_left_r50'],
     include_z=False,
 )
@@ -40,7 +40,7 @@ trainset=dict(type='HDF5Dataset',
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val/',
-        valid_nodes=[1,3],
+        valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
         include_z=False,
         max_len=500,
@@ -82,10 +82,22 @@ r50_backbone_cfg=[
 r50_model_cfg=dict(type='SingleModalityModel', ffn_cfg=None)
 
 model_cfgs = {('zed_camera_left_r50', 'node_1'): r50_model_cfg,
-              ('zed_camera_left_r50', 'node_3'): r50_model_cfg}
+              ('zed_camera_left_r50', 'node_2'): r50_model_cfg,
+              ('zed_camera_left_r50', 'node_3'): r50_model_cfg,
+              ('zed_camera_left_r50', 'node_4'): r50_model_cfg}
 backbone_cfgs = {'zed_camera_left_r50': r50_backbone_cfg}
 
 model = dict(type='DecoderMocapModel',
+        output_head_cfg=dict(type='OutputHead',
+         include_z=False,
+         predict_full_cov=True,
+         cov_add=30.0,
+         predict_rotation=True,
+         predict_velocity=False,
+         num_sa_layers=6,
+         to_cm=True,
+         mlp_dropout_rate=0.0
+    ),
     model_cfgs=model_cfgs,
     backbone_cfgs=backbone_cfgs,
     track_eval=True,
@@ -94,12 +106,13 @@ model = dict(type='DecoderMocapModel',
     grid_loss=True,
     # include_z=False,
     #mean_scale=[7,5],
-    pos_loss_weight=0.1,
+    pos_loss_weight=1,
     # predict_full_cov=True,
     num_queries=2,
     # add_grid_to_mean=False,
     autoregressive=True,
     global_ca_layers=0,
+    mod_dropout_rate=0.0,
     #match_by_id=True
 )
 

@@ -3,33 +3,28 @@ _base_ = [
 ]
 
 
-valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth', 'zed_camera_left_r50',
+valid_mods=['mocap', 'zed_camera_left', 'zed_camera_depth',
             'range_doppler', 'azimuth_static', 'mic_waveform',
-            'realsense_camera_depth', 'realsense_camera_img']
+            'realsense_camera_depth'] #'realsense_camera_img']
 
-valid_nodes=[1,3]
+valid_nodes=[1,2,3,4]
 
 # data_root = 'data/mmm/2022-09-01/trucks0_lightsT_obstaclesF/train'
 
 traincacher=dict(type='DataCacher',
     cache_dir='/dev/shm/cache_train/',
-    num_future_frames=0,
-    num_past_frames=9,
-    valid_nodes=[1,3],
-    valid_mods=['mocap', 'zed_camera_left_r50'],
+    valid_nodes=valid_nodes,
+    valid_mods=valid_mods,
     include_z=False,
+    max_len=500,
 )
 
 
 
 trainset=dict(type='HDF5Dataset',
     cacher_cfg=traincacher,
-    name='train',
-    uid=9234,
     num_future_frames=0,
     num_past_frames=9,
-    valid_nodes=[1,3],
-    valid_mods=['mocap', 'zed_camera_left_r50'],
     include_z=False,
 )
 
@@ -40,8 +35,8 @@ trainset=dict(type='HDF5Dataset',
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val/',
-        valid_nodes=[1,3],
-        valid_mods=['mocap', 'zed_camera_left_r50', 'zed_camera_left'],
+        valid_nodes=valid_nodes,
+        valid_mods=valid_mods,
         include_z=False,
         max_len=500,
     ),
@@ -85,22 +80,9 @@ model_cfgs = {('zed_camera_left_r50', 'node_1'): r50_model_cfg,
               ('zed_camera_left_r50', 'node_3'): r50_model_cfg}
 backbone_cfgs = {'zed_camera_left_r50': r50_backbone_cfg}
 
-model = dict(type='DecoderMocapModel',
-    model_cfgs=model_cfgs,
-    backbone_cfgs=backbone_cfgs,
+model = dict(type='OracleModel',
     track_eval=True,
-    mse_loss_weight=0.0,
     max_age=5,
-    grid_loss=True,
-    # include_z=False,
-    #mean_scale=[7,5],
-    pos_loss_weight=0.1,
-    # predict_full_cov=True,
-    num_queries=2,
-    # add_grid_to_mean=False,
-    autoregressive=True,
-    global_ca_layers=0,
-    #match_by_id=True
 )
 
 
@@ -108,7 +90,7 @@ orig_bs = 2
 orig_lr = 1e-4 
 factor = 4
 data = dict(
-    samples_per_gpu=8*2,
+    samples_per_gpu=1,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
@@ -130,7 +112,7 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 50
+total_epochs = 1
 lr_config = dict(policy='step', step=[20,40], gamma=0.05)
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 

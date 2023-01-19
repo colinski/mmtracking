@@ -86,6 +86,14 @@ model_cfgs = {('zed_camera_left_r50', 'node_1'): r50_model_cfg,
 backbone_cfgs = {'zed_camera_left_r50': r50_backbone_cfg}
 
 model = dict(type='DecoderMocapModel',
+        output_head_cfg=dict(type='OutputHead',
+         include_z=False,
+         predict_full_cov=True,
+         cov_add=0.01,
+         predict_rotation=True,
+         predict_velocity=False,
+         num_sa_layers=6
+    ),
     model_cfgs=model_cfgs,
     backbone_cfgs=backbone_cfgs,
     track_eval=True,

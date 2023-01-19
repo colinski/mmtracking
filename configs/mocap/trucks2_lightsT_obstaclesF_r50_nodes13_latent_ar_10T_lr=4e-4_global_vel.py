@@ -86,6 +86,13 @@ model_cfgs = {('zed_camera_left_r50', 'node_1'): r50_model_cfg,
 backbone_cfgs = {'zed_camera_left_r50': r50_backbone_cfg}
 
 model = dict(type='DecoderMocapModel',
+        output_head_cfg=dict(type='OutputHead',
+         include_z=False,
+         predict_full_cov=True,
+         cov_add=0.01,
+         predict_rotation=True,
+         predict_velocity=True
+    ),
     model_cfgs=model_cfgs,
     backbone_cfgs=backbone_cfgs,
     track_eval=True,
@@ -108,7 +115,7 @@ orig_bs = 2
 orig_lr = 1e-4 
 factor = 4
 data = dict(
-    samples_per_gpu=8*2,
+    samples_per_gpu=8*2*2,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
