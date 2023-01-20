@@ -27,6 +27,10 @@ trainset=dict(type='HDF5Dataset',
             f'{data_root}/node_2/zed_r50.hdf5',
             f'{data_root}/node_3/zed_r50.hdf5',
             f'{data_root}/node_4/zed_r50.hdf5',
+            f'{data_root}/node_1/realsense_r50.hdf5',
+            f'{data_root}/node_2/realsense_r50.hdf5',
+            f'{data_root}/node_3/realsense_r50.hdf5',
+            f'{data_root}/node_4/realsense_r50.hdf5',
         ]
     )
 )
@@ -56,6 +60,10 @@ valset=dict(type='HDF5Dataset',
             f'{data_root}/node_2/zed_r50.hdf5',
             f'{data_root}/node_3/zed_r50.hdf5',
             f'{data_root}/node_4/zed_r50.hdf5',
+            f'{data_root}/node_1/realsense_r50.hdf5',
+            f'{data_root}/node_2/realsense_r50.hdf5',
+            f'{data_root}/node_3/realsense_r50.hdf5',
+            f'{data_root}/node_4/realsense_r50.hdf5',
         ]
     )
 )
