@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks2_lightsT_obstaclesF.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesF.py'
 ]
 
 
@@ -16,7 +16,7 @@ traincacher=dict(type='DataCacher',
     num_future_frames=0,
     num_past_frames=9,
     valid_nodes=[1,2,3,4],
-    valid_mods=['mocap', 'realsense_camera_r50'],
+    valid_mods=['mocap', 'realsense_camera_img'],
     include_z=False,
 )
 
@@ -39,7 +39,7 @@ valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val/',
         valid_nodes=[1,2,3,4],
-        valid_mods=['mocap', 'realsense_camera_r50', 'realsense_camera_img'],
+        valid_mods=['mocap', 'realsense_camera_img'],
         include_z=False,
         max_len=500,
     ),
@@ -52,24 +52,22 @@ valset=dict(type='HDF5Dataset',
 
 checkpoint = 'https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb256-rsb-a1-600e_in1k_20211228-20e21305.pth'  # noqa
 
-r50_backbone_cfg=[
-    dict(type='ChannelMapper',
-        in_channels=[2048],
-        kernel_size=1,
-        out_channels=256,
-        act_cfg=None,
-        norm_cfg=dict(type='BN'),
-        num_outs=1
-    ),
-]
+backbone_cfg=dict(type='TVResNet50',
+        # in_channels=[2048],
+        # kernel_size=1,
+        # out_channels=256,
+        # act_cfg=None,
+        # norm_cfg=dict(type='BN'),
+        # num_outs=1
+)
 
 r50_model_cfg=dict(type='SingleModalityModel', ffn_cfg=None)
 
-model_cfgs = {('realsense_camera_r50', 'node_1'): r50_model_cfg,
-              ('realsense_camera_r50', 'node_2'): r50_model_cfg,
-              ('realsense_camera_r50', 'node_3'): r50_model_cfg,
-              ('realsense_camera_r50', 'node_4'): r50_model_cfg}
-backbone_cfgs = {'realsense_camera_r50': r50_backbone_cfg}
+model_cfgs = {('realsense_camera_img', 'node_1'): r50_model_cfg,
+              ('realsense_camera_img', 'node_2'): r50_model_cfg,
+              ('realsense_camera_img', 'node_3'): r50_model_cfg,
+              ('realsense_camera_img', 'node_4'): r50_model_cfg}
+backbone_cfgs = {'realsense_camera_img': backbone_cfg}
 
 model = dict(type='DecoderMocapModel',
         output_head_cfg=dict(type='OutputHead',
@@ -78,7 +76,7 @@ model = dict(type='DecoderMocapModel',
          cov_add=30.0,
          predict_rotation=True,
          predict_velocity=False,
-         num_sa_layers=12,
+         num_sa_layers=0,
          to_cm=True,
          mlp_dropout_rate=0.0
     ),
@@ -92,7 +90,7 @@ model = dict(type='DecoderMocapModel',
     #mean_scale=[7,5],
     pos_loss_weight=1,
     # predict_full_cov=True,
-    num_queries=2,
+    num_queries=1,
     # add_grid_to_mean=False,
     autoregressive=True,
     global_ca_layers=0,
@@ -105,7 +103,7 @@ orig_bs = 2
 orig_lr = 1e-4 
 factor = 4
 data = dict(
-    samples_per_gpu=16,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,

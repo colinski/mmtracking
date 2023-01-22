@@ -535,7 +535,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].add_patch(rec)
 
                         r=self.truck_w/2
-                        axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
+                        axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05, head_length=0.05, fc=color, ec=color)
 
                         # axes[key].scatter(grid[...,0], grid[...,1], s=0.5, color='red')
 
@@ -592,13 +592,17 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     img = img.astype(np.uint8)
                     axes[key].imshow(img)
 
-                if mod == 'zed_camera_left_r50':
+                if 'r50' in mod:
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key) # code = data['zed_camera_left'][:]
                     feat = data[key]['img'].data#[0].cpu().squeeze()
                     feat = feat.mean(dim=0).cpu()
-                    axes[key].imshow(feat, cmap='turbo')
+                    feat[feat > 1] = 1
+                    feat = (feat * 255).numpy().astype(np.uint8)
+                    feat = np.stack([feat]*3, axis=-1)
+                    #axes[key].imshow(feat, cmap='turbo')
+                    axes[key].imshow(feat)
 
                  
                 if mod == 'zed_camera_depth':

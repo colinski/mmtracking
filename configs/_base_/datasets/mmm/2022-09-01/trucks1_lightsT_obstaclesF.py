@@ -11,6 +11,8 @@ img_pipeline = [
     dict(type='Collect', keys=['img']),
 ]
 
+
+
 r50_pipeline = [
     dict(type='LoadFromNumpyArray', force_float32=True),
     dict(type='RandomFlip', flip_ratio=0.0),
@@ -93,10 +95,10 @@ trainset=dict(type='HDF5Dataset',
             f'{data_root}/node_2/zed_r50.hdf5',
             f'{data_root}/node_3/zed_r50.hdf5',
             f'{data_root}/node_4/zed_r50.hdf5',
-            f'{data_root}/node_1/realsense_camera_r50.hdf5',
-            f'{data_root}/node_2/realsense_camera_r50.hdf5',
-            f'{data_root}/node_3/realsense_camera_r50.hdf5',
-            f'{data_root}/node_4/realsense_camera_r50.hdf5',
+            f'{data_root}/node_1/realsense_r50.hdf5',
+            f'{data_root}/node_2/realsense_r50.hdf5',
+            f'{data_root}/node_3/realsense_r50.hdf5',
+            f'{data_root}/node_4/realsense_r50.hdf5',
 
         ],
         valid_mods=valid_mods,
@@ -132,10 +134,10 @@ valset=dict(type='HDF5Dataset',
             f'{data_root}/node_2/zed_r50.hdf5',
             f'{data_root}/node_3/zed_r50.hdf5',
             f'{data_root}/node_4/zed_r50.hdf5',
-            f'{data_root}/node_1/realsense_camera_r50.hdf5',
-            f'{data_root}/node_2/realsense_camera_r50.hdf5',
-            f'{data_root}/node_3/realsense_camera_r50.hdf5',
-            f'{data_root}/node_4/realsense_camera_r50.hdf5',
+            f'{data_root}/node_1/realsense_r50.hdf5',
+            f'{data_root}/node_2/realsense_r50.hdf5',
+            f'{data_root}/node_3/realsense_r50.hdf5',
+            f'{data_root}/node_4/realsense_r50.hdf5',
 
         ],
         valid_mods=valid_mods,

@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks2_lightsT_obstaclesF.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesF.py'
 ]
 
 
@@ -78,7 +78,7 @@ model = dict(type='DecoderMocapModel',
          cov_add=30.0,
          predict_rotation=True,
          predict_velocity=False,
-         num_sa_layers=12,
+         num_sa_layers=0,
          to_cm=True,
          mlp_dropout_rate=0.0
     ),
@@ -92,7 +92,7 @@ model = dict(type='DecoderMocapModel',
     #mean_scale=[7,5],
     pos_loss_weight=1,
     # predict_full_cov=True,
-    num_queries=2,
+    num_queries=1,
     # add_grid_to_mean=False,
     autoregressive=True,
     global_ca_layers=0,
