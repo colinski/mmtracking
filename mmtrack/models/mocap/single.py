@@ -85,6 +85,80 @@ class DETRModalityModel(BaseModule):
         return output_embeds
 
 @MODELS.register_module()
+class ModalityEncoder(BaseModule):
+    def __init__(self,
+                 backbone_cfg=None,
+                 neck_cfg=None,
+                 cross_attn_cfg=dict(type='QKVAttention',
+                     qk_dim=256,
+                     num_heads=8, 
+                     in_proj=True, 
+                     out_proj=True,
+                     attn_drop=0.1, 
+                     seq_drop=0.0,
+                     v_dim=None
+                 ),
+                 ffn_cfg=None,
+                 output_style='embeds',
+                 bg_cfg=None,
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.output_style = output_style
+        
+        self.backbone = backbone_cfg
+        if self.backbone is not None:
+            self.backbone = build_backbone(backbone_cfg)
+
+        self.neck = neck_cfg
+        if self.neck is not None:
+            self.neck = build_neck(neck_cfg)
+        
+        self.room_pos_encoding = AnchorEncoding(dim=256, grid_size=(5, 7), learned=False, out_proj=False)
+        self.feat_pos_encoding = AnchorEncoding(dim=256, grid_size=(9, 15), learned=False, out_proj=False)
+        self.cross_attn = ResCrossAttn(cross_attn_cfg)
+        
+        self.ffn = None
+        if ffn_cfg is not None:
+            self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
+
+        self.bg_model = None
+        if bg_cfg is not None:
+            self.bg_model = build_model(bg_cfg)
+        
+    
+    #def forward(self, data, return_loss=True, **kwargs):
+    def forward(self, x, pos_embeds=None):
+        if self.backbone:
+            feats = self.backbone(x)
+        else:
+            feats = x
+        if self.neck:
+            feats = self.neck(feats)
+        if len(feats) > 1:
+            target_shape = (feats[2].shape[2], feats[2].shape[3])
+            feats = [F.interpolate(f, target_shape) for f in feats] 
+            feats = torch.cat(feats, dim=1)
+        else:
+            feats = feats[0]
+        feats = feats.permute(0, 2, 3, 1) #feat dim to end
+        B, H, W, D = feats.shape
+        
+        room_pos_embeds = self.room_pos_encoding(None).unsqueeze(0)
+        room_pos_embeds = room_pos_embeds.expand(B, -1, -1, -1)
+        feat_pos_embeds = self.feat_pos_encoding(None).unsqueeze(0)
+        feat_pos_embeds = feat_pos_embeds.expand(B, -1, -1, -1)
+        
+        #detr trick
+        room_feats = torch.zeros_like(room_pos_embeds) 
+        output_embeds = self.cross_attn(room_feats, feats, x_pos=room_pos_embeds, feats_pos=feat_pos_embeds)
+        
+        output_embeds = output_embeds.reshape(B, -1, D)
+        if self.ffn is not None:
+            output_embeds = self.ffn(output_embeds)
+        return output_embeds
+
+@MODELS.register_module()
 class SingleModalityModel(BaseModule):
     def __init__(self,
                  backbone_cfg=None,

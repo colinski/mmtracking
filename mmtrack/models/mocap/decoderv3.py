@@ -66,7 +66,6 @@ class DecoderMocapModel(BaseMocapModel):
                      out_proj=True,
                      attn_drop=0.0, 
                      seq_drop=0.0,
-                     return_weights=False,
                      v_dim=None
                  ),
                  num_output_sa_layers=6,
@@ -113,7 +112,6 @@ class DecoderMocapModel(BaseMocapModel):
                 out_proj=True,
                 attn_drop=0.1, 
                 seq_drop=0.0,
-                return_weights=False,
                 v_dim=None
             )
             self.ar_cross_attn = [ResCrossAttn(ar_attn_cfg) for _ in range(6)]
@@ -216,7 +214,7 @@ class DecoderMocapModel(BaseMocapModel):
             for layer in self.global_cross_attn:
                 track_embeds = layer(track_embeds, det_embeds)
         else:
-            track_embeds = self.global_cross_attn(track_embeds, det_embeds)
+            track_embeds, A = self.global_cross_attn(track_embeds, det_embeds, return_weights=True)
 
         # self.tracks = self.global_cross_attn(self.tracks, all_embeds)
         # curr = self.ctn(self.tracks)
@@ -232,7 +230,8 @@ class DecoderMocapModel(BaseMocapModel):
                 'track_obj_probs': torch.ones(self.num_queries).float(),
                 'track_ids': torch.arange(self.num_queries),
                 'slot_ids': torch.arange(self.num_queries),
-                'track_rot': pred_rot.cpu()[0]
+                'track_rot': pred_rot.cpu()[0],
+                'attn_weights': A.cpu()[0]
             }
             self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
             # self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
@@ -268,14 +267,9 @@ class DecoderMocapModel(BaseMocapModel):
         self.prev_frame['rot'] = pred_rot
         self.prev_frame['embeds'] = track_embeds
 
-
-
-        
         # det_mean, det_cov = dist.loc, dist.covariance_matrix
         # det_obj_probs = output['obj_logits']
         # det_mean, det_cov, det_obj_probs = det_mean[0], det_cov[0], det_obj_probs[0].squeeze()
-
-
 
         # track_mean, track_cov, _ = self.convert(curr)
         # track_mean, track_cov = track_mean[0], track_cov[0]
@@ -286,7 +280,8 @@ class DecoderMocapModel(BaseMocapModel):
             'track_obj_probs': torch.ones(2).float(),
             'track_ids': new_ids,
             'slot_ids': torch.arange(2),
-            'track_rot': pred_rot.cpu()[0]
+            'track_rot': pred_rot.cpu()[0],
+            'attn_weights': A.cpu()[0]
         }
         # result = self.tracker(result)
 

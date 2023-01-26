@@ -25,6 +25,7 @@ from trackeval.metrics import CLEAR
 import matplotlib
 from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 from mmtrack.datasets import build_dataset
+import torch.nn.functional as F
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
@@ -581,6 +582,21 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     
 
                 if mod in ['zed_camera_left', 'realsense_camera_img', 'realsense_camera_depth']:
+                    node_num = int(node[-1])
+                    A = outputs['attn_weights'][i]
+                    A = A.permute(1,0,2) 
+                    nO, nH, L = A.shape
+                    A = A.reshape(nO, nH, 4, 35)
+                    head_dists = A.sum(dim=-1)[..., node_num-1]
+                    head_dists = F.interpolate(head_dists.unsqueeze(0).unsqueeze(0), scale_factor=60)[0][0]
+                    
+                    z = torch.zeros_like(head_dists)
+                    head_dists = torch.stack([head_dists,z,z], dim=-1)
+
+                    head_dists = (head_dists * 255).numpy()
+                    head_dists = (head_dists - 255) * -1
+                    head_dists = head_dists.astype(np.uint8)
+
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key) # code = data['zed_camera_left'][:]
@@ -590,6 +606,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     img = img.permute(1, 2, 0).numpy()
                     img = (img * std) - mean
                     img = img.astype(np.uint8)
+                    img = np.concatenate([img, head_dists], axis=0)
                     axes[key].imshow(img)
 
                 if 'r50' in mod:
