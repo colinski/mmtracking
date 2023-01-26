@@ -1,4 +1,4 @@
-from .decoderv3 import DecoderMocapModel
+from .decoderv4 import DecoderMocapModel
 from .single import SingleModalityModel
 from .single import ModalityEncoder
 from .output_head import OutputHead
