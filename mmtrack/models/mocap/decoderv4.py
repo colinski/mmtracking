@@ -69,7 +69,7 @@ class DecoderMocapModel(BaseMocapModel):
                  spatial_attn_cfg=dict(type='DeformableAttention2D',
                      qk_dim=256,
                      num_heads=8, 
-                     num_levels=4,
+                     num_levels=5,
                      num_ref_points=4,
                      attn_drop=0.1,
                  ),
@@ -123,7 +123,7 @@ class DecoderMocapModel(BaseMocapModel):
         
         self.mse_loss = nn.MSELoss(reduction='none')
 
-        self.room_queries = nn.Embedding(500, 700, 256)
+        self.room_queries = nn.Embedding(50*70, 256)
         
         # self.num_queries = num_queries
         # if self.num_queries is not None:
@@ -138,7 +138,7 @@ class DecoderMocapModel(BaseMocapModel):
             # self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
 
         self.time_attn = build_from_cfg(time_attn_cfg, ATTENTION)
-        import ipdb; ipdb.set_trace() # noqa
+        self.spatial_attn = build_from_cfg(spatial_attn_cfg, ATTENTION)
         
         self.bce_loss = nn.BCELoss(reduction='none')
 
@@ -295,6 +295,9 @@ class DecoderMocapModel(BaseMocapModel):
         
         
         all_embeds = [self._forward_single(data) for data in datas]
+        roomQ = self.room_queries.weight.unsqueeze(0)
+        roomQ = roomQ.view(1, 50, 70, 256)
+        roomQ = roomQ.permute(0,3,1,2)
         all_embeds = torch.stack(all_embeds, dim=0) 
         all_embeds = all_embeds.transpose(0, 1) #B T L D
         
@@ -306,18 +309,19 @@ class DecoderMocapModel(BaseMocapModel):
         # bs = len(output_vals)
         all_outputs = []
         for i in range(B):
-            global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+            #global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+            roomQ = self.room_queries.weight.unsqueeze(0)
+            roomQ = roomQ.view(1, 50, 70, 256)
+            roomQ = roomQ.permute(0,3,1,2)
+            
             for j in range(T):
-                if j == 0:
-                    pos = gt_positions[i,j]
-                    vel = torch.zeros_like(pos)
-                else:
-                    vel = gt_positions[i, j] - gt_positions[i, j-1]
+                import ipdb; ipdb.set_trace() # noqa
                 if self.global_ca_layers > 1:
                     for layer in self.global_cross_attn:
                         global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
                 else:
                     global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+                
                 
                 output = self.output_head(global_pos_embeds)
                 dist = output['dist']
@@ -372,17 +376,19 @@ class DecoderMocapModel(BaseMocapModel):
             if mod not in self.backbones.keys():
                 continue
             backbone = self.backbones[mod]
-            model = self.models[mod + '_' + node]
             try:
                 feats = backbone(data[key]['img'])
             except:
                 feats = backbone([data[key]['img']])
-            embeds = model(feats)
+            
+            # model = self.models[mod + '_' + node]
+            # embeds = model(feats)
+            embeds = feats[0]
             inter_embeds.append(embeds)
 
         if len(inter_embeds) == 0:
             import ipdb; ipdb.set_trace() # noqa
-        
+        return inter_embeds
         inter_embeds = torch.stack(inter_embeds, dim=1)
         inter_embeds = self.mod_dropout(inter_embeds)
         B, Nmod, L, D = inter_embeds.shape
