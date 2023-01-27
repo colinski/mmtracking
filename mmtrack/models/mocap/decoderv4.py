@@ -206,8 +206,8 @@ class DecoderMocapModel(BaseMocapModel):
                 'track_means': pred_dist.loc[0].detach().cpu(),
                 'track_covs': pred_dist.covariance_matrix[0].detach().cpu(),
                 'track_obj_probs': torch.ones(self.num_queries).float(),
-                'track_ids': torch.arange(self.num_queries),
-                'slot_ids': torch.arange(self.num_queries),
+                'track_ids': torch.arange(len(pred_dist.loc[0])),
+                'slot_ids': torch.arange(len(pred_dist.loc[0])),
                 'track_rot': pred_rot.cpu()[0],
                 #'attn_weights': A.cpu()[0]
             }
@@ -221,7 +221,7 @@ class DecoderMocapModel(BaseMocapModel):
 
         prev_mean, prev_cov = prev_dist.loc[0], prev_dist.covariance_matrix[0]
         pred_mean, pred_cov = pred_dist.loc[0], pred_dist.covariance_matrix[0]
-        new_ids = torch.zeros(self.num_queries)
+        new_ids = torch.zeros(len(prev_mean))
         if self.num_queries > 1:
 
 

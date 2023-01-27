@@ -475,7 +475,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         metrics = eval_kwargs['metric']
         res = {}
         if 'track' in metrics:
-            res = self.eval_mot(outputs, **eval_kwargs)
+            #res = self.eval_mot(outputs, **eval_kwargs)
             print(res)
         if 'vid' in metrics:
             self.write_video(outputs, **eval_kwargs)
