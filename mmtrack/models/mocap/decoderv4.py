@@ -356,10 +356,13 @@ class DecoderMocapModel(BaseMocapModel):
                 # mean, cov, obj_logits = mean[0], cov[0], obj_logits[0]
                 # dist = self.dist(mean, cov)
                 grid = gt_grids[i][j]
+                grid = grid[0].unsqueeze(0)
+                # idx = torch.tensor([1,0]).long()
+                # grid = grid[idx]
                 No, G, f = grid.shape
                 grid = grid.reshape(No*G, 2)
                 log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
-                log_grid_pdf = log_grid_pdf.reshape(-1, G, 2)
+                log_grid_pdf = log_grid_pdf.reshape(-1, G, No)
                 logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
                 pos_neg_log_probs = -logsum
                 if self.match_by_id:
@@ -380,8 +383,8 @@ class DecoderMocapModel(BaseMocapModel):
                 rot_loss /= count
                 pos_loss = pos_loss * self.pos_loss_weight
                 # pos_loss = F.relu(pos_loss)
-                if pos_loss < 0:
-                    import ipdb; ipdb.set_trace() # noqa
+                # if pos_loss < 0:
+                    # import ipdb; ipdb.set_trace() # noqa
                 rot_loss = rot_loss #* 0.1
                 losses['pos_loss'].append(pos_loss)
                 losses['rot_loss'].append(rot_loss)

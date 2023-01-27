@@ -109,7 +109,7 @@ trainset=dict(type='HDF5Dataset',
     pipelines=pipelines,
 )
 
-data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/train'
+data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         hdf5_fnames=[
