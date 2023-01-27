@@ -53,6 +53,7 @@ class PoolingOutputHead(BaseModule):
         self.to_cm = to_cm
         #self.pooler = nn.AdaptiveAvgPool2d((1, num_objects))
         self.pooler = nn.AdaptiveMaxPool2d((1, num_objects))
+        self.big_lin = nn.Linear(70*50, num_objects)
 
 
         # self.num_outputs = 2 + 1
@@ -82,11 +83,11 @@ class PoolingOutputHead(BaseModule):
         self.register_buffer('mean_scale', torch.tensor(mean_scale))
          
         self.mlp = nn.Sequential(
-            #nn.Linear(input_dim, input_dim),
-            nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
+            nn.Linear(input_dim, input_dim),
+            #nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
             nn.GELU(),
-            #nn.Linear(input_dim, input_dim),
-            nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
+            nn.Linear(input_dim, input_dim),
+            #nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
             nn.GELU(),
             nn.Dropout(mlp_dropout_rate)
         )
@@ -127,9 +128,12 @@ class PoolingOutputHead(BaseModule):
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
     def forward(self, x):
+        # x = self.pooler(x)[:, :, 0] #B C nO
+        # x = x.permute(0, 2, 1)
+        x = x.flatten(2)
+        x = self.big_lin(x).transpose(-2,-1)
+        #x = x.mean(dim=[2,3]).unsqueeze(0) #WARNING!!!!
         x = self.mlp(x)
-        x = self.pooler(x)[:, :, 0] #B C nO
-        x = x.permute(0, 2, 1)
         outputs = []
         result = {}
         outputs.append(self.mean_head(x))

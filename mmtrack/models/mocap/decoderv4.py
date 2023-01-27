@@ -117,9 +117,9 @@ class DecoderMocapModel(BaseMocapModel):
         
         self.models = nn.ModuleDict()
 
-        for key, cfg in model_cfgs.items():
-            mod, node = key
-            self.models[mod + '_' + node] = build_model(cfg)
+        # for key, cfg in model_cfgs.items():
+            # mod, node = key
+            # self.models[mod + '_' + node] = build_model(cfg)
         
         self.mse_loss = nn.MSELoss(reduction='none')
 
@@ -137,10 +137,10 @@ class DecoderMocapModel(BaseMocapModel):
         # else:
             # self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
 
-        self.time_attn = build_from_cfg(time_attn_cfg, ATTENTION)
+        # self.time_attn = build_from_cfg(time_attn_cfg, ATTENTION)
         self.spatial_attn = nn.Sequential(
                 build_from_cfg(spatial_attn_cfg, ATTENTION),
-                # build_from_cfg(spatial_attn_cfg, ATTENTION),
+                #build_from_cfg(spatial_attn_cfg, ATTENTION),
                 # build_from_cfg(spatial_attn_cfg, ATTENTION),
                 # build_from_cfg(spatial_attn_cfg, ATTENTION),
                 # build_from_cfg(spatial_attn_cfg, ATTENTION),
@@ -333,6 +333,7 @@ class DecoderMocapModel(BaseMocapModel):
             
             for j in range(T):
                 views = [x[i].unsqueeze(0) for x in all_embeds[j]] + [roomQ]
+                views = self.spatial_attn(views)
                 roomQ = views[-1]
                 # import ipdb; ipdb.set_trace() # noqa
                 # if self.global_ca_layers > 1:
@@ -378,6 +379,7 @@ class DecoderMocapModel(BaseMocapModel):
                 pos_loss /= count
                 rot_loss /= count
                 pos_loss = pos_loss * self.pos_loss_weight
+                # pos_loss = F.relu(pos_loss)
                 if pos_loss < 0:
                     import ipdb; ipdb.set_trace() # noqa
                 rot_loss = rot_loss #* 0.1
