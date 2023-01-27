@@ -21,7 +21,7 @@ valset=dict(type='HDF5Dataset',
         valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left'],
         include_z=False,
-        #max_len=500,
+        max_len=500,
     ),
     num_future_frames=0,
     num_past_frames=0,
@@ -40,8 +40,9 @@ model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
 backbone_cfgs = {'zed_camera_left': backbone_cfg}
 
 model = dict(type='DecoderMocapModel',
-        output_head_cfg=dict(type='OutputHead',
+        output_head_cfg=dict(type='PoolingOutputHead',
          include_z=False,
+         num_objects=1,
          predict_full_cov=True,
          cov_add=30.0,
          predict_rotation=True,
@@ -90,8 +91,8 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 50
-lr_config = dict(policy='step', step=[40])
+total_epochs = 10
+lr_config = dict(policy='step', step=[8])
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
 find_unused_parameters = True

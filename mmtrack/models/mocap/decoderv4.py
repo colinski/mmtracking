@@ -125,7 +125,7 @@ class DecoderMocapModel(BaseMocapModel):
 
         self.room_queries = nn.Embedding(50*70, 256)
         
-        # self.num_queries = num_queries
+        self.num_queries = num_queries
         # if self.num_queries is not None:
             # self.global_pos_encoding = nn.Embedding(self.num_queries, 256)
         # else: 
@@ -138,7 +138,14 @@ class DecoderMocapModel(BaseMocapModel):
             # self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
 
         self.time_attn = build_from_cfg(time_attn_cfg, ATTENTION)
-        self.spatial_attn = build_from_cfg(spatial_attn_cfg, ATTENTION)
+        self.spatial_attn = nn.Sequential(
+                build_from_cfg(spatial_attn_cfg, ATTENTION),
+                # build_from_cfg(spatial_attn_cfg, ATTENTION),
+                # build_from_cfg(spatial_attn_cfg, ATTENTION),
+                # build_from_cfg(spatial_attn_cfg, ATTENTION),
+                # build_from_cfg(spatial_attn_cfg, ATTENTION),
+                # build_from_cfg(spatial_attn_cfg, ATTENTION)
+        )
         
         self.bce_loss = nn.BCELoss(reduction='none')
 
@@ -163,24 +170,34 @@ class DecoderMocapModel(BaseMocapModel):
             else:
                 return self.forward_test(data, **kwargs)
     
-    def forward_test(self, datas, return_unscaled=False, **kwargs):
+    def forward_track(self, datas, return_unscaled=False, **kwargs):
         det_embeds = [self._forward_single(data) for data in datas]
-        det_embeds = torch.stack(det_embeds, dim=0)[-1] # 1 x L x D
+        views = [x[0].unsqueeze(0) for x in det_embeds[0]]
+
+        #det_embeds = torch.stack(det_embeds, dim=0)[-1] # 1 x L x D
         
         is_first_frame = False
         if self.prev_frame is None:
-            track_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
+            roomQ = self.room_queries.weight.unsqueeze(0)
+            roomQ = roomQ.view(1, 50, 70, 256)
+            roomQ = roomQ.permute(0,3,1,2)
+
+            #track_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
             is_first_frame = True
         else:
-            track_embeds = self.prev_frame['embeds']
+            roomQ = self.prev_frame['embeds']
+            # track_embeds = self.prev_frame['embeds']
 
-        if self.global_ca_layers > 1:
-            for layer in self.global_cross_attn:
-                track_embeds = layer(track_embeds, det_embeds)
-        else:
-            track_embeds, A = self.global_cross_attn(track_embeds, det_embeds, return_weights=True)
+        # if self.global_ca_layers > 1:
+            # for layer in self.global_cross_attn:
+                # track_embeds = layer(track_embeds, det_embeds)
+        # else:
+            # track_embeds, A = self.global_cross_attn(track_embeds, det_embeds, return_weights=True)
 
-        output = self.output_head(track_embeds)
+        out = self.spatial_attn(views + [roomQ])
+        roomQ = out[-1]
+
+        output = self.output_head(roomQ)
         pred_rot = output['rot']
         pred_dist = output['dist']
 
@@ -192,9 +209,9 @@ class DecoderMocapModel(BaseMocapModel):
                 'track_ids': torch.arange(self.num_queries),
                 'slot_ids': torch.arange(self.num_queries),
                 'track_rot': pred_rot.cpu()[0],
-                'attn_weights': A.cpu()[0]
+                #'attn_weights': A.cpu()[0]
             }
-            self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
+            self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': roomQ.detach(), 'ids': torch.arange(2)}
             # self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
             return result
 
@@ -226,7 +243,7 @@ class DecoderMocapModel(BaseMocapModel):
         self.prev_frame['ids'] = new_ids
         self.prev_frame['dist'] = pred_dist
         self.prev_frame['rot'] = pred_rot
-        self.prev_frame['embeds'] = track_embeds
+        self.prev_frame['embeds'] = roomQ
 
         # det_mean, det_cov = dist.loc, dist.covariance_matrix
         # det_obj_probs = output['obj_logits']
@@ -242,7 +259,7 @@ class DecoderMocapModel(BaseMocapModel):
             'track_ids': new_ids,
             'slot_ids': torch.arange(2),
             'track_rot': pred_rot.cpu()[0],
-            'attn_weights': A.cpu()[0]
+            #'attn_weights': A.cpu()[0]
         }
         # result = self.tracker(result)
 
@@ -298,8 +315,8 @@ class DecoderMocapModel(BaseMocapModel):
         roomQ = self.room_queries.weight.unsqueeze(0)
         roomQ = roomQ.view(1, 50, 70, 256)
         roomQ = roomQ.permute(0,3,1,2)
-        all_embeds = torch.stack(all_embeds, dim=0) 
-        all_embeds = all_embeds.transpose(0, 1) #B T L D
+        # all_embeds = torch.stack(all_embeds, dim=0) 
+        # all_embeds = all_embeds.transpose(0, 1) #B T L D
         
         # output_vals = self.ctn(final_embeds)
         # output_vals = self.output_head(final_embeds) #B L No
@@ -315,15 +332,17 @@ class DecoderMocapModel(BaseMocapModel):
             roomQ = roomQ.permute(0,3,1,2)
             
             for j in range(T):
-                import ipdb; ipdb.set_trace() # noqa
-                if self.global_ca_layers > 1:
-                    for layer in self.global_cross_attn:
-                        global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
-                else:
-                    global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+                views = [x[i].unsqueeze(0) for x in all_embeds[j]] + [roomQ]
+                roomQ = views[-1]
+                # import ipdb; ipdb.set_trace() # noqa
+                # if self.global_ca_layers > 1:
+                    # for layer in self.global_cross_attn:
+                        # global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
+                # else:
+                    # global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
                 
                 
-                output = self.output_head(global_pos_embeds)
+                output = self.output_head(roomQ)
                 dist = output['dist']
 
 
@@ -359,6 +378,8 @@ class DecoderMocapModel(BaseMocapModel):
                 pos_loss /= count
                 rot_loss /= count
                 pos_loss = pos_loss * self.pos_loss_weight
+                if pos_loss < 0:
+                    import ipdb; ipdb.set_trace() # noqa
                 rot_loss = rot_loss #* 0.1
                 losses['pos_loss'].append(pos_loss)
                 losses['rot_loss'].append(rot_loss)

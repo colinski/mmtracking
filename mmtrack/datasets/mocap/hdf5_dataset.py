@@ -401,7 +401,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         res['grid_scores'] = []
         res['num_tracker_dets'] = 0
 
-        from mmtrack.models.mocap.decoderv3 import calc_grid_loss 
+        from mmtrack.models.mocap.decoderv4 import calc_grid_loss 
         all_probs, all_dists = [], []
         for i in range(res['num_timesteps']):
             pred_means = outputs['track_means'][i]
@@ -582,20 +582,20 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     
 
                 if mod in ['zed_camera_left', 'realsense_camera_img', 'realsense_camera_depth']:
-                    node_num = int(node[-1])
-                    A = outputs['attn_weights'][i]
-                    A = A.permute(1,0,2) 
-                    nO, nH, L = A.shape
-                    A = A.reshape(nO, nH, 4, 35)
-                    head_dists = A.sum(dim=-1)[..., node_num-1]
-                    head_dists = F.interpolate(head_dists.unsqueeze(0).unsqueeze(0), scale_factor=60)[0][0]
+                    # node_num = int(node[-1])
+                    # A = outputs['attn_weights'][i]
+                    # A = A.permute(1,0,2) 
+                    # nO, nH, L = A.shape
+                    # A = A.reshape(nO, nH, 4, 35)
+                    # head_dists = A.sum(dim=-1)[..., node_num-1]
+                    # head_dists = F.interpolate(head_dists.unsqueeze(0).unsqueeze(0), scale_factor=60)[0][0]
                     
-                    z = torch.zeros_like(head_dists)
-                    head_dists = torch.stack([head_dists,z,z], dim=-1)
+                    # z = torch.zeros_like(head_dists)
+                    # head_dists = torch.stack([head_dists,z,z], dim=-1)
 
-                    head_dists = (head_dists * 255).numpy()
-                    head_dists = (head_dists - 255) * -1
-                    head_dists = head_dists.astype(np.uint8)
+                    # head_dists = (head_dists * 255).numpy()
+                    # head_dists = (head_dists - 255) * -1
+                    # head_dists = head_dists.astype(np.uint8)
 
                     axes[key].clear()
                     axes[key].axis('off')
@@ -606,7 +606,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     img = img.permute(1, 2, 0).numpy()
                     img = (img * std) - mean
                     img = img.astype(np.uint8)
-                    img = np.concatenate([img, head_dists], axis=0)
+                    #img = np.concatenate([img, head_dists], axis=0)
                     axes[key].imshow(img)
 
                 if 'r50' in mod:
