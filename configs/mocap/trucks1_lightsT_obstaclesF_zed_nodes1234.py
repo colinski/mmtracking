@@ -52,13 +52,9 @@ model = dict(type='DecoderMocapModel',
     model_cfgs=model_cfgs,
     backbone_cfgs=backbone_cfgs,
     track_eval=True,
-    mse_loss_weight=0.0,
-    max_age=5,
     grid_loss=True,
     pos_loss_weight=1,
     num_queries=1,
-    autoregressive=True,
-    global_ca_layers=0,
     mod_dropout_rate=0.0,
 )
 
