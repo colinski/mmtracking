@@ -107,7 +107,7 @@ class DecoderMocapModel(BaseMocapModel):
         # self.add_grid_to_mean = add_grid_to_mean
         self.match_by_id = match_by_id
         self.autoregressive = autoregressive
-        self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
+        self.mod_dropout = nn.Dropout3d(mod_dropout_rate)
         
         self.output_head = build_model(output_head_cfg)
         
@@ -414,9 +414,11 @@ class DecoderMocapModel(BaseMocapModel):
 
         if len(inter_embeds) == 0:
             import ipdb; ipdb.set_trace() # noqa
-        return inter_embeds
+        num_mods = len(inter_embeds)
         inter_embeds = torch.stack(inter_embeds, dim=1)
         inter_embeds = self.mod_dropout(inter_embeds)
+        inter_embeds = [inter_embeds[:, i] for i in range(num_mods)]
+        return inter_embeds
         B, Nmod, L, D = inter_embeds.shape
         inter_embeds = inter_embeds.reshape(B, Nmod*L, D)
         # inter_embeds = torch.cat(inter_embeds, dim=-2)
