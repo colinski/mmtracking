@@ -1,4 +1,3 @@
-# Copyright (c) OpenMMLab. All rights reserved.
 import numpy as np
 import mmcv
 import torch
@@ -27,15 +26,6 @@ from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker
 
-def calc_grid_loss(dist, grid, scale=1):
-    No, G, f = grid.shape
-    grid = grid.reshape(No*G, 2)
-    log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * scale
-    log_grid_pdf = log_grid_pdf.reshape(No, G, -1)
-    logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
-    return logsum
-
-
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
     _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
@@ -45,14 +35,11 @@ def linear_assignment(cost_matrix):
     assign_idx = torch.from_numpy(assign_idx)
     return assign_idx.long()
 
-
 @MODELS.register_module()
 class DecoderMocapModel(BaseMocapModel):
     def __init__(self,
                  backbone_cfgs=None,
                  model_cfgs=None,
-                 bce_target=0.99,
-                 remove_zero_at_train=True,
                  output_head_cfg=dict(type='OutputHead',
                      include_z=False,
                      predict_full_cov=True,
@@ -68,75 +55,39 @@ class DecoderMocapModel(BaseMocapModel):
                      seq_drop=0.0,
                      v_dim=None
                  ),
-                 num_output_sa_layers=6,
-                 max_age=5,
-                 min_hits=3,
+                 dim=256,
                  track_eval=False,
-                 mse_loss_weight=0.0,
                  pos_loss_weight=0.1,
-                 grid_loss=False,
-                 num_queries=None,
-                 grid_size=(10,10),
+                 num_queries=1,
                  match_by_id=False,
-                 autoregressive=False,
                  global_ca_layers=1,
                  mod_dropout_rate=0.0,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        self.tracker = Tracker()
         self.num_classes = 2
-        self.max_age = max_age
-        self.min_hits = min_hits
         self.tracks = None
         self.frame_count = 0 
         self.track_eval = track_eval
-        self.mse_loss_weight = mse_loss_weight
         self.pos_loss_weight = pos_loss_weight
-        self.grid_loss = grid_loss
         self.prev_frame = None
-        # self.include_z = include_z
-        # self.remove_zero_at_train = remove_zero_at_train
-        self.bce_target = bce_target
-        # self.register_buffer('mean_scale', torch.tensor(mean_scale))
-        # self.add_grid_to_mean = add_grid_to_mean
+        self.dim = dim
         self.match_by_id = match_by_id
-        self.autoregressive = autoregressive
         self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
         
-        if self.autoregressive:
-            ar_attn_cfg=dict(type='QKVAttention',
-                qk_dim=256,
-                num_heads=8,
-                in_proj=True,
-                out_proj=True,
-                attn_drop=0.1, 
-                seq_drop=0.0,
-                v_dim=None
-            )
-            self.ar_cross_attn = [ResCrossAttn(ar_attn_cfg) for _ in range(6)]
-            self.ar_cross_attn = nn.ModuleList(self.ar_cross_attn)
-
         self.output_head = build_model(output_head_cfg)
-
-
+        
         self.backbones = nn.ModuleDict()
         for key, cfg in backbone_cfgs.items():
             self.backbones[key] = build_backbone(cfg)
         
         self.models = nn.ModuleDict()
-
         for key, cfg in model_cfgs.items():
             mod, node = key
             self.models[mod + '_' + node] = build_model(cfg)
         
-        self.mse_loss = nn.MSELoss(reduction='none')
-        
         self.num_queries = num_queries
-        if self.num_queries is not None:
-            self.global_pos_encoding = nn.Embedding(self.num_queries, 256)
-        else: 
-            self.global_pos_encoding = AnchorEncoding(dim=256, grid_size=grid_size, learned=False, out_proj=False)
+        self.global_pos_encoding = nn.Embedding(self.num_queries, self.dim)
         
         self.global_ca_layers = global_ca_layers
         if global_ca_layers > 1:
@@ -144,9 +95,6 @@ class DecoderMocapModel(BaseMocapModel):
         else:
             self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
-        self.bce_loss = nn.BCELoss(reduction='none')
-
-    
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
         on whether ``return_loss`` is ``True``.
@@ -223,7 +171,6 @@ class DecoderMocapModel(BaseMocapModel):
         new_ids = torch.zeros(self.num_queries)
         if self.num_queries > 1:
 
-
             kl_vals = torch.zeros(2,2).cuda()
             for i in range(2):
                 p = D.MultivariateNormal(pred_mean[i], pred_cov[i])
@@ -267,8 +214,8 @@ class DecoderMocapModel(BaseMocapModel):
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
 
-        gt_positions = mocaps['gt_positions']
-        gt_positions = gt_positions.transpose(0,1)
+        # gt_positions = mocaps['gt_positions']
+        # gt_positions = gt_positions.transpose(0,1)
 
         # B, T, L, f = gt_positions.shape
         # gt_positions = gt_positions.reshape(B*T, L, f)
@@ -301,8 +248,6 @@ class DecoderMocapModel(BaseMocapModel):
                     angles[i,j, k] = rads
         gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
 
-
-
         # gt_rots = torch.cat([gt_rots[..., 0:2], gt_rots[..., 3:5]], dim=-1)
         
         
@@ -320,11 +265,6 @@ class DecoderMocapModel(BaseMocapModel):
         for i in range(B):
             global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
             for j in range(T):
-                if j == 0:
-                    pos = gt_positions[i,j]
-                    vel = torch.zeros_like(pos)
-                else:
-                    vel = gt_positions[i, j] - gt_positions[i, j-1]
                 if self.global_ca_layers > 1:
                     for layer in self.global_cross_attn:
                         global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
@@ -354,15 +294,14 @@ class DecoderMocapModel(BaseMocapModel):
                     assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
                 else:
                     assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
+                
                 if len(logsum) == 1: #one object
                     assign_idx = torch.zeros(1, 2).long()
                 
-                pos_loss, rot_loss, vel_loss, count = 0, 0, 0, 0
+                pos_loss, rot_loss, count = 0, 0, 0
                 for pred_idx, gt_idx in assign_idx:
                     pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
                     rot_loss += rot_dists[pred_idx, gt_idx]
-                    # vel_loss += vel_dists[pred_idx, gt_idx]
-                    # rot_loss += torch.norm(pred_rot[pred_idx] - gt_rots[i][j][gt_idx])
                     count += 1
                 pos_loss /= count
                 rot_loss /= count
@@ -370,7 +309,6 @@ class DecoderMocapModel(BaseMocapModel):
                 rot_loss = rot_loss #* 0.1
                 losses['pos_loss'].append(pos_loss)
                 losses['rot_loss'].append(rot_loss)
-                # losses['vel_loss'].append(vel_loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses

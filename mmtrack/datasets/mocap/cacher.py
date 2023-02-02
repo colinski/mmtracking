@@ -1,29 +1,15 @@
-from abc import ABCMeta, abstractmethod
 import os
 import glob
 import pickle
 import numpy as np
-from mmdet.datasets.pipelines import Compose
-from torch.utils.data import Dataset
 from mmtrack.datasets import DATASETS
-import cv2
 import h5py
 import torch
 import json
 import time
 import torchaudio
 from tqdm import trange, tqdm
-import matplotlib.pyplot as plt
 import copy
-import mmcv
-from mmcv.runner import get_dist_info
-from matplotlib.patches import Ellipse, Rectangle
-from collections import defaultdict
-import torch.distributions as D
-from scipy.spatial import distance
-from trackeval.metrics import CLEAR
-import matplotlib
-from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle
 
 def convert2dict(f, keys, fname, valid_mods, valid_nodes):
     data = {}
@@ -94,9 +80,7 @@ class DataCacher(object):
         self.class2idx = {'truck': 1, 'node': 0}
         self.max_len = max_len
 
-
     def cache(self):
-        # os.makedirs(self.cache_dir, exists_ok=True)
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir, exist_ok=False)
             data = {}
@@ -131,17 +115,11 @@ class DataCacher(object):
             if self.max_len is not None:
                 buffers = buffers[0:self.max_len]
         
-        
-            # final_dir = f'{self.cache_dir}/{self.name}'
-            # if not os.path.exists(final_dir):
-                # os.mkdir(final_dir)
-            # self.fnames = []
             for i in trange(len(buffers)):
                 buff = buffers[i]
                 fname = '%s/tmp_%09d.pickle' % (self.cache_dir, i)
                 with open(fname, 'wb') as f:
                     pickle.dump(buff, f)
-                # self.fnames.append(fname)
         
         self.fnames = sorted(glob.glob(f'{self.cache_dir}/*.pickle'))
         with open(self.fnames[-1], 'rb') as f:
@@ -150,19 +128,8 @@ class DataCacher(object):
         self.fnames = self.fnames[0:self.max_len]
         return self.fnames, self.active_keys
 
-    # self.fnames = glob.glob(f'{cache_dir}/{self.name}/*.pickle')
-    # with open(self.fnames[-1], 'rb') as f:
-        # buff = pickle.load(f)
-        # self.active_keys = sorted(buff.keys())
-    # self.fnames = sorted(self.fnames)[0:max_len]
-    # self.nodes = set([key[1] for key in self.active_keys if 'node' in key[1]])
-
-    # def __len__(self):
-        # return len(self.fnames)
-    
     def fill_buffers(self, all_data):
         buffers = []
-        # buff = self.init_buffer()
         buff = {}
         factor = 100 // self.fps
         num_frames = 0
@@ -208,10 +175,6 @@ class DataCacher(object):
                     node_pos = node_pos[..., 0:2]
                     node_ids = gt_ids[is_node]
                     
-                    # gt_pos = gt_pos[~is_node]
-                    # z_is_zero = gt_pos[:, -1] == 0.0
-                    # if torch.any(z_is_zero):
-                        # continue
                     final_mask = ~is_node 
                     if not self.include_z:
                         gt_pos = gt_pos[..., 0:2]
@@ -237,7 +200,6 @@ class DataCacher(object):
                         #'gt_labels': gt_labels[final_mask].long(),
                         'gt_ids': gt_ids.long(),
                         'gt_rot': gt_rot,
-                        #'gt_corners': corners[final_mask],
                         'gt_grids': gt_grid,
                         'node_pos': node_pos,
                         'node_ids': node_ids
