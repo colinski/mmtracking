@@ -25,9 +25,6 @@ class RangeDopplerBackbone(BaseModule):
         )
     
     def forward(self, x):
-        try:
-            return (self.layers(x), )
-        except:
-            import ipdb; ipdb.set_trace() # noqa
+        return (self.layers(x), )
 
 

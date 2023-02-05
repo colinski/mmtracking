@@ -26,6 +26,15 @@ from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker
 
+def calc_grid_loss(dist, grid, scale=1):
+    No, G, f = grid.shape
+    grid = grid.reshape(No*G, 2)
+    log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) * scale
+    log_grid_pdf = log_grid_pdf.reshape(No, G, -1)
+    logsum = torch.logsumexp(log_grid_pdf, dim=1).t()
+    return logsum
+
+
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
     _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
@@ -128,10 +137,11 @@ class DecoderMocapModel(BaseMocapModel):
         # }
         
        
-        is_first_frame = False
-        if self.prev_frame is None:
+        # is_first_frame = False
+        #if self.prev_frame is None:
+        if self.frame_count % 10 == 0:
             track_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
-            is_first_frame = True
+            # is_first_frame = True
         else:
             track_embeds = self.prev_frame['embeds']
 
@@ -148,7 +158,7 @@ class DecoderMocapModel(BaseMocapModel):
         pred_rot = output['rot']
         pred_dist = output['dist']
 
-        if is_first_frame:
+        if self.frame_count == 0:
             result = {
                 'track_means': pred_dist.loc[0].detach().cpu(),
                 'track_covs': pred_dist.covariance_matrix[0].detach().cpu(),
@@ -159,6 +169,7 @@ class DecoderMocapModel(BaseMocapModel):
                 'attn_weights': A.cpu()[0]
             }
             self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
+            self.frame_count += 1
             # self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
             return result
 
@@ -207,6 +218,7 @@ class DecoderMocapModel(BaseMocapModel):
             'track_rot': pred_rot.cpu()[0],
             'attn_weights': A.cpu()[0]
         }
+        self.frame_count += 1
         return result
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):

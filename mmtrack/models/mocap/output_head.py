@@ -277,7 +277,6 @@ class OutputHead(BaseModule):
              out_proj=True,
              attn_drop=0.0, 
              seq_drop=0.0,
-             return_weights=False,
              v_dim=None
         )
         

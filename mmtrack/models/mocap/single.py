@@ -98,6 +98,7 @@ class ModalityEncoder(BaseModule):
                      seq_drop=0.0,
                      v_dim=None
                  ),
+                 feat_pos_grid_size=(9,15),
                  ffn_cfg=None,
                  output_style='embeds',
                  bg_cfg=None,
@@ -115,7 +116,7 @@ class ModalityEncoder(BaseModule):
             self.neck = build_neck(neck_cfg)
         
         self.room_pos_encoding = AnchorEncoding(dim=256, grid_size=(5, 7), learned=False, out_proj=False)
-        self.feat_pos_encoding = AnchorEncoding(dim=256, grid_size=(9, 15), learned=False, out_proj=False)
+        self.feat_pos_encoding = AnchorEncoding(dim=256, grid_size=feat_pos_grid_size, learned=False, out_proj=False)
         self.cross_attn = ResCrossAttn(cross_attn_cfg)
         
         self.ffn = None
