@@ -8,6 +8,37 @@ from mmcv.runner import BaseModule, auto_fp16
 from torchvision.models import resnet50
 from torchvision.models import ResNet50_Weights
 import torch
+import torch.nn.functional as F
+
+
+from mmdet.apis import init_detector, inference_detector
+
+
+@BACKBONES.register_module()
+class PretrainedDETR(BaseModule):
+    def __init__(self, 
+            out_channels=256,
+        ):
+        super().__init__()
+        #config_file = '/home/csamplawski/src/mmdetection/configs/deformable_detr/deformable_detr_r50_16x2_50e_coco.py'
+        #checkpoint_file = '/home/csamplawski/src/mmtracking/deformable_detr_r50_16x2_50e_coco_20210419_220030-a12b9512.pth'
+        config_file = '/home/csamplawski/src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
+        checkpoint_file = '/home/csamplawski/src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
+        self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
+        self.detr = self.detr.eval()
+    
+    @torch.no_grad()
+    def forward(self, x):
+        x = self.detr.backbone(x)[0]
+        # x = self.detr.neck(x)
+        B, D, H, W = x.shape
+        masks = x.new_zeros((B, H, W)).to(torch.bool)
+        bbox_head = self.detr.bbox_head
+        x = bbox_head.input_proj(x)
+        #masks = F.interpolate(masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
+        pos_embed = bbox_head.positional_encoding(masks)
+        outs_dec, _ = bbox_head.transformer(x, masks, bbox_head.query_embedding.weight, pos_embed)
+        return (outs_dec[-1], )
 
 #@BACKBONES.register_module()
 class ResNet50Stem(nn.Sequential):

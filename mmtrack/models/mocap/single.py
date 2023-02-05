@@ -27,6 +27,7 @@ from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from ..builder import MODELS, build_tracker, build_model
 
+
 @MODELS.register_module()
 class DETRModalityModel(BaseModule):
     def __init__(self,
@@ -83,6 +84,23 @@ class DETRModalityModel(BaseModule):
         output_embeds = self.decoder(anchor_embeds, anchor_pos, feats, feats_pos)
         output_embeds = output_embeds.reshape(B, -1, D)
         return output_embeds
+
+@MODELS.register_module()
+class LinearEncoder(BaseModule):
+    def __init__(self,
+                 in_len=100,
+                 out_len=1,
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lin = nn.Linear(in_len, out_len)
+    
+    #x has shape B x in_len x D
+    def forward(self, x, pos_embeds=None):
+        x = x.permute(0, 2, 1)
+        x = self.lin(x)
+        x = x.permute(0, 2, 1)
+        return x
 
 @MODELS.register_module()
 class ModalityEncoder(BaseModule):
