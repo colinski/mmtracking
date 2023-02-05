@@ -10,6 +10,7 @@ import time
 import torchaudio
 from tqdm import trange, tqdm
 import copy
+from .viz import *
 
 def convert2dict(f, keys, fname, valid_mods, valid_nodes):
     data = {}
@@ -54,7 +55,7 @@ class DataCacher(object):
                  min_y=-1637.84491, max_y=2930.06133,
                  min_z=0.000000000, max_z=903.616290,
                  normalized_position=False,
-                 max_len=None,
+                 # max_len=None,
                  truck_w=30/100,
                  truck_h=15/100,
                  include_z=True,
@@ -78,7 +79,7 @@ class DataCacher(object):
         self.hdf5_fnames = hdf5_fnames
         self.fps = fps
         self.class2idx = {'truck': 1, 'node': 0}
-        self.max_len = max_len
+        # self.max_len = max_len
 
     def cache(self):
         if not os.path.exists(self.cache_dir):
@@ -112,8 +113,8 @@ class DataCacher(object):
                     break
             buffers = buffers[count:]
 
-            if self.max_len is not None:
-                buffers = buffers[0:self.max_len]
+            # if self.max_len is not None:
+                # buffers = buffers[0:self.max_len]
         
             for i in trange(len(buffers)):
                 buff = buffers[i]
@@ -125,7 +126,7 @@ class DataCacher(object):
         with open(self.fnames[-1], 'rb') as f:
             buff = pickle.load(f)
             self.active_keys = sorted(buff.keys())
-        self.fnames = self.fnames[0:self.max_len]
+        # self.fnames = self.fnames[0:self.max_len]
         return self.fnames, self.active_keys
 
     def fill_buffers(self, all_data):

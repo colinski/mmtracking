@@ -21,7 +21,7 @@ from matplotlib.patches import Ellipse, Rectangle
 from collections import defaultdict
 import torch.distributions as D
 from scipy.spatial import distance
-from trackeval.metrics import CLEAR
+from trackeval.metrics import CLEAR, HOTA, Identity
 import matplotlib
 from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 from mmtrack.datasets import build_dataset
@@ -141,21 +141,22 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         res = {}
         res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
         res['num_gt_ids'] = len(torch.unique(all_gt_ids))
+        res['num_tracker_ids'] = len(torch.unique(all_gt_ids))
         res['num_timesteps'] = len(all_gt_ids)
         res['tracker_ids'] = []
-        res['gt_ids'] = all_gt_ids.numpy()
+        res['gt_ids'] = all_gt_ids.numpy().astype(int)
         res['similarity_scores'] = []
         res['grid_scores'] = []
         res['num_tracker_dets'] = 0
 
-        from mmtrack.models.mocap.decoderv4 import calc_grid_loss 
+        from mmtrack.models.mocap.decoderv3 import calc_grid_loss 
         all_probs, all_dists = [], []
         for i in range(res['num_timesteps']):
             pred_means = outputs['track_means'][i]
             pred_covs = outputs['track_covs'][i]
             pred_ids = outputs['track_ids'][i]
             res['num_tracker_dets'] += len(pred_ids)
-            res['tracker_ids'].append(pred_ids.numpy())
+            res['tracker_ids'].append(pred_ids.numpy().astype(int))
             gt_pos = all_gt_pos[i]
             gt_rot = all_gt_rot[i]
             gt_grid = all_gt_grids[i]
@@ -172,7 +173,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
                 dist = D.MultivariateNormal(pred_means[j], pred_covs[j])
                 # dist = D.Independent(dist, 1) #Nq independent Gaussians
-                samples = dist.sample([10000])
+                # samples = dist.sample([10000])
                 
                 num_gt = len(gt_pos)
                 for k in range(num_gt):
@@ -180,9 +181,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     log_probs = dist.log_prob(grid) #*1.5
                     logsum = torch.logsumexp(log_probs.flatten(), dim=0)
                     grid_scores.append(logsum)
-                    angle = rot2angle(gt_rot[k], return_rads=False)
-                    rec, _ = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
-                    mask = points_in_rec(samples, rec)
+                    # angle = rot2angle(gt_rot[k], return_rads=False)
+                    # rec, _ = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
+                    # mask = points_in_rec(samples, rec)
                     #scores.append(np.mean(mask))
                     scores.append(logsum.exp())
 
@@ -211,9 +212,23 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         logdir = eval_kwargs['logdir']
         fname = f'{logdir}/res.json'
         #met=CLEAR({'THRESHOLD': 1-(0.3/self.max_len)}) 
-        met=CLEAR({'THRESHOLD': 0.5})
+        met = CLEAR({'THRESHOLD': 0.5})
         out = met.eval_sequence(res)
-        out = {k:float(v) for k,v in out.items()}
+        out = {k : float(v) for k,v in out.items()}
+        
+        hmet = HOTA()
+        hout = hmet.eval_sequence(res)
+        means = {k + '_mean' : v.mean() for k, v in hout.items()}
+        hout = {k: v.tolist() for k,v in hout.items()}
+        out.update(hout)
+        out.update(means)
+
+        imet = Identity({'THRESHOLD': 0.5})
+        iout = imet.eval_sequence(res)
+        iout = {k : float(v) for k,v in iout.items()}
+        out.update(iout)
+
+        print(out)
         with open(fname, 'w') as f:
             json.dump(out, f)
         return out
@@ -222,7 +237,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         metrics = eval_kwargs['metric']
         res = {}
         if 'track' in metrics:
-            #res = self.eval_mot(outputs, **eval_kwargs)
+            res = self.eval_mot(outputs, **eval_kwargs)
             print(res)
         if 'vid' in metrics:
             self.write_video(outputs, **eval_kwargs)
@@ -230,6 +245,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     def write_video(self, outputs, **eval_kwargs): 
         logdir = eval_kwargs['logdir']
+        video_length = len(self)
+        if 'video_length' in eval_kwargs.keys():
+            video_length = eval_kwargs['video_length']
         fname = f'{logdir}/latest_vid.mp4'
         fig, axes = init_fig(self.active_keys)
         size = (fig.get_figwidth()*50, fig.get_figheight()*50)
@@ -241,9 +259,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             markers.append(',')
             markers.append('o')
             colors.extend(['green', 'red', 'black', 'yellow'])
+
+        frame_count = 0
         
         id2dist = defaultdict(list)
-        for i in trange(len(self)):
+        for i in trange(video_length):
             data = self[i][-1] #get last frame, eval shouldnt have future
             save_frame = False
             for key, val in data.items():
@@ -394,6 +414,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                 data = cv2.resize(data, dsize=size)
                 data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                # fname = f'{logdir}/frame_{frame_count}.png'
+                # cv2.imwrite(fname, data)
+                frame_count += 1
                 vid.write(data) 
 
         vid.release()
