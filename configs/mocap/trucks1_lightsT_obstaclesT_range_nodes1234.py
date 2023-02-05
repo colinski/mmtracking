@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks2_lightsT_obstaclesF.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesT.py'
 ]
 
 trainset=dict(type='HDF5Dataset',
@@ -8,7 +8,7 @@ trainset=dict(type='HDF5Dataset',
         num_future_frames=0,
         num_past_frames=9,
         valid_nodes=[1,2,3,4],
-        valid_mods=['mocap', 'zed_camera_left'],
+        valid_mods=['mocap', 'range_doppler'],
         include_z=False,
     ),
     num_future_frames=0,
@@ -19,9 +19,8 @@ valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val/',
         valid_nodes=[1,2,3,4],
-        valid_mods=['mocap', 'zed_camera_left'],
+        valid_mods=['mocap', 'range_doppler'],
         include_z=False,
-        #max_len=500,
     ),
     num_future_frames=0,
     num_past_frames=0,
@@ -30,14 +29,14 @@ valset=dict(type='HDF5Dataset',
 )
 
 
-model_cfg=dict(type='ModalityEncoder', ffn_cfg=dict(type='SLP'))
+model_cfg=dict(type='ModalityEncoder', ffn_cfg=dict(type='SLP'), feat_pos_grid_size=(4,32))
 
-model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
-              ('zed_camera_left', 'node_2'): model_cfg,
-              ('zed_camera_left', 'node_3'): model_cfg,
-              ('zed_camera_left', 'node_4'): model_cfg}
+model_cfgs = {('range_doppler', 'node_1'): model_cfg,
+              ('range_doppler', 'node_2'): model_cfg,
+              ('range_doppler', 'node_3'): model_cfg,
+              ('range_doppler', 'node_4'): model_cfg}
 
-backbone_cfgs = {'zed_camera_left': dict(type='TVResNet50')}
+backbone_cfgs = {'range_doppler': dict(type='RangeDopplerBackbone')}
 
 model = dict(type='DecoderMocapModel',
         output_head_cfg=dict(type='OutputHead',
@@ -54,7 +53,7 @@ model = dict(type='DecoderMocapModel',
     backbone_cfgs=backbone_cfgs,
     track_eval=True,
     pos_loss_weight=1,
-    num_queries=2,
+    num_queries=1,
     mod_dropout_rate=0.0,
 )
 
