@@ -22,8 +22,8 @@ class PretrainedDETR(BaseModule):
         super().__init__()
         #config_file = '/home/csamplawski/src/mmdetection/configs/deformable_detr/deformable_detr_r50_16x2_50e_coco.py'
         #checkpoint_file = '/home/csamplawski/src/mmtracking/deformable_detr_r50_16x2_50e_coco_20210419_220030-a12b9512.pth'
-        config_file = '/home/csamplawski/src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
-        checkpoint_file = '/home/csamplawski/src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
+        config_file = 'src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
+        checkpoint_file = 'src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
         self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
         self.detr = self.detr.eval()
     

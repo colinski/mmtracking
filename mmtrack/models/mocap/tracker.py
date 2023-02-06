@@ -36,7 +36,7 @@ def linear_assignment(cost_matrix):
     return assign_idx.long()
 
 class Tracker:
-    def __init__(self, max_age=5, min_hits=3):
+    def __init__(self, max_age=5, min_hits=1):
         self.max_age = max_age
         self.min_hits = min_hits
         self.tracks = []
@@ -51,8 +51,8 @@ class Tracker:
         slot_ids = torch.arange(len(obj_probs))[is_obj]
         if len(means) == 0:
             result.update({
-                'track_means': torch.empty(0,3).cpu(),
-                'track_covs': torch.empty(0,3,3).cpu(),
+                'track_means': torch.empty(0,2).cpu(),
+                'track_covs': torch.empty(0,2,2).cpu(),
                 'track_ids': torch.empty(0,1),
                 'slot_ids': torch.empty(0,1)
             })
@@ -80,7 +80,7 @@ class Tracker:
             unassigned, assign_idx = [], []
             assign_idx = linear_assignment(-log_probs)
             for t, d in assign_idx:
-                if exp_probs[t,d] >= 1e-16:
+                if exp_probs[t,d] >= 0:
                     self.tracks[t].update(means[d], covs[d])
                     self.tracks[t].slot_id = slot_ids[d]
                 else:
@@ -109,6 +109,9 @@ class Tracker:
 
         self.tracks = [track for track in self.tracks\
                        if track.time_since_update < self.max_age]
+
+        if len(track_means) == 0:
+            import ipdb; ipdb.set_trace() # noqa
 
         result.update({
             'track_means': track_means.detach().cpu(),
