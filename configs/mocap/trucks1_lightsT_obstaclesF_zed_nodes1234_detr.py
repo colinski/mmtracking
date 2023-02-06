@@ -28,8 +28,22 @@ valset=dict(type='HDF5Dataset',
     draw_cov=True,
 )
 
+testset=dict(type='HDF5Dataset',
+    cacher_cfg=dict(type='DataCacher',
+        cache_dir='/dev/shm/cache_test/',
+        valid_nodes=[1,2,3,4],
+        valid_mods=['mocap', 'zed_camera_left'],
+        include_z=False,
+    ),
+    num_future_frames=0,
+    num_past_frames=0,
+    limit_axis=True,
+    draw_cov=True,
+)
 
-model_cfg=dict(type='LinearEncoder', in_len=100, out_len=1)
+
+
+model_cfg=dict(type='LinearEncoder', in_len=100, out_len=1, in_dim=4, out_dim=6)
 
 model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
               ('zed_camera_left', 'node_2'): model_cfg,
@@ -43,6 +57,7 @@ model = dict(type='KFDETR',
          include_z=False,
          predict_full_cov=True,
          cov_add=30.0,
+         input_dim=4,
          predict_rotation=True,
          predict_velocity=False,
          num_sa_layers=0,
@@ -62,12 +77,12 @@ model = dict(type='KFDETR',
 # orig_lr = 1e-4 
 # factor = 4
 data = dict(
-    samples_per_gpu=4,
+    samples_per_gpu=5,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
     val=valset,
-    test=valset
+    test=testset
 )
 
 optimizer = dict(

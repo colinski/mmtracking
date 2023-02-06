@@ -209,55 +209,7 @@ class KFDETR(BaseMocapModel):
             self.frame_count += 1
             # self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
             return result
-
         
-        prev_dist = self.prev_frame['dist']
-        prev_rot = self.prev_frame['rot']
-
-        prev_mean, prev_cov = prev_dist.loc[0], prev_dist.covariance_matrix[0]
-        pred_mean, pred_cov = pred_dist.loc[0], pred_dist.covariance_matrix[0]
-        new_ids = torch.zeros(self.num_queries)
-        if self.num_queries > 1:
-
-            kl_vals = torch.zeros(2,2).cuda()
-            for i in range(2):
-                p = D.MultivariateNormal(pred_mean[i], pred_cov[i])
-                for j in range(2):
-                    q = D.MultivariateNormal(prev_mean[j], pred_cov[j])
-                    kl_vals[i,j] = torch.distributions.kl_divergence(p,q)
-            
-            rot_scores = torch.cdist(pred_rot[0], prev_rot[0])
-            scores = kl_vals + 100 * rot_scores
-            assign_idx = linear_assignment(scores)
-
-            prev_ids = self.prev_frame['ids']
-            for pred_idx, prev_idx in assign_idx:
-                new_ids[pred_idx] = prev_ids[prev_idx]
-        
-        self.prev_frame['ids'] = new_ids
-        self.prev_frame['dist'] = pred_dist
-        self.prev_frame['rot'] = pred_rot
-        self.prev_frame['embeds'] = track_embeds
-
-        # det_mean, det_cov = dist.loc, dist.covariance_matrix
-        # det_obj_probs = output['obj_logits']
-        # det_mean, det_cov, det_obj_probs = det_mean[0], det_cov[0], det_obj_probs[0].squeeze()
-
-        # track_mean, track_cov, _ = self.convert(curr)
-        # track_mean, track_cov = track_mean[0], track_cov[0]
-
-        result = {
-            'track_means': pred_mean.detach().cpu(),
-            'track_covs': pred_cov.detach().cpu(),
-            'track_obj_probs': torch.ones(2).float(),
-            'track_ids': new_ids,
-            'slot_ids': torch.arange(2),
-            'track_rot': pred_rot.cpu()[0],
-            'attn_weights': A.cpu()[0]
-        }
-        self.frame_count += 1
-        return result
-
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
@@ -280,85 +232,62 @@ class KFDETR(BaseMocapModel):
         gt_grids = gt_grids.transpose(0,1)
         # gt_grids = gt_grids.reshape(T*B, N, Np, f)
         
-        gt_rots = mocaps['gt_rot']
-        gt_rots = gt_rots.transpose(0,1)
-        
-        
-        angles = torch.zeros(B, T, 2).cuda()
-        for i in range(B):
-            for j in range(T):
-                for k in range(2):
-                    rot = gt_rots[i,j,k]
+        # gt_rots = mocaps['gt_rot']
+        # gt_rots = gt_rots.transpose(0,1)
+        # angles = torch.zeros(B, T, 2).cuda()
+        # for i in range(B):
+            # for j in range(T):
+                # for k in range(2):
+                    # rot = gt_rots[i,j,k]
 
-                    if rot[4] <= 0:
-                        rads = torch.arcsin(rot[3]) / (2*torch.pi)
-                    else:
-                        rads = torch.arcsin(rot[1]) / (2*torch.pi)
-                    angles[i,j, k] = rads
-        gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
+                    # if rot[4] <= 0:
+                        # rads = torch.arcsin(rot[3]) / (2*torch.pi)
+                    # else:
+                        # rads = torch.arcsin(rot[1]) / (2*torch.pi)
+                    # angles[i,j, k] = rads
+        # gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
 
-        # gt_rots = torch.cat([gt_rots[..., 0:2], gt_rots[..., 3:5]], dim=-1)
-        
-        
         all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0) 
         all_embeds = all_embeds.transpose(0, 1) #B T L D
+        num_views = all_embeds.shape[2]
         
-        # output_vals = self.ctn(final_embeds)
-        # output_vals = self.output_head(final_embeds) #B L No
-        # output_vals = output_vals.reshape(Nt, B, L, -1)
-        # output_vals = output_vals.transpose(0,1) #B x Nt x L x No
-
-        # bs = len(output_vals)
         all_outputs = []
-        for i in range(B):
-            # global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
-            for j in range(T):
-                # if self.global_ca_layers > 1:
-                    # for layer in self.global_cross_attn:
-                        # global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
-                # else:
-                    # global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j].unsqueeze(0))
-                
-                # embeds = all_embeds[i, j]
-                output = self.output_head(all_embeds[i,j].unsqueeze(0))
-                dist = output['dist']
-
-
-                pred_rot = output['rot'][0] #No x 2
-                rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
-                # vel_dists = torch.cdist(output['vel'].squeeze(), vel)
-
-                # curr = self.ctn(global_pos_embeds)
-                # mean, cov, obj_logits = self.convert(curr)
-                # mean, cov, obj_logits = mean[0], cov[0], obj_logits[0]
-                # dist = self.dist(mean, cov)
-                grid = gt_grids[i][j]
-                No, G, f = grid.shape
-                grid = grid.reshape(No*G, 2)
-                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
-                log_grid_pdf = log_grid_pdf.reshape(-1, G, 2)
-                logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
-                pos_neg_log_probs = -logsum
-                if self.match_by_id:
-                    assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
-                else:
-                    assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
-                
-                if len(logsum) == 1: #one object
-                    assign_idx = torch.zeros(1, 2).long()
-                
-                pos_loss, rot_loss, count = 0, 0, 0
-                for pred_idx, gt_idx in assign_idx:
-                    pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
-                    rot_loss += rot_dists[pred_idx, gt_idx]
-                    count += 1
-                pos_loss /= count
-                rot_loss /= count
-                pos_loss = pos_loss * self.pos_loss_weight
-                rot_loss = rot_loss #* 0.1
-                losses['pos_loss'].append(pos_loss)
-                losses['rot_loss'].append(rot_loss)
+        for q in range(num_views):
+            for i in range(B):
+                for j in range(T):
+                    output = self.output_head(all_embeds[i,j,q].unsqueeze(0))
+                    dist = output['dist']
+                    
+                    # pred_rot = output['rot'][0] #No x 2
+                    # rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
+                    
+                    grid = gt_grids[i][j]
+                    No, G, f = grid.shape
+                    grid = grid.reshape(No*G, 2)
+                    log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
+                    log_grid_pdf = log_grid_pdf.reshape(1, G, No)
+                    logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
+                    pos_neg_log_probs = -logsum
+                    if self.match_by_id:
+                        assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
+                    else:
+                        #assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
+                        assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight)
+                    
+                    if len(logsum) == 1: #one object
+                        assign_idx = torch.zeros(1, 2).long()
+                    
+                    pos_loss, rot_loss, count = 0, 0, 0
+                    for pred_idx, gt_idx in assign_idx:
+                        pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                        # rot_loss += rot_dists[pred_idx, gt_idx]
+                        count += 1
+                    pos_loss /= count
+                    rot_loss /= count
+                    pos_loss = pos_loss * self.pos_loss_weight
+                    losses['pos_loss_%d' % q].append(pos_loss)
+                    #losses['rot_loss'].append(rot_loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
@@ -400,7 +329,7 @@ class KFDETR(BaseMocapModel):
             import ipdb; ipdb.set_trace() # noqa
         
         inter_embeds = torch.stack(inter_embeds, dim=1)
-        inter_embeds = inter_embeds.mean(dim=1)
+        #inter_embeds = inter_embeds.mean(dim=1)
         return inter_embeds
         # inter_embeds = self.mod_dropout(inter_embeds)
         # B, Nmod, L, D = inter_embeds.shape

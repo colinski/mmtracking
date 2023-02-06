@@ -204,6 +204,7 @@ class OutputHead(BaseModule):
                  predict_full_cov=True,
                  predict_rotation=False,
                  predict_velocity=False,
+                 predict_obj_prob=False,
                  num_sa_layers=0,
                  input_dim=256,
                  mean_scale=[700,500],
@@ -218,6 +219,7 @@ class OutputHead(BaseModule):
         self.predict_rotation = predict_rotation
         self.predict_velocity = predict_velocity
         self.predict_full_cov = predict_full_cov
+        self.predict_obj_prob = predict_obj_prob
         self.to_cm = to_cm
 
 
@@ -256,11 +258,14 @@ class OutputHead(BaseModule):
         )
         
 
+        self.num_outputs = 2 + 3 
         self.mean_head = nn.Linear(input_dim, 2)
         self.cov_head = nn.Linear(input_dim, 3)
-        self.obj_prob_head = nn.Linear(input_dim, 1)
+
+        if self.predict_obj_prob:
+            self.obj_prob_head = nn.Linear(input_dim, 1)
+            self.num_outputs += 1
         
-        self.num_outputs = 2 + 3 + 1
         
         if self.predict_rotation:
             self.rot_head = nn.Linear(input_dim, 2)
@@ -295,7 +300,9 @@ class OutputHead(BaseModule):
         result = {}
         outputs.append(self.mean_head(x))
         outputs.append(self.cov_head(x))
-        outputs.append(self.obj_prob_head(x))
+        
+        if self.predict_obj_prob:
+            outputs.append(self.obj_prob_head(x))
         if self.predict_rotation:
             outputs.append(self.rot_head(x))
         
@@ -306,7 +313,10 @@ class OutputHead(BaseModule):
         outputs = self.output_sa(outputs)
         mean = outputs[..., 0:2]
         cov_logits = outputs[..., 2:5]
-        obj_logits = outputs[..., 5]
+        
+        if self.predict_obj_prob:
+            obj_logits = outputs[..., 5]
+            result['obj_logits'] = obj_logits
 
         if self.predict_rotation:
             rot_logits = outputs[..., 5:7]
@@ -344,7 +354,7 @@ class OutputHead(BaseModule):
             # cov = cov*100
 
         result['dist'] = D.MultivariateNormal(mean, cov)
-        result['obj_logits'] = obj_logits
+        
         # if self.predict_rotation:
             # result['rot'] = self.rot_head(x).tanh()
 

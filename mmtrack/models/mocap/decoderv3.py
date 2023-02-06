@@ -53,7 +53,7 @@ class DecoderMocapModel(BaseMocapModel):
                      include_z=False,
                      predict_full_cov=True,
                      cov_add=0.01,
-                     predict_rotation=True
+                     predict_rotation=False
                  ),
                  cross_attn_cfg=dict(type='QKVAttention',
                      qk_dim=256,
@@ -71,6 +71,7 @@ class DecoderMocapModel(BaseMocapModel):
                  match_by_id=False,
                  global_ca_layers=1,
                  mod_dropout_rate=0.0,
+                 loss_type='grid',
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -103,6 +104,8 @@ class DecoderMocapModel(BaseMocapModel):
             self.global_cross_attn = nn.ModuleList([ResCrossAttn(cross_attn_cfg)]*global_ca_layers)
         else:
             self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
+
+        self.loss_type = loss_type
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -226,8 +229,8 @@ class DecoderMocapModel(BaseMocapModel):
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
 
-        # gt_positions = mocaps['gt_positions']
-        # gt_positions = gt_positions.transpose(0,1)
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
 
         # B, T, L, f = gt_positions.shape
         # gt_positions = gt_positions.reshape(B*T, L, f)
@@ -236,31 +239,26 @@ class DecoderMocapModel(BaseMocapModel):
         gt_ids = mocaps['gt_ids']
         T, B, f = gt_ids.shape
         gt_ids = gt_ids.transpose(0,1)
-        # gt_ids = gt_ids.reshape(T*B, f)
 
         gt_grids = mocaps['gt_grids']
         T, B, N, Np, f = gt_grids.shape
         gt_grids = gt_grids.transpose(0,1)
-        # gt_grids = gt_grids.reshape(T*B, N, Np, f)
-        
-        gt_rots = mocaps['gt_rot']
-        gt_rots = gt_rots.transpose(0,1)
-        
-        
-        angles = torch.zeros(B, T, 2).cuda()
-        for i in range(B):
-            for j in range(T):
-                for k in range(2):
-                    rot = gt_rots[i,j,k]
 
-                    if rot[4] <= 0:
-                        rads = torch.arcsin(rot[3]) / (2*torch.pi)
-                    else:
-                        rads = torch.arcsin(rot[1]) / (2*torch.pi)
-                    angles[i,j, k] = rads
-        gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
+        
+        # gt_rots = mocaps['gt_rot']
+        # gt_rots = gt_rots.transpose(0,1)
+        # angles = torch.zeros(B, T, 2).cuda()
+        # for i in range(B):
+            # for j in range(T):
+                # for k in range(2):
+                    # rot = gt_rots[i,j,k]
 
-        # gt_rots = torch.cat([gt_rots[..., 0:2], gt_rots[..., 3:5]], dim=-1)
+                    # if rot[4] <= 0:
+                        # rads = torch.arcsin(rot[3]) / (2*torch.pi)
+                    # else:
+                        # rads = torch.arcsin(rot[1]) / (2*torch.pi)
+                    # angles[i,j, k] = rads
+        # gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
         
         
         all_embeds = [self._forward_single(data) for data in datas]
@@ -285,42 +283,44 @@ class DecoderMocapModel(BaseMocapModel):
                 
                 output = self.output_head(global_pos_embeds)
                 dist = output['dist']
+                # pred_rot = output['rot'][0] #No x 2
+                # rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
+                
+                if self.loss_type == 'grid':
+                    grid = gt_grids[i][j]
+                    No, G, f = grid.shape
+                    grid = grid.reshape(No*G, 2)
+                    log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
+                    #log_grid_pdf = log_grid_pdf.reshape(-1, G, 2)
+                    log_grid_pdf = log_grid_pdf.reshape(1, G, No)
+                    logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
+                    pos_neg_log_probs = -logsum
 
-
-                pred_rot = output['rot'][0] #No x 2
-                rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
-                # vel_dists = torch.cdist(output['vel'].squeeze(), vel)
-
-                # curr = self.ctn(global_pos_embeds)
-                # mean, cov, obj_logits = self.convert(curr)
-                # mean, cov, obj_logits = mean[0], cov[0], obj_logits[0]
-                # dist = self.dist(mean, cov)
-                grid = gt_grids[i][j]
-                No, G, f = grid.shape
-                grid = grid.reshape(No*G, 2)
-                log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
-                log_grid_pdf = log_grid_pdf.reshape(-1, G, 2)
-                logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
-                pos_neg_log_probs = -logsum
-                if self.match_by_id:
+                elif self.loss_type == 'nll':
+                    pos_neg_log_probs = -dist.log_prob(gt_positions[i,j])
+                
+                if len(pos_neg_log_probs) == 1: #one object
+                    assign_idx = torch.zeros(1, 2).long()
+                elif self.match_by_id:
                     assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
                 else:
-                    assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
+                    #assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
+                    assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight)
                 
-                if len(logsum) == 1: #one object
-                    assign_idx = torch.zeros(1, 2).long()
-                
+                                
                 pos_loss, rot_loss, count = 0, 0, 0
                 for pred_idx, gt_idx in assign_idx:
                     pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
-                    rot_loss += rot_dists[pred_idx, gt_idx]
+                    #rot_loss += rot_dists[pred_idx, gt_idx]
                     count += 1
+                if pos_loss < 0:
+                    import ipdb; ipdb.set_trace() # noqa
                 pos_loss /= count
-                rot_loss /= count
+                #rot_loss /= count
                 pos_loss = pos_loss * self.pos_loss_weight
-                rot_loss = rot_loss #* 0.1
+                #rot_loss = rot_loss #* 0.1
                 losses['pos_loss'].append(pos_loss)
-                losses['rot_loss'].append(rot_loss)
+                #losses['rot_loss'].append(rot_loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses

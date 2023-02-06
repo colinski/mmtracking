@@ -87,9 +87,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             buff = pickle.load(f)
         return buff
     
-    def __getitem__(self, ind):
-        buff = self.read_buff(ind)
-        new_buff = self.apply_pipelines(buff)
+    def __getitem__(self, ind, apply_pipelines=True):
+        new_buff = self.read_buff(ind)
+        if apply_pipelines:
+            new_buff = self.apply_pipelines(new_buff)
         
         idx_set = torch.arange(len(self))
         start_idx = max(0, ind - self.num_past_frames)
@@ -265,6 +266,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         id2dist = defaultdict(list)
         for i in trange(video_length):
             data = self[i][-1] #get last frame, eval shouldnt have future
+            data = self.__getitem__(i, apply_pipelines=False)[-1]
             save_frame = False
             for key, val in data.items():
                 mod, node = key
@@ -356,13 +358,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key) # code = data['zed_camera_left'][:]
-                    img = data[key]['img'].data.cpu().squeeze()
-                    mean = data[key]['img_metas'].data['img_norm_cfg']['mean']
-                    std = data[key]['img_metas'].data['img_norm_cfg']['std']
-                    img = img.permute(1, 2, 0).numpy()
-                    img = (img * std) - mean
-                    img = img.astype(np.uint8)
+                    code = data[key]
+                    img = cv2.imdecode(code, 1)
+                    # img = data[key]['img'].data.cpu().squeeze()
+                    # mean = data[key]['img_metas'].data['img_norm_cfg']['mean']
+                    # std = data[key]['img_metas'].data['img_norm_cfg']['std']
+                    # img = img.permute(1, 2, 0).numpy()
+                    # img = (img * std) - mean
+                    # img = img.astype(np.uint8)
                     #img = np.concatenate([img, head_dists], axis=0)
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     axes[key].imshow(img)
 
                 if 'r50' in mod:
@@ -389,7 +394,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key)
-                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    # img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    img = data[key]
                     axes[key].imshow(img, cmap='turbo', aspect='auto')
 
                 if mod == 'azimuth_static':

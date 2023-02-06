@@ -90,16 +90,20 @@ class LinearEncoder(BaseModule):
     def __init__(self,
                  in_len=100,
                  out_len=1,
+                 in_dim=4,
+                 out_dim=6,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        self.lin = nn.Linear(in_len, out_len)
+        self.lin_len = nn.Linear(in_len, out_len)
+        #self.lin_dim = nn.Linear(in_dim, out_dim)
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
         x = x.permute(0, 2, 1)
-        x = self.lin(x)
+        x = self.lin_len(x)
         x = x.permute(0, 2, 1)
+        #x = self.lin_dim(x)
         return x
 
 @MODELS.register_module()

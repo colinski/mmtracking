@@ -28,6 +28,20 @@ valset=dict(type='HDF5Dataset',
     draw_cov=True,
 )
 
+testset=dict(type='HDF5Dataset',
+    cacher_cfg=dict(type='DataCacher',
+        cache_dir='/dev/shm/cache_test/',
+        valid_nodes=[1,2,3,4],
+        valid_mods=['mocap', 'zed_camera_left'],
+        include_z=False,
+    ),
+    num_future_frames=0,
+    num_past_frames=0,
+    limit_axis=True,
+    draw_cov=True,
+)
+
+
 
 model_cfg=dict(type='ModalityEncoder', ffn_cfg=dict(type='SLP'))
 
@@ -42,8 +56,8 @@ model = dict(type='DecoderMocapModel',
         output_head_cfg=dict(type='OutputHead',
          include_z=False,
          predict_full_cov=True,
-         cov_add=30.0,
-         predict_rotation=True,
+         cov_add=0.0,
+         predict_rotation=False,
          predict_velocity=False,
          num_sa_layers=0,
          to_cm=True,
@@ -55,6 +69,7 @@ model = dict(type='DecoderMocapModel',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
+    loss_type='nll'
 )
 
 
@@ -67,7 +82,7 @@ data = dict(
     shuffle=True, #trainset shuffle only
     train=trainset,
     val=valset,
-    test=valset
+    test=testset
 )
 
 optimizer = dict(

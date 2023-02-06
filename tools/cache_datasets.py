@@ -43,6 +43,7 @@ def main():
     cfg = Config.fromfile(args.config)
     build_dataset(cfg.trainset)
     build_dataset(cfg.valset)
+    build_dataset(cfg.testset)
     #build_dataset(cfg.testset)
     
 
