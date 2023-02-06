@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesT.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsF_obstaclesT.py'
 ]
 
 trainset=dict(type='HDF5Dataset',

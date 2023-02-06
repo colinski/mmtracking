@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesT.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks2_lightsF_obstaclesT.py'
 ]
 
 trainset=dict(type='HDF5Dataset',
@@ -21,6 +21,7 @@ valset=dict(type='HDF5Dataset',
         valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left'],
         include_z=False,
+        #max_len=500,
     ),
     num_future_frames=0,
     num_past_frames=0,
@@ -53,7 +54,7 @@ model = dict(type='DecoderMocapModel',
     backbone_cfgs=backbone_cfgs,
     track_eval=True,
     pos_loss_weight=1,
-    num_queries=1,
+    num_queries=2,
     mod_dropout_rate=0.0,
 )
 

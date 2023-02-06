@@ -22,10 +22,10 @@ trainset=dict(type='HDF5Dataset',
         f'{data_root}/node_2/zed.hdf5',
         f'{data_root}/node_3/zed.hdf5',
         f'{data_root}/node_4/zed.hdf5',
-        f'{data_root}/node_1/zed_r50.hdf5',
-        f'{data_root}/node_2/zed_r50.hdf5',
-        f'{data_root}/node_3/zed_r50.hdf5',
-        f'{data_root}/node_4/zed_r50.hdf5',
+        # f'{data_root}/node_1/zed_r50.hdf5',
+        # f'{data_root}/node_2/zed_r50.hdf5',
+        # f'{data_root}/node_3/zed_r50.hdf5',
+        # f'{data_root}/node_4/zed_r50.hdf5',
     ]
 )
 
@@ -49,10 +49,10 @@ valset=dict(type='HDF5Dataset',
         f'{data_root}/node_2/zed.hdf5',
         f'{data_root}/node_3/zed.hdf5',
         f'{data_root}/node_4/zed.hdf5',
-        f'{data_root}/node_1/zed_r50.hdf5',
-        f'{data_root}/node_2/zed_r50.hdf5',
-        f'{data_root}/node_3/zed_r50.hdf5',
-        f'{data_root}/node_4/zed_r50.hdf5',
+        # f'{data_root}/node_1/zed_r50.hdf5',
+        # f'{data_root}/node_2/zed_r50.hdf5',
+        # f'{data_root}/node_3/zed_r50.hdf5',
+        # f'{data_root}/node_4/zed_r50.hdf5',
     ]
 )
 
