@@ -316,11 +316,11 @@ class KFDETR(BaseMocapModel):
             # img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
             # out = backbone.model.simple_test(img, img_metas)
             # import ipdb; ipdb.set_trace() # noqa
-
-            try:
-                feats = backbone(data[key]['img'])
-            except:
-                feats = backbone([data[key]['img']])
+            with torch.no_grad():
+                try:
+                    feats = backbone(data[key]['img'])
+                except:
+                    feats = backbone([data[key]['img']])
             feats = feats[0]
             embeds = model(feats)
             inter_embeds.append(embeds)

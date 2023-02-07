@@ -41,23 +41,35 @@ testset=dict(type='HDF5Dataset',
     draw_cov=True,
 )
 
+backbone_cfg=dict(
+        type='ResNet',
+        depth=50,
+        num_stages=4,
+        out_indices=(3, ),
+        frozen_stages=1,
+        norm_cfg=dict(type='BN', requires_grad=False),
+        norm_eval=True,
+        style='pytorch',
+        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
+)
 
 
-model_cfg=dict(type='LinearEncoder', in_len=100, out_len=1, in_dim=4, out_dim=6)
+
+model_cfg=dict(type='LinearEncoder', in_len=135, out_len=1)
 
 model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
               ('zed_camera_left', 'node_2'): model_cfg,
               ('zed_camera_left', 'node_3'): model_cfg,
               ('zed_camera_left', 'node_4'): model_cfg}
 
-backbone_cfgs = {'zed_camera_left': dict(type='PretrainedDETR')}
+backbone_cfgs = {'zed_camera_left': backbone_cfg}
 
 model = dict(type='KFDETR',
         output_head_cfg=dict(type='OutputHead',
          include_z=False,
          predict_full_cov=True,
          cov_add=30.0,
-         input_dim=256,
+         input_dim=2048,
          predict_rotation=True,
          predict_velocity=False,
          num_sa_layers=0,

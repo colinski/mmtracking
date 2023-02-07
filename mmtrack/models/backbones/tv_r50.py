@@ -38,9 +38,9 @@ class PretrainedDETR(BaseModule):
         #masks = F.interpolate(masks.unsqueeze(1), size=x.shape[-2:]).to(torch.bool).squeeze(1)
         pos_embed = bbox_head.positional_encoding(masks)
         outs_dec, _ = bbox_head.transformer(x, masks, bbox_head.query_embedding.weight, pos_embed)
-        cls_scores = bbox_head.fc_cls(outs_dec)
-        bbox_preds = bbox_head.fc_reg(bbox_head.activate(bbox_head.reg_ffn(outs_dec))).sigmoid()
-        return (bbox_preds[-1], )
+        # cls_scores = bbox_head.fc_cls(outs_dec)
+        # bbox_preds = bbox_head.fc_reg(bbox_head.activate(bbox_head.reg_ffn(outs_dec))).sigmoid()
+        return (outs_dec[-1], )
 
 #@BACKBONES.register_module()
 class ResNet50Stem(nn.Sequential):

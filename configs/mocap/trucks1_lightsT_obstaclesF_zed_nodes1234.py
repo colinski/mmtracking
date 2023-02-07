@@ -56,7 +56,7 @@ model = dict(type='DecoderMocapModel',
         output_head_cfg=dict(type='OutputHead',
          include_z=False,
          predict_full_cov=True,
-         cov_add=0.0,
+         cov_add=30.0,
          predict_rotation=False,
          predict_velocity=False,
          num_sa_layers=0,
@@ -69,7 +69,7 @@ model = dict(type='DecoderMocapModel',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
-    loss_type='nll'
+    loss_type='grid'
 )
 
 

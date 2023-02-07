@@ -43,22 +43,21 @@ testset=dict(type='HDF5Dataset',
 
 
 
-model_cfg=dict(type='LinearEncoder', in_len=100, out_len=1, in_dim=4, out_dim=6)
+model_cfg=dict(type='ModalityEncoder', ffn_cfg=dict(type='SLP'))
 
 model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
               ('zed_camera_left', 'node_2'): model_cfg,
               ('zed_camera_left', 'node_3'): model_cfg,
               ('zed_camera_left', 'node_4'): model_cfg}
 
-backbone_cfgs = {'zed_camera_left': dict(type='PretrainedDETR')}
+backbone_cfgs = {'zed_camera_left': dict(type='TVResNet50')}
 
-model = dict(type='KFDETR',
+model = dict(type='DecoderMocapModel',
         output_head_cfg=dict(type='OutputHead',
          include_z=False,
          predict_full_cov=True,
          cov_add=30.0,
-         input_dim=256,
-         predict_rotation=True,
+         predict_rotation=False,
          predict_velocity=False,
          num_sa_layers=0,
          to_cm=True,
@@ -70,6 +69,7 @@ model = dict(type='KFDETR',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
+    loss_type='nll'
 )
 
 
@@ -77,7 +77,7 @@ model = dict(type='KFDETR',
 # orig_lr = 1e-4 
 # factor = 4
 data = dict(
-    samples_per_gpu=5,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,

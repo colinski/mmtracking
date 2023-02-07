@@ -310,21 +310,18 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     # if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
                     pred_means = outputs['track_means'][i] 
                     pred_covs = outputs['track_covs'][i]
-                    pred_rots = outputs['track_rot'][i]
+                    #pred_rots = outputs['track_rot'][i]
                     ids = outputs['track_ids'][i].to(int)
                     slot_ids = outputs['slot_ids'][i].to(int)
                     print(pred_means, pred_covs)
                     for j in range(len(pred_means)):
-                        rot = pred_rots[j]
+                        #rot = pred_rots[j]
+                        #angle = torch.arctan(rot[0]/rot[1]) * 360
                         mean = pred_means[j]
-                        try:
-                            angle = torch.arctan(rot[0]/rot[1]) * 360
-                        except:
-                            import ipdb; ipdb.set_trace() # noqa
                         color = self.colors[j % len(self.colors)]
                         
-                        rec, _ = gen_rectange(mean, angle, w=self.truck_w, h=self.truck_h, color=color)
-                        axes[key].add_patch(rec)
+                        #rec, _ = gen_rectange(mean, angle, w=self.truck_w, h=self.truck_h, color=color)
+                        #axes[key].add_patch(rec)
 
 
                         axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)

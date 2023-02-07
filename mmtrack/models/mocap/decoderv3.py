@@ -158,7 +158,7 @@ class DecoderMocapModel(BaseMocapModel):
         # curr = self.ctn(self.tracks)
         
         output = self.output_head(track_embeds)
-        pred_rot = output['rot']
+        #pred_rot = output['rot']
         pred_dist = output['dist']
 
         if self.frame_count == 0:
@@ -168,17 +168,18 @@ class DecoderMocapModel(BaseMocapModel):
                 'track_obj_probs': torch.ones(self.num_queries).float(),
                 'track_ids': torch.arange(self.num_queries),
                 'slot_ids': torch.arange(self.num_queries),
-                'track_rot': pred_rot.cpu()[0],
+                #'track_rot': pred_rot.cpu()[0],
                 'attn_weights': A.cpu()[0]
             }
-            self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
+            #self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
+            self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
             self.frame_count += 1
             # self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
             return result
 
         
         prev_dist = self.prev_frame['dist']
-        prev_rot = self.prev_frame['rot']
+        # prev_rot = self.prev_frame['rot']
 
         prev_mean, prev_cov = prev_dist.loc[0], prev_dist.covariance_matrix[0]
         pred_mean, pred_cov = pred_dist.loc[0], pred_dist.covariance_matrix[0]
@@ -192,8 +193,8 @@ class DecoderMocapModel(BaseMocapModel):
                     q = D.MultivariateNormal(prev_mean[j], pred_cov[j])
                     kl_vals[i,j] = torch.distributions.kl_divergence(p,q)
             
-            rot_scores = torch.cdist(pred_rot[0], prev_rot[0])
-            scores = kl_vals + 100 * rot_scores
+            #rot_scores = torch.cdist(pred_rot[0], prev_rot[0])
+            scores = kl_vals #+ 100 * rot_scores
             assign_idx = linear_assignment(scores)
 
             prev_ids = self.prev_frame['ids']
@@ -202,7 +203,7 @@ class DecoderMocapModel(BaseMocapModel):
         
         self.prev_frame['ids'] = new_ids
         self.prev_frame['dist'] = pred_dist
-        self.prev_frame['rot'] = pred_rot
+        #self.prev_frame['rot'] = pred_rot
         self.prev_frame['embeds'] = track_embeds
 
         # det_mean, det_cov = dist.loc, dist.covariance_matrix
@@ -218,7 +219,7 @@ class DecoderMocapModel(BaseMocapModel):
             'track_obj_probs': torch.ones(2).float(),
             'track_ids': new_ids,
             'slot_ids': torch.arange(2),
-            'track_rot': pred_rot.cpu()[0],
+            #'track_rot': pred_rot.cpu()[0],
             'attn_weights': A.cpu()[0]
         }
         self.frame_count += 1

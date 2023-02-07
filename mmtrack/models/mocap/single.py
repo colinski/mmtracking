@@ -90,8 +90,8 @@ class LinearEncoder(BaseModule):
     def __init__(self,
                  in_len=100,
                  out_len=1,
-                 in_dim=4,
-                 out_dim=6,
+                 # in_dim=4,
+                 # out_dim=6,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -100,6 +100,9 @@ class LinearEncoder(BaseModule):
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
+        if len(x.shape) == 4: #cov feat map
+            x = x.flatten(2)
+            x = x.permute(0, 2, 1)
         x = x.permute(0, 2, 1)
         x = self.lin_len(x)
         x = x.permute(0, 2, 1)
