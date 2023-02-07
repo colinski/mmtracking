@@ -162,8 +162,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             gt_rot = all_gt_rot[i]
             gt_grid = all_gt_grids[i]
             
-            dist = D.MultivariateNormal(pred_means.unsqueeze(0), pred_covs.unsqueeze(0))
-            loss_vals = calc_grid_loss(dist, gt_grid)
+            # dist = D.MultivariateNormal(pred_means.unsqueeze(0), pred_covs.unsqueeze(0))
+            # loss_vals = calc_grid_loss(dist, gt_grid)
             
             dists, probs = [], []
             scores = []
@@ -301,18 +301,18 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
                             
                     
-                    if len(outputs['det_means']) > 0:
-                        pred_means = outputs['det_means'][i]
-                        for j in range(len(pred_means)):
-                            mean = pred_means[j]
-                            axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
+                    # if len(outputs['det_means']) > 0:
+                        # pred_means = outputs['det_means'][i]
+                        # for j in range(len(pred_means)):
+                            # mean = pred_means[j]
+                            # axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
                     
                     # if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
                     pred_means = outputs['track_means'][i] 
                     pred_covs = outputs['track_covs'][i]
                     #pred_rots = outputs['track_rot'][i]
                     ids = outputs['track_ids'][i].to(int)
-                    slot_ids = outputs['slot_ids'][i].to(int)
+                    # slot_ids = outputs['slot_ids'][i].to(int)
                     print(pred_means, pred_covs)
                     for j in range(len(pred_means)):
                         #rot = pred_rots[j]
@@ -327,7 +327,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
                         cov = pred_covs[j]
                         ID = ids[j]
-                        sID = slot_ids[j]
+                        # sID = slot_ids[j]
                         #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
                         axes[key].text(mean[0], mean[1], s=f'{ID}', fontdict={'color': color})
                         if self.draw_cov:

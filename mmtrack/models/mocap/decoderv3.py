@@ -72,6 +72,7 @@ class DecoderMocapModel(BaseMocapModel):
                  global_ca_layers=1,
                  mod_dropout_rate=0.0,
                  loss_type='grid',
+                 autoregressive=True,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -106,6 +107,7 @@ class DecoderMocapModel(BaseMocapModel):
             self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
 
         self.loss_type = loss_type
+        self.autoregressive = autoregressive
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -224,7 +226,7 @@ class DecoderMocapModel(BaseMocapModel):
         }
         self.frame_count += 1
         return result
-
+    
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
@@ -233,9 +235,72 @@ class DecoderMocapModel(BaseMocapModel):
         gt_positions = mocaps['gt_positions']
         gt_positions = gt_positions.transpose(0,1)
 
-        # B, T, L, f = gt_positions.shape
-        # gt_positions = gt_positions.reshape(B*T, L, f)
-        # gt_positions = gt_positions.reshape(T*B, N, C)
+        gt_ids = mocaps['gt_ids']
+        T, B, f = gt_ids.shape
+        gt_ids = gt_ids.transpose(0,1)
+
+        gt_grids = mocaps['gt_grids']
+        T, B, N, Np, f = gt_grids.shape
+        gt_grids = gt_grids.transpose(0,1)
+        
+        all_embeds = [self._forward_single(data, cat=False) for data in datas]
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        all_embeds = all_embeds.transpose(0, 1) #B T L D
+        num_views = all_embeds.shape[2]
+
+        all_outputs = []
+        for q in range(num_views):
+            for i in range(B):
+                for j in range(T):
+                    global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+                    if self.global_ca_layers > 1:
+                        for layer in self.global_cross_attn:
+                            global_pos_embeds = layer(global_pos_embeds, all_embeds[i,j,q].unsqueeze(0))
+                    else:
+                        global_pos_embeds = self.global_cross_attn(global_pos_embeds, all_embeds[i,j,q].unsqueeze(0))
+                    
+                    output = self.output_head(global_pos_embeds)
+                    dist = output['dist']
+                    
+                    if self.loss_type == 'grid':
+                        grid = gt_grids[i][j]
+                        No, G, f = grid.shape
+                        grid = grid.reshape(No*G, 2)
+                        log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
+                        log_grid_pdf = log_grid_pdf.reshape(1, G, No)
+                        logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
+                        pos_neg_log_probs = -logsum
+
+                    elif self.loss_type == 'nll':
+                        pos_neg_log_probs = -dist.log_prob(gt_positions[i,j])
+                    
+                    if len(pos_neg_log_probs) == 1: #one object
+                        assign_idx = torch.zeros(1, 2).long()
+                    elif self.match_by_id:
+                        assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
+                    else:
+                        assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight)
+                    
+                                    
+                    pos_loss, rot_loss, count = 0, 0, 0
+                    for pred_idx, gt_idx in assign_idx:
+                        pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
+                        count += 1
+                    if pos_loss < 0:
+                        import ipdb; ipdb.set_trace() # noqa
+                    pos_loss /= count
+                    pos_loss = pos_loss * self.pos_loss_weight
+                    losses['pos_loss_%d' % q].append(pos_loss)
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
+
+    def forward_train_autoregressive(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
 
         gt_ids = mocaps['gt_ids']
         T, B, f = gt_ids.shape
@@ -244,34 +309,11 @@ class DecoderMocapModel(BaseMocapModel):
         gt_grids = mocaps['gt_grids']
         T, B, N, Np, f = gt_grids.shape
         gt_grids = gt_grids.transpose(0,1)
-
-        
-        # gt_rots = mocaps['gt_rot']
-        # gt_rots = gt_rots.transpose(0,1)
-        # angles = torch.zeros(B, T, 2).cuda()
-        # for i in range(B):
-            # for j in range(T):
-                # for k in range(2):
-                    # rot = gt_rots[i,j,k]
-
-                    # if rot[4] <= 0:
-                        # rads = torch.arcsin(rot[3]) / (2*torch.pi)
-                    # else:
-                        # rads = torch.arcsin(rot[1]) / (2*torch.pi)
-                    # angles[i,j, k] = rads
-        # gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
-        
         
         all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0) 
         all_embeds = all_embeds.transpose(0, 1) #B T L D
         
-        # output_vals = self.ctn(final_embeds)
-        # output_vals = self.output_head(final_embeds) #B L No
-        # output_vals = output_vals.reshape(Nt, B, L, -1)
-        # output_vals = output_vals.transpose(0,1) #B x Nt x L x No
-
-        # bs = len(output_vals)
         all_outputs = []
         for i in range(B):
             global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
@@ -284,15 +326,12 @@ class DecoderMocapModel(BaseMocapModel):
                 
                 output = self.output_head(global_pos_embeds)
                 dist = output['dist']
-                # pred_rot = output['rot'][0] #No x 2
-                # rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
                 
                 if self.loss_type == 'grid':
                     grid = gt_grids[i][j]
                     No, G, f = grid.shape
                     grid = grid.reshape(No*G, 2)
                     log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
-                    #log_grid_pdf = log_grid_pdf.reshape(-1, G, 2)
                     log_grid_pdf = log_grid_pdf.reshape(1, G, No)
                     logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
                     pos_neg_log_probs = -logsum
@@ -305,28 +344,22 @@ class DecoderMocapModel(BaseMocapModel):
                 elif self.match_by_id:
                     assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
                 else:
-                    #assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
                     assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight)
                 
                                 
                 pos_loss, rot_loss, count = 0, 0, 0
                 for pred_idx, gt_idx in assign_idx:
                     pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
-                    #rot_loss += rot_dists[pred_idx, gt_idx]
                     count += 1
                 if pos_loss < 0:
                     import ipdb; ipdb.set_trace() # noqa
                 pos_loss /= count
-                #rot_loss /= count
                 pos_loss = pos_loss * self.pos_loss_weight
-                #rot_loss = rot_loss #* 0.1
                 losses['pos_loss'].append(pos_loss)
-                #losses['rot_loss'].append(rot_loss)
-
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
 
-    def _forward_single(self, data, return_unscaled=False, **kwargs):
+    def _forward_single(self, data, cat=True, return_unscaled=False, **kwargs):
         inter_embeds = []
         for key in data.keys():
             mod, node = key
@@ -345,6 +378,10 @@ class DecoderMocapModel(BaseMocapModel):
 
         if len(inter_embeds) == 0:
             import ipdb; ipdb.set_trace() # noqa
+
+        if not cat:
+            inter_embeds = torch.stack(inter_embeds, dim=1)
+            return inter_embeds
         
         inter_embeds = torch.stack(inter_embeds, dim=1)
         inter_embeds = self.mod_dropout(inter_embeds)

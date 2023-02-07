@@ -24,7 +24,7 @@ import time
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
-from mmtrack.models.mocap.tracker import Tracker
+from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 from mmdet.apis import init_detector, inference_detector
 
 def calc_grid_loss(dist, grid, scale=1):
@@ -113,7 +113,7 @@ class KFDETR(BaseMocapModel):
         self.dim = dim
         self.match_by_id = match_by_id
         self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
-        self.tracker = Tracker()
+        self.tracker = MultiTracker()
         
         self.output_head = build_model(output_head_cfg)
         
@@ -154,22 +154,37 @@ class KFDETR(BaseMocapModel):
                 return self.forward_test(data, **kwargs)
 
     def forward_track(self, datas, return_unscaled=False, **kwargs):
+        gt_pos = datas[0][('mocap', 'mocap')]['gt_positions'].squeeze()
         det_embeds = [self._forward_single(data) for data in datas]
-        det_embeds = torch.stack(det_embeds, dim=0)[-1] # 1 x L x D
+        det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
+
+        assert det_embeds.shape[2] == 1 #assuming 1 object for now
+
+        num_views = det_embeds.shape[1]
         
-        output = self.output_head(det_embeds)
-        dist = output['dist']
-        det_mean, det_cov = dist.loc, dist.covariance_matrix
-        det_mean, det_cov = det_mean[0], det_cov[0]
-        det_obj_probs = det_mean.new_ones(len(det_mean))
+        means, covs = [], []
+        for i in range(num_views):
+            # mean = gt_pos.cpu() + 30 * torch.randn(2)
+            # cov = torch.eye(2) * 30
+            output = self.output_head(det_embeds[:, i])
+            dist = output['dist']
+            mean, cov = dist.loc, dist.covariance_matrix
+            means.append(mean.squeeze())
+            covs.append(cov.squeeze().cpu().numpy())
+
+        # means = torch.cat(means, dim=0).squeeze().t()
+        means = torch.stack(means, dim=0).t().cpu().numpy()
+
+        #dist = output['dist']
+        # det_mean, det_cov = dist.loc, dist.covariance_matrix
+        # det_mean, det_cov = det_mean[0], det_cov[0]
+        # det_obj_probs = det_mean.new_ones(len(det_mean))
         # det_obj_probs = output['obj_logits']
         # det_mean, det_cov, det_obj_probs[0] = det_mean[0], det_cov[0], det_obj_probs[0]
-        pred_rot = output['rot']
+        # pred_rot = output['rot']
         result = {
-            'det_means': det_mean.cpu(),
-            'det_covs': det_cov.cpu(),
-            'det_obj_probs': det_obj_probs.cpu(),
-            'track_rot': pred_rot[0].cpu(),
+            'det_means': means,
+            'det_covs': covs
         }
         return self.tracker(result)
         
