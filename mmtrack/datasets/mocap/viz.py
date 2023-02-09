@@ -58,7 +58,7 @@ def rot_matrix(angle):
 
 
 #https://stackoverflow.com/questions/12301071/multidimensional-confidence-intervals/12321306#12321306
-def gen_ellipse(pos, cov, nstd=2, **kwargs):
+def gen_ellipse(pos, cov, nstd=np.sqrt(5.991), **kwargs):
     if len(pos) > 2:
         pos = pos[0:2]
         cov = cov[0:2, 0:2]

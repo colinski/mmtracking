@@ -301,11 +301,15 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
                             
                     
-                    # if len(outputs['det_means']) > 0:
-                        # pred_means = outputs['det_means'][i]
-                        # for j in range(len(pred_means)):
-                            # mean = pred_means[j]
-                            # axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
+                    if len(outputs['det_means']) > 0:
+                        pred_means = outputs['det_means'][i].T
+                        pred_covs = outputs['det_covs'][i]
+                        for j in range(len(pred_means)):
+                            mean = pred_means[j]
+                            cov = pred_covs[j]
+                            axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
+                            ellipse = gen_ellipse(mean, cov, edgecolor='black', fc='None', lw=2, linestyle='--')
+                            axes[key].add_patch(ellipse)
                     
                     # if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
                     pred_means = outputs['track_means'][i] 
@@ -332,7 +336,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].text(mean[0], mean[1], s=f'{ID}', fontdict={'color': color})
                         if self.draw_cov:
                             ellipse = gen_ellipse(mean, cov, edgecolor=color, fc='None', lw=2, linestyle='--')
-                            axes[key].add_patch(ellipse)
                     
                     
 
