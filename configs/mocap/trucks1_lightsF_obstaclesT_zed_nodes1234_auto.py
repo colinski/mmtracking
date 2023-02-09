@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesF.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsF_obstaclesT.py'
 ]
 
 trainset=dict(type='HDF5Dataset',
@@ -12,7 +12,7 @@ trainset=dict(type='HDF5Dataset',
         include_z=False,
     ),
     num_future_frames=0,
-    num_past_frames=2,
+    num_past_frames=9,
 )
 
 valset=dict(type='HDF5Dataset',
@@ -43,22 +43,21 @@ testset=dict(type='HDF5Dataset',
 
 
 
-model_cfg=dict(type='LinearEncoder', in_len=100, out_len=1)
+model_cfg=dict(type='ModalityEncoder', ffn_cfg=dict(type='SLP'))
 
 model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
               ('zed_camera_left', 'node_2'): model_cfg,
               ('zed_camera_left', 'node_3'): model_cfg,
               ('zed_camera_left', 'node_4'): model_cfg}
 
-backbone_cfgs = {'zed_camera_left': dict(type='PretrainedDETR')}
+backbone_cfgs = {'zed_camera_left': dict(type='TVResNet50')}
 
-model = dict(type='KFDETR',
+model = dict(type='DecoderMocapModel',
         output_head_cfg=dict(type='OutputHead',
          include_z=False,
          predict_full_cov=True,
          cov_add=1.0,
-         input_dim=256,
-         predict_rotation=True,
+         predict_rotation=False,
          predict_velocity=False,
          num_sa_layers=0,
          to_cm=True,
@@ -70,7 +69,8 @@ model = dict(type='KFDETR',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
-    loss_type='nll'
+    loss_type='nll',
+    autoregressive=True
 )
 
 
@@ -102,7 +102,7 @@ optimizer = dict(
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 total_epochs = 50
 lr_config = dict(policy='step', step=[40])
-evaluation = dict(metric=['track'], interval=1e8)
+evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
 find_unused_parameters = True
 
