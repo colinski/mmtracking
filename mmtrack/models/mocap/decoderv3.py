@@ -24,7 +24,7 @@ import time
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
-from mmtrack.models.mocap.tracker import Tracker
+from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 
 def calc_grid_loss(dist, grid, scale=1):
     No, G, f = grid.shape
@@ -85,6 +85,7 @@ class DecoderMocapModel(BaseMocapModel):
         self.dim = dim
         self.match_by_id = match_by_id
         self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
+        self.tracker = MultiTracker()
         
         self.output_head = build_model(output_head_cfg)
         
@@ -119,15 +120,64 @@ class DecoderMocapModel(BaseMocapModel):
         should be double nested (i.e.  List[Tensor], List[List[dict]]), with
         the outer list indicating test time augmentations.
         """
+        if self.autoregressive:
+            if return_loss:
+                return self.forward_train_autoregressive(data, **kwargs)
+            else:
+                return self.forward_track_autoregressive(data, **kwargs)
+
         if return_loss:
             return self.forward_train(data, **kwargs)
         else:
-            if self.track_eval:
-                return self.forward_track(data, **kwargs)
-            else:
-                return self.forward_test(data, **kwargs)
-
+            return self.forward_track(data, **kwargs)
+    
     def forward_track(self, datas, return_unscaled=False, **kwargs):
+        gt_pos = datas[0][('mocap', 'mocap')]['gt_positions'].squeeze()
+        det_embeds = [self._forward_single(data, cat=False) for data in datas]
+        det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x L x D
+        num_views = det_embeds.shape[1]
+        
+        global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+        assert self.global_ca_layers == 1
+        
+        
+        track_embeds = []
+        for i in range(num_views):
+            out = self.global_cross_attn(global_pos_embeds, det_embeds[:, i])
+            track_embeds.append(out)
+        
+        track_embeds = torch.stack(track_embeds, dim=1)
+
+        assert track_embeds.shape[2] == 1 #assuming 1 object for now
+
+        
+        means, covs = [], []
+        for i in range(num_views):
+            # mean = gt_pos.cpu() + 30 * torch.randn(2)
+            # cov = torch.eye(2) * 30
+            output = self.output_head(track_embeds[:, i])
+            dist = output['dist']
+            mean, cov = dist.loc, dist.covariance_matrix
+            means.append(mean.squeeze())
+            covs.append(cov.squeeze().cpu().numpy())
+
+        # means = torch.cat(means, dim=0).squeeze().t()
+        means = torch.stack(means, dim=0).t().cpu().numpy()
+
+        #dist = output['dist']
+        # det_mean, det_cov = dist.loc, dist.covariance_matrix
+        # det_mean, det_cov = det_mean[0], det_cov[0]
+        # det_obj_probs = det_mean.new_ones(len(det_mean))
+        # det_obj_probs = output['obj_logits']
+        # det_mean, det_cov, det_obj_probs[0] = det_mean[0], det_cov[0], det_obj_probs[0]
+        # pred_rot = output['rot']
+        result = {
+            'det_means': means,
+            'det_covs': covs
+        }
+        return self.tracker(result)
+
+    def forward_track_autoregressive(self, datas, return_unscaled=False, **kwargs):
         det_embeds = [self._forward_single(data) for data in datas]
         det_embeds = torch.stack(det_embeds, dim=0)[-1] # 1 x L x D
         

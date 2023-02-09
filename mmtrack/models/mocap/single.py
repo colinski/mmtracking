@@ -92,17 +92,20 @@ class LinearEncoder(BaseModule):
                  out_len=1,
                  # in_dim=4,
                  # out_dim=6,
+                 ffn_cfg=dict(type='SLP', in_channels=256),
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.lin_len = nn.Linear(in_len, out_len)
         #self.lin_dim = nn.Linear(in_dim, out_dim)
+        self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
         if len(x.shape) == 4: #cov feat map
             x = x.flatten(2)
             x = x.permute(0, 2, 1)
+        x = self.ffn(x)
         x = x.permute(0, 2, 1)
         x = self.lin_len(x)
         x = x.permute(0, 2, 1)

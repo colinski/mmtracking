@@ -27,7 +27,7 @@ class PretrainedDETR(BaseModule):
         self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
         self.detr = self.detr.eval()
     
-    @torch.no_grad()
+    #@torch.no_grad()
     def forward(self, x):
         x = self.detr.backbone(x)[0]
         # x = self.detr.neck(x)

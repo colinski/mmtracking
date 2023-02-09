@@ -97,6 +97,7 @@ class KFDETR(BaseMocapModel):
                  match_by_id=False,
                  global_ca_layers=1,
                  mod_dropout_rate=0.0,
+                 loss_type='nll',
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -114,6 +115,7 @@ class KFDETR(BaseMocapModel):
         self.match_by_id = match_by_id
         self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
         self.tracker = MultiTracker()
+        self.loss_type = loss_type
         
         self.output_head = build_model(output_head_cfg)
         
@@ -229,9 +231,10 @@ class KFDETR(BaseMocapModel):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
+        
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
 
-        # gt_positions = mocaps['gt_positions']
-        # gt_positions = gt_positions.transpose(0,1)
 
         # B, T, L, f = gt_positions.shape
         # gt_positions = gt_positions.reshape(B*T, L, f)
@@ -276,23 +279,25 @@ class KFDETR(BaseMocapModel):
                     
                     # pred_rot = output['rot'][0] #No x 2
                     # rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
+                    if self.loss_type == 'grid':
+                        grid = gt_grids[i][j]
+                        No, G, f = grid.shape
+                        grid = grid.reshape(No*G, 2)
+                        log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
+                        log_grid_pdf = log_grid_pdf.reshape(1, G, No)
+                        logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
+                        pos_neg_log_probs = -logsum
+
+                    elif self.loss_type == 'nll':
+                        pos_neg_log_probs = -dist.log_prob(gt_positions[i,j])
                     
-                    grid = gt_grids[i][j]
-                    No, G, f = grid.shape
-                    grid = grid.reshape(No*G, 2)
-                    log_grid_pdf = dist.log_prob(grid.unsqueeze(1)) #* 1.5
-                    log_grid_pdf = log_grid_pdf.reshape(1, G, No)
-                    logsum = torch.logsumexp(log_grid_pdf, dim=1)#.t() #need transpose?
-                    pos_neg_log_probs = -logsum
-                    if self.match_by_id:
+                    if len(pos_neg_log_probs) == 1: #one object
+                        assign_idx = torch.zeros(1, 2).long()
+                    elif self.match_by_id:
                         assign_idx = torch.stack([gt_ids[i,j]]*2, dim=-1).cpu()
                     else:
-                        #assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight + rot_dists)
                         assign_idx = linear_assignment(pos_neg_log_probs*self.pos_loss_weight)
-                    
-                    if len(logsum) == 1: #one object
-                        assign_idx = torch.zeros(1, 2).long()
-                    
+
                     pos_loss, rot_loss, count = 0, 0, 0
                     for pred_idx, gt_idx in assign_idx:
                         pos_loss += pos_neg_log_probs[pred_idx, gt_idx]
@@ -331,11 +336,11 @@ class KFDETR(BaseMocapModel):
             # img_metas[0]['batch_input_shape'] = (img.shape[2], img.shape[3])
             # out = backbone.model.simple_test(img, img_metas)
             # import ipdb; ipdb.set_trace() # noqa
-            with torch.no_grad():
-                try:
-                    feats = backbone(data[key]['img'])
-                except:
-                    feats = backbone([data[key]['img']])
+            #with torch.no_grad():
+            try:
+                feats = backbone(data[key]['img'])
+            except:
+                feats = backbone([data[key]['img']])
             feats = feats[0]
             embeds = model(feats)
             inter_embeds.append(embeds)

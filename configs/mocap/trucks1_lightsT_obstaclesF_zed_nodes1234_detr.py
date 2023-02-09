@@ -12,7 +12,7 @@ trainset=dict(type='HDF5Dataset',
         include_z=False,
     ),
     num_future_frames=0,
-    num_past_frames=9,
+    num_past_frames=2,
 )
 
 valset=dict(type='HDF5Dataset',
@@ -70,6 +70,7 @@ model = dict(type='KFDETR',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
+    loss_type='nll'
 )
 
 
@@ -77,7 +78,7 @@ model = dict(type='KFDETR',
 # orig_lr = 1e-4 
 # factor = 4
 data = dict(
-    samples_per_gpu=5,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
@@ -101,7 +102,7 @@ optimizer = dict(
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
 total_epochs = 50
 lr_config = dict(policy='step', step=[40])
-evaluation = dict(metric=['track'], interval=1)
+evaluation = dict(metric=['track'], interval=1e8)
 
 find_unused_parameters = True
 

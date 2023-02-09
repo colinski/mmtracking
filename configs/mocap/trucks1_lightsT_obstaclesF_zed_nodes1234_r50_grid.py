@@ -83,7 +83,7 @@ model = dict(type='KFDETR',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
-    loss_type='nll'
+    loss_type='grid'
 )
 
 
