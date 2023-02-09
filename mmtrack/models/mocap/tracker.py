@@ -38,19 +38,33 @@ def linear_assignment(cost_matrix):
     return assign_idx.long()
 
 class MultiTracker:
-    def __init__(self, max_age=5, min_hits=1):
+    def __init__(self, max_age=5, min_hits=1, mode='kf'):
         self.max_age = max_age
         self.min_hits = min_hits
         self.tracks = []
         self.track = MultiObsKalmanFilter(dt=1, std_acc=1)
         self.frame_count = 0 
         self.obj_prob_thres = 0.5
+        self.mode = mode
 
     def __call__(self, result):
         # obj_probs = result['det_obj_probs']
         # is_obj = obj_probs > self.obj_prob_thres
         means = result['det_means']
         covs = result['det_covs']
+        
+        if self.mode == 'mean':
+            track_mean = means.mean(axis=1)
+            track_cov = np.stack(covs).mean(axis=0)
+            track_mean = torch.from_numpy(track_mean)
+            track_cov = torch.from_numpy(track_cov)
+            result.update({
+                'track_means': track_mean.unsqueeze(0),
+                'track_covs': track_cov.unsqueeze(0),
+                'track_ids': torch.zeros(1)
+            })
+            return result
+
         # slot_ids = torch.arange(len(obj_probs))[is_obj]
         # if len(means) == 0:
             # result.update({

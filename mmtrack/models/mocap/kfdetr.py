@@ -114,7 +114,7 @@ class KFDETR(BaseMocapModel):
         self.dim = dim
         self.match_by_id = match_by_id
         self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
-        self.tracker = MultiTracker()
+        self.tracker = MultiTracker(mode='kf')
         self.loss_type = loss_type
         
         self.output_head = build_model(output_head_cfg)
