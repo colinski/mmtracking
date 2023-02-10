@@ -172,10 +172,10 @@ class KFDETR(BaseMocapModel):
             dist = output['dist']
             mean, cov = dist.loc, dist.covariance_matrix
             means.append(mean.squeeze())
-            covs.append(cov.squeeze().cpu().numpy())
+            covs.append(cov.squeeze())#.cpu().numpy())
 
         # means = torch.cat(means, dim=0).squeeze().t()
-        means = torch.stack(means, dim=0).t().cpu().numpy()
+        means = torch.stack(means, dim=0).t()#.cpu().numpy()
 
         #dist = output['dist']
         # det_mean, det_cov = dist.loc, dist.covariance_matrix

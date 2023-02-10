@@ -25,8 +25,9 @@ import time
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
-#from resource_constrained_tracking.tracker import MultiObsKalmanFilter
-from rct.tracker import MultiObsKalmanFilter
+#from resource_constrained_tracking.tracker import TorchMultiObsKalmanFilter
+from tracker import TorchMultiObsKalmanFilter
+#from rct.tracker import MultiObsKalmanFilter
 
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
@@ -37,12 +38,13 @@ def linear_assignment(cost_matrix):
     assign_idx = torch.from_numpy(assign_idx)
     return assign_idx.long()
 
-class MultiTracker:
+class MultiTracker(nn.Module):
     def __init__(self, max_age=5, min_hits=1, mode='kf'):
+        super().__init__()
         self.max_age = max_age
         self.min_hits = min_hits
         self.tracks = []
-        self.track = MultiObsKalmanFilter(dt=1, std_acc=1)
+        self.track = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
         self.frame_count = 0 
         self.obj_prob_thres = 0.5
         self.mode = mode
@@ -80,15 +82,15 @@ class MultiTracker:
         self.track.predict()
         out = self.track.update(means, covs)
 
-        track_mean = np.array(out[0])[0:2]
-        track_cov = np.array(out[1])[0:2, 0:2]
+        track_mean = out[0][0:2].squeeze()
+        track_cov = out[1][0:2, 0:2]
 
-        track_mean = torch.from_numpy(track_mean).squeeze()
-        track_cov = torch.from_numpy(track_cov)
+        # track_mean = track_mean.squeeze()
+        # track_cov = torch.from_numpy(track_cov)
 
         result.update({
-            'track_means': track_mean.unsqueeze(0),
-            'track_covs': track_cov.unsqueeze(0),
+            'track_means': track_mean.unsqueeze(0).cpu(),
+            'track_covs': track_cov.unsqueeze(0).cpu(),
             'track_ids': torch.zeros(1)
         })
         # result.update({
