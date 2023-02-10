@@ -148,6 +148,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         res['gt_ids'] = all_gt_ids.numpy().astype(int)
         res['similarity_scores'] = []
         res['grid_scores'] = []
+        res['nll'] = []
         res['num_tracker_dets'] = 0
 
         from mmtrack.models.mocap.decoderv3 import calc_grid_loss 
@@ -168,6 +169,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             dists, probs = [], []
             scores = []
             grid_scores = []
+            nll = []
             for j in range(len(pred_means)):
                 # dist = torch.norm(pred_mean[j][0:2] - gt_pos[:,0:2], dim=1)
                 # dists.append(dist)
@@ -179,9 +181,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 num_gt = len(gt_pos)
                 for k in range(num_gt):
                     grid = gt_grid[k]
+                    pos = gt_pos[k]
                     log_probs = dist.log_prob(grid) #*1.5
                     logsum = torch.logsumexp(log_probs.flatten(), dim=0)
                     grid_scores.append(logsum)
+                    nll.append(dist.log_prob(pos))
                     # angle = rot2angle(gt_rot[k], return_rads=False)
                     # rec, _ = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
                     # mask = points_in_rec(samples, rec)
@@ -195,6 +199,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 grid_scores = torch.tensor(grid_scores).reshape(len(pred_means), -1)
                 grid_scores = grid_scores.numpy().T
                 scores = scores.numpy().T
+                nll = torch.tensor(nll).reshape(len(pred_means), -1)
 
             # if len(dists) != 0:
                 # dists = torch.stack(dists) #num_preds x num_gt_tracks
@@ -205,11 +210,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 # dists = torch.empty(len(gt_pos), 0).numpy()
             res['similarity_scores'].append(scores)
             res['grid_scores'].append(grid_scores)
+            res['nll'].append(nll)
             # all_dists.append(dists)
             # all_probs.append(probs)
         
-        scores = np.stack(res['similarity_scores'])
-        grid_scores = np.stack(res['grid_scores'])
+        scores = np.stack(res['similarity_scores']).squeeze()
+        # grid_scores = np.stack(res['grid_scores']).squeeze()
+        nll = np.stack(res['nll']).squeeze()
         logdir = eval_kwargs['logdir']
         fname = f'{logdir}/res.json'
         #met=CLEAR({'THRESHOLD': 1-(0.3/self.max_len)}) 
@@ -228,6 +235,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         iout = imet.eval_sequence(res)
         iout = {k : float(v) for k,v in iout.items()}
         out.update(iout)
+
+        out['nll_vals'] = nll.tolist()
+        out['grid_scores'] = scores.tolist()
 
         print(out)
         with open(fname, 'w') as f:
@@ -302,11 +312,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             
                     
                     if len(outputs['det_means']) > 0:
-                        pred_means = outputs['det_means'][i].T
+                        pred_means = outputs['det_means'][i].t()
                         pred_covs = outputs['det_covs'][i]
                         for j in range(len(pred_means)):
-                            mean = pred_means[j]
-                            cov = pred_covs[j]
+                            mean = pred_means[j].cpu()
+                            cov = pred_covs[j].cpu()
                             axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
                             ellipse = gen_ellipse(mean, cov, edgecolor='black', fc='None', lw=2, linestyle='--')
                             axes[key].add_patch(ellipse)
