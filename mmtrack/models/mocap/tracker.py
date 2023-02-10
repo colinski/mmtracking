@@ -44,17 +44,23 @@ class MultiTracker(nn.Module):
         self.max_age = max_age
         self.min_hits = min_hits
         self.tracks = []
-        self.track = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
         self.frame_count = 0 
         self.obj_prob_thres = 0.5
         self.mode = mode
+        self.track = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
 
     def __call__(self, result):
         # obj_probs = result['det_obj_probs']
         # is_obj = obj_probs > self.obj_prob_thres
         means = result['det_means']
         covs = result['det_covs']
-        
+
+        # if self.frame_count == 0:
+            # mean = means.mean(dim=1)
+            # cov = torch.mean(torch.stack(covs), dim=0)
+            # self.track = TorchMultiObsKalmanFilter(mean, cov, dt=1, std_acc=1)
+
+                
         if self.mode == 'mean':
             track_mean = means.mean(axis=1)
             track_cov = np.stack(covs).mean(axis=0)
@@ -79,8 +85,11 @@ class MultiTracker(nn.Module):
 
         self.frame_count += 1
 
-        self.track.predict()
-        out = self.track.update(means, covs)
+        out = self.track(means, covs)
+        import ipdb; ipdb.set_trace() # noqa
+
+        # self.track.predict()
+        # out = self.track.update(means, covs)
 
         track_mean = out[0][0:2].squeeze()
         track_cov = out[1][0:2, 0:2]

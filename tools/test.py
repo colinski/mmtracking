@@ -148,7 +148,14 @@ def main():
         json_file = osp.join(args.work_dir, f'eval_{timestamp}.log.json')
 
     # build the dataloader
-    dataset = build_dataset(cfg.data.test)
+    if cfg.evaluation.dataset == 'val':
+        dataset = build_dataset(cfg.data.val)
+    elif cfg.evaluation.dataset == 'train':
+        dataset = build_dataset(cfg.data.train)
+    else:
+        dataset = build_dataset(cfg.data.test)
+
+
     data_loader = build_dataloader(
         dataset,
         samples_per_gpu=1,

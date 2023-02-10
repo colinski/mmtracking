@@ -172,7 +172,7 @@ class KFDETR(BaseMocapModel):
             dist = output['dist']
             mean, cov = dist.loc, dist.covariance_matrix
             means.append(mean.squeeze())
-            covs.append(cov.squeeze())#.cpu().numpy())
+            covs.append(cov.squeeze().cpu())#.cpu().numpy())
 
         # means = torch.cat(means, dim=0).squeeze().t()
         means = torch.stack(means, dim=0).t()#.cpu().numpy()
@@ -185,10 +185,12 @@ class KFDETR(BaseMocapModel):
         # det_mean, det_cov, det_obj_probs[0] = det_mean[0], det_cov[0], det_obj_probs[0]
         # pred_rot = output['rot']
         result = {
-            'det_means': means,
+            'det_means': means.cpu(),
+            #'det_covs': torch.stack(covs, dim=-1).cpu()
             'det_covs': covs
         }
-        return self.tracker(result)
+        #return self.tracker(result)
+        return result
         
        
         # is_first_frame = False

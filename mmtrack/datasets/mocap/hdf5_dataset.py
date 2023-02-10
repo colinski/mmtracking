@@ -26,6 +26,7 @@ import matplotlib
 from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 from mmtrack.datasets import build_dataset
 import torch.nn.functional as F
+from tracker import TorchMultiObsKalmanFilter
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
@@ -119,8 +120,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             buff = self.apply_pipelines(buff)
             buffs.append(buff)
         return buffs
+
     
-    def eval_mot(self, outputs, **eval_kwargs):
+    def collect_gt(self):
         all_gt_pos, all_gt_labels, all_gt_ids, all_gt_rot, all_gt_grids = [], [], [], [], []
         for i in trange(len(self)):
             data = self[i][-1] #get last frame, eval shouldnt have future
@@ -129,15 +131,20 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 if mod == 'mocap':
                     all_gt_pos.append(val['gt_positions'])
                     all_gt_ids.append(val['gt_ids'])
-                    # all_gt_labels.append(val['gt_labels'])
                     all_gt_rot.append(val['gt_rot'])
                     all_gt_grids.append(val['gt_grids'])
+        gt = {}
+        gt['all_gt_pos'] = torch.stack(all_gt_pos) #num_frames x num_objs x 3
+        gt['all_gt_ids'] = torch.stack(all_gt_ids)
+        gt['all_gt_rot'] = torch.stack(all_gt_rot)
+        gt['all_gt_grids'] = torch.stack(all_gt_grids)
+        return gt
 
-        all_gt_pos = torch.stack(all_gt_pos) #num_frames x num_objs x 3
-        # all_gt_labels = torch.stack(all_gt_labels)
-        all_gt_ids = torch.stack(all_gt_ids)
-        all_gt_rot = torch.stack(all_gt_rot)
-        all_gt_grids = torch.stack(all_gt_grids)
+    def eval_mot(self, outputs, gt):
+        all_gt_pos = gt['all_gt_pos']
+        all_gt_ids = gt['all_gt_ids']
+        all_gt_rot = gt['all_gt_rot']
+        all_gt_grids = gt['all_gt_grids']
 
         res = {}
         res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
@@ -217,10 +224,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         scores = np.stack(res['similarity_scores']).squeeze()
         # grid_scores = np.stack(res['grid_scores']).squeeze()
         nll = np.stack(res['nll']).squeeze()
-        logdir = eval_kwargs['logdir']
-        fname = f'{logdir}/res.json'
+        #logdir = eval_kwargs['logdir']
+        #fname = f'{logdir}/res.json'
         #met=CLEAR({'THRESHOLD': 1-(0.3/self.max_len)}) 
-        met = CLEAR({'THRESHOLD': 0.5})
+        met = CLEAR({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
         out = met.eval_sequence(res)
         out = {k : float(v) for k,v in out.items()}
         
@@ -231,7 +238,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         out.update(hout)
         out.update(means)
 
-        imet = Identity({'THRESHOLD': 0.5})
+        imet = Identity({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
         iout = imet.eval_sequence(res)
         iout = {k : float(v) for k,v in iout.items()}
         out.update(iout)
@@ -239,19 +246,85 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         out['nll_vals'] = nll.tolist()
         out['grid_scores'] = scores.tolist()
 
-        print(out)
-        with open(fname, 'w') as f:
-            json.dump(out, f)
+        # with open(fname, 'w') as f:
+            # json.dump(out, f)
         return out
 
-    def evaluate(self, outputs, **eval_kwargs):
-        metrics = eval_kwargs['metric']
+    def track_eval(self, outputs, gt):
         res = {}
-        if 'track' in metrics:
-            res = self.eval_mot(outputs, **eval_kwargs)
-            print(res)
+        kf = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
+        with torch.no_grad():
+            track_output = kf.forward(outputs['det_means'], outputs['det_covs'])
+        track_means = track_output[0].t()
+        track_covs = track_output[1].permute(2, 0, 1)
+        num_views = outputs['det_means'][0].shape[-1]
+        for i in range(num_views):
+            means = [mu[:, i].unsqueeze(0) for mu in outputs['det_means']]
+            covs = [cov[i].unsqueeze(0) for cov in outputs['det_covs']]
+            track_ids = [torch.zeros(1) for _ in outputs['det_covs']]
+            new_outputs = {'track_means': means, 'track_covs': covs, 'track_ids': track_ids}
+            eval_res = self.eval_mot(new_outputs, gt)
+            res['det_result_%d' % (i+1)] = eval_res
+        means = [mu.unsqueeze(0) for mu in track_means]
+        covs = [cov.unsqueeze(0) for cov in track_covs]
+        new_outputs = {'track_means': means, 'track_covs': covs, 'track_ids': track_ids}
+        eval_res = self.eval_mot(new_outputs, gt)
+        res['track_result'] = eval_res
+        vid_outputs = new_outputs
+        vid_outputs['det_means'] = outputs['det_means']
+        vid_outputs['det_covs'] = outputs['det_covs']
+        return res, vid_outputs
+    
+    def grid_search(self, outputs, gt):
+        res = {}
+        for a in tqdm(np.linspace(1,10,10)):
+            for b in np.linspace(1, 30, 10).astype(int):
+                new_outputs = {}
+                new_outputs['det_means'] = outputs['det_means']
+                new_outputs['det_covs'] = []
+                for covs in outputs['det_covs']:
+                    covs = torch.stack(covs)
+                    covs = a * covs + b * torch.eye(2)
+                    covs = torch.split(covs, 1)
+                    covs = [S.squeeze() for S in covs]
+                    new_outputs['det_covs'].append(covs)
+                vals, _ = self.track_eval(new_outputs, gt)
+                res['%d_%d' % (a,b)] = vals
+        return res
+
+    def evaluate(self, outputs, **eval_kwargs):
+        gt = self.collect_gt()
+        # res = {}
+        # kf = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
+        # with torch.no_grad():
+            # track_output = kf.forward(outputs['det_means'], outputs['det_covs'])
+        # track_means = track_output[0].t()
+        # track_covs = track_output[1].permute(2, 0, 1)
+        # num_views = outputs['det_means'][0].shape[-1]
+        # for i in range(num_views):
+            # means = [mu[:, i].unsqueeze(0) for mu in outputs['det_means']]
+            # covs = [cov[i].unsqueeze(0) for cov in outputs['det_covs']]
+            # track_ids = [torch.zeros(1) for _ in outputs['det_covs']]
+            # new_outputs = {'track_means': means, 'track_covs': covs, 'track_ids': track_ids}
+            # eval_res = self.eval_mot(new_outputs, gt, **eval_kwargs)
+            # res['det_result_%d' % i] = eval_res
+        # means = [mu.unsqueeze(0) for mu in track_means]
+        # covs = [cov.unsqueeze(0) for cov in track_covs]
+        # new_outputs = {'track_means': means, 'track_covs': covs, 'track_ids': track_ids}
+        # eval_res = self.eval_mot(new_outputs, gt, **eval_kwargs)
+        # res['track_result'] = eval_res
+        grid_res = self.grid_search(outputs, gt)
+        res, vid_outputs = self.track_eval(outputs, gt)
+        grid_res['uncalibrated'] = res
+        logdir = eval_kwargs['logdir']
+        fname = f'{logdir}/res.json'
+        with open(fname, 'w') as f:
+            json.dump(grid_res, f)
+
+        
+        metrics = eval_kwargs['metric']
         if 'vid' in metrics:
-            self.write_video(outputs, **eval_kwargs)
+            self.write_video(vid_outputs, **eval_kwargs)
         return res
 
     def write_video(self, outputs, **eval_kwargs): 
@@ -317,7 +390,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         for j in range(len(pred_means)):
                             mean = pred_means[j].cpu()
                             cov = pred_covs[j].cpu()
-                            axes[key].scatter(mean[0], mean[1], color='black', marker=f'+', lw=1, s=20*4**2)
+                            ID = str(j+1)
+                            axes[key].scatter(mean[0], mean[1], color='black', marker='$%s$' % ID, lw=1, s=20*4**2)
                             ellipse = gen_ellipse(mean, cov, edgecolor='black', fc='None', lw=2, linestyle='--')
                             axes[key].add_patch(ellipse)
                     
