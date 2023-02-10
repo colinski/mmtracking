@@ -159,10 +159,10 @@ class DecoderMocapModel(BaseMocapModel):
             dist = output['dist']
             mean, cov = dist.loc, dist.covariance_matrix
             means.append(mean.squeeze())
-            covs.append(cov.squeeze().cpu().numpy())
+            covs.append(cov.squeeze().cpu())
 
         # means = torch.cat(means, dim=0).squeeze().t()
-        means = torch.stack(means, dim=0).t().cpu().numpy()
+        means = torch.stack(means, dim=0).t()
 
         #dist = output['dist']
         # det_mean, det_cov = dist.loc, dist.covariance_matrix
@@ -172,10 +172,11 @@ class DecoderMocapModel(BaseMocapModel):
         # det_mean, det_cov, det_obj_probs[0] = det_mean[0], det_cov[0], det_obj_probs[0]
         # pred_rot = output['rot']
         result = {
-            'det_means': means,
+            'det_means': means.cpu(),
             'det_covs': covs
         }
-        return self.tracker(result)
+        #return self.tracker(result)
+        return result
 
     def forward_track_autoregressive(self, datas, return_unscaled=False, **kwargs):
         det_embeds = [self._forward_single(data) for data in datas]
