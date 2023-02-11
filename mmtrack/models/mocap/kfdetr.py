@@ -45,31 +45,6 @@ def linear_assignment(cost_matrix):
     assign_idx = torch.from_numpy(assign_idx)
     return assign_idx.long()
 
-# @BACKBONES.register_module()
-# class PretrainedDETR(BaseModule):
-    # def __init__(self, 
-            # out_channels=256,
-        # ):
-        # super().__init__()
-        # config_file = '/home/csamplawski/src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
-        # checkpoint_file = '/home/csamplawski/src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
-        # self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
-        # self.detr = self.detr.eval()
-    
-    # def forward(self, x):
-        # x = self.detr.backbone(x)[0]
-        # B, D, H, W = x.shape
-        # masks = x.new_zeros((B, H, W)).to(torch.bool)
-        # bbox_head = self.detr.bbox_head
-        # x = bbox_head.input_proj(x)
-        # pos_embed = bbox_head.positional_encoding(masks)
-        # outs_dec, _ = bbox_head.transformer(x, masks, bbox_head.query_embedding.weight, pos_embed)
-        # import ipdb; ipdb.set_trace() # noqa
-        # x = self.stem(x)
-        # x = self.layers(x)
-        # return (x, )
-
-
 @MODELS.register_module()
 class KFDETR(BaseMocapModel):
     def __init__(self,
@@ -98,6 +73,8 @@ class KFDETR(BaseMocapModel):
                  global_ca_layers=1,
                  mod_dropout_rate=0.0,
                  loss_type='nll',
+                 freeze_backbone=False,
+                 kf_train=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -137,6 +114,11 @@ class KFDETR(BaseMocapModel):
         else:
             self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
         
+        # if 'init_cfg' in kwargs:
+            # self.init_weights()
+        self.freeze_backbone = freeze_backbone
+        self.kf_train = kf_train
+        
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
         on whether ``return_loss`` is ``True``.
@@ -148,6 +130,8 @@ class KFDETR(BaseMocapModel):
         the outer list indicating test time augmentations.
         """
         if return_loss:
+            if self.kf_train:
+                return self.forward_train_track(data, **kwargs)
             return self.forward_train(data, **kwargs)
         else:
             if self.track_eval:
@@ -191,44 +175,49 @@ class KFDETR(BaseMocapModel):
         }
         #return self.tracker(result)
         return result
+    
+    def forward_train_track(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
         
-       
-        # is_first_frame = False
-        #if self.prev_frame is None:
-        if self.frame_count % 10 == 0:
-            track_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x L x D
-            # is_first_frame = True
-        else:
-            track_embeds = self.prev_frame['embeds']
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
+        B, T, _, __ = gt_positions.shape
 
-        if self.global_ca_layers > 1:
-            for layer in self.global_cross_attn:
-                track_embeds = layer(track_embeds, det_embeds)
-        else:
-            track_embeds, A = self.global_cross_attn(track_embeds, det_embeds, return_weights=True)
+        # gt_ids = mocaps['gt_ids']
+        # T, B, f = gt_ids.shape
+        # gt_ids = gt_ids.transpose(0,1)
 
-        # self.tracks = self.global_cross_attn(self.tracks, all_embeds)
-        # curr = self.ctn(self.tracks)
+        # gt_grids = mocaps['gt_grids']
+        # T, B, N, Np, f = gt_grids.shape
+        # gt_grids = gt_grids.transpose(0,1)
         
-        output = self.output_head(track_embeds)
-        pred_rot = output['rot']
-        pred_dist = output['dist']
-
-        if self.frame_count == 0:
-            result = {
-                'track_means': pred_dist.loc[0].detach().cpu(),
-                'track_covs': pred_dist.covariance_matrix[0].detach().cpu(),
-                'track_obj_probs': torch.ones(self.num_queries).float(),
-                'track_ids': torch.arange(self.num_queries),
-                'slot_ids': torch.arange(self.num_queries),
-                'track_rot': pred_rot.cpu()[0],
-                'attn_weights': A.cpu()[0]
-            }
-            self.prev_frame = {'dist': pred_dist, 'rot': pred_rot, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
-            self.frame_count += 1
-            # self.prev_frame = {'dist': pred_dist, 'embeds': track_embeds.detach(), 'ids': torch.arange(2)}
-            return result
+        all_embeds = [self._forward_single(data) for data in datas]
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        all_embeds = all_embeds.transpose(0, 1) #B T L D
+        num_views = all_embeds.shape[2]
         
+        for i in range(B):
+            means, covs = [], []
+            for j in range(T):
+                means_j, covs_j = [], []
+                for q in range(num_views):
+                    output = self.output_head(all_embeds[i,j,q].unsqueeze(0))
+                    dist = output['dist']
+                    means_j.append(dist.loc)
+                    covs_j.append(dist.covariance_matrix.squeeze())
+                means.append(means_j)
+                covs.append(covs_j)
+            means = [torch.cat(mu).squeeze().t() for mu in means]
+            pred_mean, pred_cov = self.tracker.track.forward(means, covs)
+            gt_pos = gt_positions[i].squeeze().t()
+            loss_val = self.tracker.track.loss(gt_pos, pred_mean, pred_cov)
+            losses['pos_loss'].append(loss_val)
+
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
+           
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
@@ -237,36 +226,14 @@ class KFDETR(BaseMocapModel):
         gt_positions = mocaps['gt_positions']
         gt_positions = gt_positions.transpose(0,1)
 
-
-        # B, T, L, f = gt_positions.shape
-        # gt_positions = gt_positions.reshape(B*T, L, f)
-        # gt_positions = gt_positions.reshape(T*B, N, C)
-
         gt_ids = mocaps['gt_ids']
         T, B, f = gt_ids.shape
         gt_ids = gt_ids.transpose(0,1)
-        # gt_ids = gt_ids.reshape(T*B, f)
 
         gt_grids = mocaps['gt_grids']
         T, B, N, Np, f = gt_grids.shape
         gt_grids = gt_grids.transpose(0,1)
-        # gt_grids = gt_grids.reshape(T*B, N, Np, f)
         
-        # gt_rots = mocaps['gt_rot']
-        # gt_rots = gt_rots.transpose(0,1)
-        # angles = torch.zeros(B, T, 2).cuda()
-        # for i in range(B):
-            # for j in range(T):
-                # for k in range(2):
-                    # rot = gt_rots[i,j,k]
-
-                    # if rot[4] <= 0:
-                        # rads = torch.arcsin(rot[3]) / (2*torch.pi)
-                    # else:
-                        # rads = torch.arcsin(rot[1]) / (2*torch.pi)
-                    # angles[i,j, k] = rads
-        # gt_rots = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
-
         all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0) 
         all_embeds = all_embeds.transpose(0, 1) #B T L D
@@ -279,8 +246,6 @@ class KFDETR(BaseMocapModel):
                     output = self.output_head(all_embeds[i,j,q].unsqueeze(0))
                     dist = output['dist']
                     
-                    # pred_rot = output['rot'][0] #No x 2
-                    # rot_dists = torch.cdist(pred_rot, gt_rots[i][j]) #needs tranpose?
                     if self.loss_type == 'grid':
                         grid = gt_grids[i][j]
                         No, G, f = grid.shape
@@ -339,10 +304,18 @@ class KFDETR(BaseMocapModel):
             # out = backbone.model.simple_test(img, img_metas)
             # import ipdb; ipdb.set_trace() # noqa
             #with torch.no_grad():
-            try:
-                feats = backbone(data[key]['img'])
-            except:
-                feats = backbone([data[key]['img']])
+            if self.freeze_backbone:
+                with torch.no_grad():
+                    try:
+                        feats = backbone(data[key]['img'])
+                    except:
+                        feats = backbone([data[key]['img']])
+            else:
+                try:
+                    feats = backbone(data[key]['img'])
+                except:
+                    feats = backbone([data[key]['img']])
+
             feats = feats[0]
             embeds = model(feats)
             inter_embeds.append(embeds)
