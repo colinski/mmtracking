@@ -294,29 +294,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     def evaluate(self, outputs, **eval_kwargs):
         gt = self.collect_gt()
-        # res = {}
-        # kf = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
-        # with torch.no_grad():
-            # track_output = kf.forward(outputs['det_means'], outputs['det_covs'])
-        # track_means = track_output[0].t()
-        # track_covs = track_output[1].permute(2, 0, 1)
-        # num_views = outputs['det_means'][0].shape[-1]
-        # for i in range(num_views):
-            # means = [mu[:, i].unsqueeze(0) for mu in outputs['det_means']]
-            # covs = [cov[i].unsqueeze(0) for cov in outputs['det_covs']]
-            # track_ids = [torch.zeros(1) for _ in outputs['det_covs']]
-            # new_outputs = {'track_means': means, 'track_covs': covs, 'track_ids': track_ids}
-            # eval_res = self.eval_mot(new_outputs, gt, **eval_kwargs)
-            # res['det_result_%d' % i] = eval_res
-        # means = [mu.unsqueeze(0) for mu in track_means]
-        # covs = [cov.unsqueeze(0) for cov in track_covs]
-        # new_outputs = {'track_means': means, 'track_covs': covs, 'track_ids': track_ids}
-        # eval_res = self.eval_mot(new_outputs, gt, **eval_kwargs)
-        # res['track_result'] = eval_res
-        grid_res = self.grid_search(outputs, gt)
+        grid_res = {}
+        if eval_kwargs['grid_search'] == 'True':
+            grid_res = self.grid_search(outputs, gt)
+        logdir = eval_kwargs['logdir']
         res, vid_outputs = self.track_eval(outputs, gt)
         grid_res['uncalibrated'] = res
-        logdir = eval_kwargs['logdir']
         fname = f'{logdir}/res.json'
         with open(fname, 'w') as f:
             json.dump(grid_res, f)
