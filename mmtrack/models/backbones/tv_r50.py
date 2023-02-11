@@ -9,7 +9,7 @@ from torchvision.models import resnet50
 from torchvision.models import ResNet50_Weights
 import torch
 import torch.nn.functional as F
-
+from cad.attn import ResCrossAttn, ResSelfAttn
 
 from mmdet.apis import init_detector, inference_detector
 
@@ -61,6 +61,50 @@ class ResNet50Stem(nn.Sequential):
         for layer in self:
             x = layer.eval()(x)
         return x
+
+@BACKBONES.register_module()
+class TVResNet50CrossAttn(BaseModule):
+    def __init__(self, 
+                 cross_attn_cfg=dict(type='QKVAttention',
+                     qk_dim=256,
+                     num_heads=8, 
+                     in_proj=True, 
+                     out_proj=True,
+                     attn_drop=0.0, 
+                     seq_drop=0.0,
+                     v_dim=None
+                 ),
+                 out_channels=256,
+                 norm_cfg=dict(type='BN')
+        ):
+        super().__init__()
+        self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
+        self.global_pos_encoding = nn.Embedding(1, out_channels)
+        self.stem = ResNet50Stem(frozen=True)
+        self.layers = nn.Sequential(
+            nn.Conv2d(64, out_channels, kernel_size=7, stride=2, padding=3),
+            build_norm_layer(norm_cfg, out_channels)[1],
+
+            ConvNeXtBlock(out_channels, layer_scale_init_value=0.0),
+            
+            nn.Conv2d(out_channels, out_channels, kernel_size=7, stride=2, padding=3),
+            build_norm_layer(norm_cfg, out_channels)[1],
+            
+            ConvNeXtBlock(out_channels, layer_scale_init_value=0.0),
+            
+            nn.Conv2d(out_channels, out_channels, kernel_size=7, stride=2, padding=3),
+            build_norm_layer(norm_cfg, out_channels)[1]
+        )
+               
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.layers(x)
+        x = x.flatten(2).permute(0,2,1)
+        B, L, D = x.shape
+        global_pos_embeds = self.global_pos_encoding.weight.unsqueeze(0) # 1 x 2 x 256
+        global_pos_embeds = global_pos_embeds.expand(B, -1, -1)
+        global_pos_embeds = self.global_cross_attn(global_pos_embeds, x)
+        return (global_pos_embeds, )
 
 @BACKBONES.register_module()
 class TVResNet50(BaseModule):
