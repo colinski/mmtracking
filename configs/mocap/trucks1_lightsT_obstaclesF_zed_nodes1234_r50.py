@@ -41,8 +41,8 @@ testset=dict(type='HDF5Dataset',
     draw_cov=True,
 )
 
-backbone_cfg=dict(
-        type='ResNet',
+backbone_cfg=[
+    dict(type='ResNet',
         depth=50,
         num_stages=4,
         out_indices=(3, ),
@@ -51,12 +51,22 @@ backbone_cfg=dict(
         norm_eval=True,
         style='pytorch',
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
-)
+    ),
+    dict(type='ChannelMapper',
+        in_channels=[2048],
+        kernel_size=1,
+        out_channels=256,
+        act_cfg=None,
+        norm_cfg=dict(type='GN', num_groups=32),
+        num_outs=1
+    )
+]
+
 
 
 
 model_cfg=dict(type='LinearEncoder', in_len=135, out_len=1,
-        ffn_cfg=dict(type='SLP', in_channels=2048))
+        ffn_cfg=dict(type='SLP', in_channels=256))
 
 model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
               ('zed_camera_left', 'node_2'): model_cfg,
@@ -70,7 +80,7 @@ model = dict(type='KFDETR',
          include_z=False,
          predict_full_cov=True,
          cov_add=1.0,
-         input_dim=2048,
+         input_dim=256,
          predict_rotation=True,
          predict_velocity=False,
          num_sa_layers=0,
@@ -91,7 +101,7 @@ model = dict(type='KFDETR',
 # orig_lr = 1e-4 
 # factor = 4
 data = dict(
-    samples_per_gpu=5,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,

@@ -12,7 +12,7 @@ trainset=dict(type='HDF5Dataset',
         include_z=False,
     ),
     num_future_frames=0,
-    num_past_frames=2,
+    num_past_frames=1,
 )
 
 valset=dict(type='HDF5Dataset',

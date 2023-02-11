@@ -12,7 +12,7 @@ trainset=dict(type='HDF5Dataset',
         include_z=False,
     ),
     num_future_frames=0,
-    num_past_frames=9,
+    num_past_frames=1,
 )
 
 valset=dict(type='HDF5Dataset',
@@ -43,16 +43,16 @@ testset=dict(type='HDF5Dataset',
 
 
 
-model_cfg=dict(type='ModalityEncoder', ffn_cfg=dict(type='SLP'))
+model_cfg=dict(type='LinearEncoder', in_len=1, out_len=1, ffn_cfg=dict(type='SLP', in_channels=256))
 
 model_cfgs = {('zed_camera_left', 'node_1'): model_cfg,
               ('zed_camera_left', 'node_2'): model_cfg,
               ('zed_camera_left', 'node_3'): model_cfg,
               ('zed_camera_left', 'node_4'): model_cfg}
 
-backbone_cfgs = {'zed_camera_left': dict(type='TVResNet50')}
+backbone_cfgs = {'zed_camera_left': dict(type='TVResNet50CrossAttn')}
 
-model = dict(type='DecoderMocapModel',
+model = dict(type='KFDETR',
         output_head_cfg=dict(type='OutputHead',
          include_z=False,
          predict_full_cov=True,
@@ -70,7 +70,7 @@ model = dict(type='DecoderMocapModel',
     num_queries=1,
     mod_dropout_rate=0.0,
     loss_type='nll',
-    autoregressive=False
+    #autoregressive=False
 )
 
 
