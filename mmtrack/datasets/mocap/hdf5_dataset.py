@@ -292,19 +292,54 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 res['%d_%d' % (a,b)] = vals
         return res
 
+    def calibrate_outputs(self, outputs, calib_fname):
+        with open(calib_fname, 'r') as f:
+            data = json.load(f)
+        
+        min_idx = {'det_result_%d' % (i + 1): (None, 1e20) for i in range(4)}
+        for a_b, res1 in data.items():
+            if a_b == 'uncalibrated':
+                continue
+            for det_idx, res2 in res1.items():
+                if det_idx == 'track_result':
+                    continue
+                nll_vals = -np.array(res2['nll_vals'])
+                nll = np.mean(nll_vals)
+                if min_idx[det_idx][1] > nll:
+                    min_idx[det_idx] = (a_b, nll)
+        
+        min_idx = {k.split('_')[-1]: v[0].split('_') for k, v in min_idx.items()}
+        min_idx = {int(k)-1 : (int(v[0]), int(v[1])) for k, v in min_idx.items()}
+        calib_outputs = {'det_means': outputs['det_means'], 'det_covs': []}
+        for covs in outputs['det_covs']:
+            scaled_covs = []
+            for idx, cov in enumerate(covs):
+                a, b = min_idx[idx]
+                scaled_cov = a * cov + b * torch.eye(2)
+                scaled_covs.append(scaled_cov)
+            calib_outputs['det_covs'].append(scaled_covs)
+        return calib_outputs
+
+
     def evaluate(self, outputs, **eval_kwargs):
         gt = self.collect_gt()
         grid_res = {}
         if eval_kwargs['grid_search']:
             grid_res = self.grid_search(outputs, gt)
         logdir = eval_kwargs['logdir']
+        
         res, vid_outputs = self.track_eval(outputs, gt)
         grid_res['uncalibrated'] = res
+        
+        if 'calib_file' in eval_kwargs.keys():
+            calib_outputs = self.calibrate_outputs(outputs, eval_kwargs['calib_file'])
+            res, vid_outputs = self.track_eval(calib_outputs, gt)
+            grid_res['calibrated'] = res
+
         fname = f'{logdir}/res.json'
         with open(fname, 'w') as f:
             json.dump(grid_res, f)
 
-        
         metrics = eval_kwargs['metric']
         if 'vid' in metrics:
             self.write_video(vid_outputs, **eval_kwargs)
