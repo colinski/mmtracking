@@ -295,7 +295,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def evaluate(self, outputs, **eval_kwargs):
         gt = self.collect_gt()
         grid_res = {}
-        if eval_kwargs['grid_search'] == 'True':
+        if eval_kwargs['grid_search']:
             grid_res = self.grid_search(outputs, gt)
         logdir = eval_kwargs['logdir']
         res, vid_outputs = self.track_eval(outputs, gt)

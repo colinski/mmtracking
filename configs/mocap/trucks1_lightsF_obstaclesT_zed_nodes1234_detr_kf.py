@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsT_obstaclesF.py'
+    '../_base_/datasets/mmm/2022-09-01/trucks1_lightsF_obstaclesT.py'
 ]
 
 trainset=dict(type='HDF5Dataset',
@@ -12,7 +12,7 @@ trainset=dict(type='HDF5Dataset',
         include_z=False,
     ),
     num_future_frames=0,
-    num_past_frames=199,
+    num_past_frames=99,
 )
 
 valset=dict(type='HDF5Dataset',
@@ -71,7 +71,7 @@ model = dict(type='KFDETR',
     num_queries=1,
     mod_dropout_rate=0.0,
     loss_type='nll',
-    init_cfg=dict(type='Pretrained', checkpoint='logs/trucks1_lightsT_obstaclesF_zed_nodes1234_detr/latest.pth'),
+    init_cfg=dict(type='Pretrained', checkpoint='logs/trucks1_lightsF_obstaclesT_zed_nodes1234_detr/latest.pth'),
     freeze_backbone=True,
     kf_train=True
 )
@@ -103,8 +103,8 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 10
-lr_config = dict(policy='step', step=[8])
+total_epochs = 5
+lr_config = dict(policy='step', step=[4])
 evaluation = dict(metric=['track'], interval=1e8)
 
 find_unused_parameters = True
