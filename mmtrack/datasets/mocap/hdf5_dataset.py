@@ -380,6 +380,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].set_xlim(0,700)
                         axes[key].set_ylim(0,500)
                         axes[key].set_aspect('equal')
+
+                    num_nodes = len(val['node_pos'])
+                    for j in range(num_nodes):
+                        pos = val['node_pos'][j]
+                        node_id = val['node_ids'][j] + 1
+                        axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_id, color='black', lw=1, s=20*4**2)
                     
                     num_gt = len(val['gt_positions'])
                     for j in range(num_gt):
