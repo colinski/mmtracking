@@ -277,22 +277,31 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     
     def grid_search(self, outputs, gt):
         res = {}
-        for a in tqdm(np.linspace(1,10,10)):
-            for b in np.linspace(1, 30, 10).astype(int):
+        a_range = np.linspace(1, 10, 10).tolist()
+        #a_range = [0.01, 0.05, 0.1, 0.5] + a_range
+        a_range = [0.05, 0.1, 0.5] + a_range
+        b_range = np.linspace(0, 500, 15).tolist()
+
+        for a in tqdm(a_range):
+            for b in b_range:
                 new_outputs = {}
                 new_outputs['det_means'] = outputs['det_means']
                 new_outputs['det_covs'] = []
                 for covs in outputs['det_covs']:
-                    covs = torch.stack(covs)
-                    covs = a * covs + b * torch.eye(2)
-                    covs = torch.split(covs, 1)
-                    covs = [S.squeeze() for S in covs]
+                    covs = [a * S.squeeze() + b * torch.eye(2) for S in covs]
+                    # covs = torch.stack(covs)
+                    # covs = a * covs + b * torch.eye(2)
+                    # covs = torch.split(covs, 1)
+                    # covs = [S.squeeze() for S in covs]
                     new_outputs['det_covs'].append(covs)
-                vals, _ = self.track_eval(new_outputs, gt)
-                res['%d_%d' % (a,b)] = vals
+                try:
+                    vals, _ = self.track_eval(new_outputs, gt)
+                except:
+                    import ipdb; ipdb.set_trace() # noqa
+                res['%s_%s' % (a,b)] = vals
         return res
 
-    def calibrate_outputs(self, outputs, calib_fname):
+    def calibrate_outputs(self, outputs, calib_fname, metric='nll'):
         with open(calib_fname, 'r') as f:
             data = json.load(f)
         
@@ -303,13 +312,19 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             for det_idx, res2 in res1.items():
                 if det_idx == 'track_result':
                     continue
-                nll_vals = -np.array(res2['nll_vals'])
-                nll = np.mean(nll_vals)
-                if min_idx[det_idx][1] > nll:
-                    min_idx[det_idx] = (a_b, nll)
+                if metric == 'nll':
+                    vals = -np.array(res2['nll_vals'])
+                elif metric == 'grid_score':
+                    vals = -np.array(res2['grid_scores'])
+                else:
+                    assert 1==2
+                score = np.mean(vals)
+                if min_idx[det_idx][1] > score:
+                    min_idx[det_idx] = (a_b, score)
         
         min_idx = {k.split('_')[-1]: v[0].split('_') for k, v in min_idx.items()}
-        min_idx = {int(k)-1 : (int(v[0]), int(v[1])) for k, v in min_idx.items()}
+        min_idx = {int(k)-1 : (float(v[0]), float(v[1])) for k, v in min_idx.items()}
+        print(min_idx)
         calib_outputs = {'det_means': outputs['det_means'], 'det_covs': []}
         for covs in outputs['det_covs']:
             scaled_covs = []
@@ -332,7 +347,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         grid_res['uncalibrated'] = res
         
         if 'calib_file' in eval_kwargs.keys():
-            calib_outputs = self.calibrate_outputs(outputs, eval_kwargs['calib_file'])
+            calib_outputs = self.calibrate_outputs(outputs, eval_kwargs['calib_file'], eval_kwargs['calib_metric'])
             res, vid_outputs = self.track_eval(calib_outputs, gt)
             grid_res['calibrated'] = res
 
@@ -436,14 +451,15 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         #axes[key].add_patch(rec)
 
 
-                        axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
+                        # axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
                         cov = pred_covs[j]
                         ID = ids[j]
                         # sID = slot_ids[j]
                         #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
-                        axes[key].text(mean[0], mean[1], s=f'{ID}', fontdict={'color': color})
+                        axes[key].text(mean[0], mean[1], s=f'KF', fontdict={'color': color})
                         if self.draw_cov:
                             ellipse = gen_ellipse(mean, cov, edgecolor=color, fc='None', lw=2, linestyle='--')
+                            axes[key].add_patch(ellipse)
                     
                     
 

@@ -220,7 +220,6 @@ def main():
                 eval_kwargs.pop(key, None)
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
             metric = dataset.evaluate(outputs, **eval_kwargs)
-            print(metric)
             metric_dict = dict(
                 config=args.config, mode='test', epoch=cfg.total_epochs)
             metric_dict.update(metric)
