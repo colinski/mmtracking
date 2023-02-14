@@ -189,15 +189,19 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 for k in range(num_gt):
                     grid = gt_grid[k]
                     pos = gt_pos[k]
-                    log_probs = dist.log_prob(grid) #*1.5
-                    logsum = torch.logsumexp(log_probs.flatten(), dim=0)
-                    grid_scores.append(logsum)
+
+
+                    # log_probs = dist.log_prob(grid) #*1.5
+                    # logsum = torch.logsumexp(log_probs.flatten(), dim=0)
+                    # scores.append(logsum.exp())
+                    
                     nll.append(dist.log_prob(pos))
-                    # angle = rot2angle(gt_rot[k], return_rads=False)
-                    # rec, _ = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
-                    # mask = points_in_rec(samples, rec)
+                    samples = dist.sample([1000])
+                    angle = rot2angle(gt_rot[k], return_rads=False)
+                    rec, _ = gen_rectange(gt_pos[k], angle, w=30, h=15)
+                    mask = points_in_rec(samples, rec)
+                    scores.append(mask.mean())
                     #scores.append(np.mean(mask))
-                    scores.append(logsum.exp())
 
             if len(scores) == 0:
                 scores = torch.empty(len(gt_pos), 0).numpy()
