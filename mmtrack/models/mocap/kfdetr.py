@@ -95,6 +95,7 @@ class KFDETR(BaseMocapModel):
         self.loss_type = loss_type
         
         self.output_head = build_model(output_head_cfg)
+        self.times = []
         
         self.backbones = nn.ModuleDict()
         for key, cfg in backbone_cfgs.items():
@@ -141,26 +142,36 @@ class KFDETR(BaseMocapModel):
 
     def forward_track(self, datas, return_unscaled=False, **kwargs):
         gt_pos = datas[0][('mocap', 'mocap')]['gt_positions'].squeeze()
-        det_embeds = [self._forward_single(data) for data in datas]
-        det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
 
-        assert det_embeds.shape[2] == 1 #assuming 1 object for now
-
-        num_views = det_embeds.shape[1]
+        start.record()
+        with torch.no_grad():
+            det_embeds = [self._forward_single(data) for data in datas]
+            det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
         
-        means, covs = [], []
-        for i in range(num_views):
-            # mean = gt_pos.cpu() + 30 * torch.randn(2)
-            # cov = torch.eye(2) * 30
-            output = self.output_head(det_embeds[:, i])
-            dist = output['dist']
-            mean, cov = dist.loc, dist.covariance_matrix
-            means.append(mean.squeeze())
-            covs.append(cov.squeeze().cpu())#.cpu().numpy())
+            assert det_embeds.shape[2] == 1 #assuming 1 object for now
+
+            num_views = det_embeds.shape[1]
+            
+            means, covs = [], []
+            for i in range(num_views):
+                # mean = gt_pos.cpu() + 30 * torch.randn(2)
+                # cov = torch.eye(2) * 30
+                output = self.output_head(det_embeds[:, i])
+                dist = output['dist']
+                mean, cov = dist.loc, dist.covariance_matrix
+                means.append(mean.squeeze())
+                covs.append(cov.squeeze().cpu())#.cpu().numpy())
+        end.record()
+        torch.cuda.synchronize()
+        t = start.elapsed_time(end)
+        self.times.append(t)
 
         # means = torch.cat(means, dim=0).squeeze().t()
         means = torch.stack(means, dim=0).t()#.cpu().numpy()
-
+        
+        
         #dist = output['dist']
         # det_mean, det_cov = dist.loc, dist.covariance_matrix
         # det_mean, det_cov = det_mean[0], det_cov[0]
