@@ -10,8 +10,41 @@ from torchvision.models import ResNet50_Weights
 import torch
 import torch.nn.functional as F
 from cad.attn import ResCrossAttn, ResSelfAttn
-
+from models.common import Conv, DWConv
 from mmdet.apis import init_detector, inference_detector
+
+@BACKBONES.register_module()
+class YOLOv7(BaseModule):
+    def __init__(self, 
+            out_channels=256,
+            weights='src/mmtracking/yolov7-tiny.pt'
+        ):
+        super().__init__()
+        # for w in weights if isinstance(weights, list) else [weights]:
+            # attempt_download(w)
+        ckpt = torch.load(weights)
+        self.yolo = ckpt['ema' if ckpt.get('ema') else 'model'].float()
+        
+        # Compatibility updates
+        for m in self.yolo.modules():
+            if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
+                m.inplace = True  # pytorch 1.7.0 compatibility
+            elif type(m) is nn.Upsample:
+                m.recompute_scale_factor = None  # torch 1.11.0 compatibility
+            elif type(m) is Conv:
+                m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
+
+        #config_file = '/home/csamplawski/src/mmdetection/configs/deformable_detr/deformable_detr_r50_16x2_50e_coco.py'
+        #checkpoint_file = '/home/csamplawski/src/mmtracking/deformable_detr_r50_16x2_50e_coco_20210419_220030-a12b9512.pth'
+        # config_file = 'src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
+        # checkpoint_file = 'src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
+        # self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
+        # self.detr = self.detr.eval()
+    
+    #@torch.no_grad()
+    def forward(self, x):
+        output = self.yolo.forward_once(x, apply_detector=False)
+        return (output[-1], )
 
 
 @BACKBONES.register_module()
