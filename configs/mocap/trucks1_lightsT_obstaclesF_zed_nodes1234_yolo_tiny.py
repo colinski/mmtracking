@@ -29,7 +29,7 @@ trainset=dict(type='HDF5Dataset',
         include_z=False,
     ),
     num_future_frames=0,
-    num_past_frames=0,
+    num_past_frames=1,
     pipelines=pipelines
 )
 
@@ -62,9 +62,9 @@ testset=dict(type='HDF5Dataset',
 )
 
 backbone_cfg=[
-    dict(type='YOLOv7', weights='src/mmtracking/yolov7.pt'),
+    dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt'),
     dict(type='ChannelMapper',
-        in_channels=[1024],
+        in_channels=[512],
         kernel_size=1,
         out_channels=256,
         act_cfg=None,
@@ -112,7 +112,7 @@ model = dict(type='KFDETR',
 # orig_lr = 1e-4 
 # factor = 4
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,

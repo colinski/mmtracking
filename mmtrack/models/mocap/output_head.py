@@ -221,6 +221,7 @@ class OutputHead(BaseModule):
         self.predict_full_cov = predict_full_cov
         self.predict_obj_prob = predict_obj_prob
         self.to_cm = to_cm
+        self.return_raw = False
 
 
         # self.num_outputs = 2 + 1
@@ -337,6 +338,17 @@ class OutputHead(BaseModule):
             # mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
         mean = mean.sigmoid()
         mean = mean * self.mean_scale
+        if self.return_raw:
+            assert len(mean) == 1
+            I = torch.eye(2).cuda()
+            cov_diag = I * F.softplus(cov_logits[..., 0:2]).squeeze()
+            cov_off_diag = cov_logits[..., -1]
+            rI = torch.tensor([[0,1],[1,0]]).float().cuda()
+            cov_off_diag = rI * cov_logits.squeeze()[-1]
+            cov = cov_off_diag + cov_diag
+            cov = cov @ cov.t()
+            cov = cov + I
+            return mean.squeeze(), cov
         
         cov_diag = F.softplus(cov_logits[..., 0:2])
         cov_off_diag = cov_logits[..., -1]
@@ -361,6 +373,7 @@ class OutputHead(BaseModule):
         # if self.predict_velocity:
             # assert 1==2
             # result['vel'] = self.vel_head(x)
+
         return result
 
 

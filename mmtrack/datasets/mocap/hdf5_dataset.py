@@ -298,10 +298,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     # covs = torch.split(covs, 1)
                     # covs = [S.squeeze() for S in covs]
                     new_outputs['det_covs'].append(covs)
-                try:
-                    vals, _ = self.track_eval(new_outputs, gt)
-                except:
-                    import ipdb; ipdb.set_trace() # noqa
+                #try:
+                vals, _ = self.track_eval(new_outputs, gt)
+                # except:
+                    # import ipdb; ipdb.set_trace() # noqa
                 res['%s_%s' % (a,b)] = vals
         return res
 
