@@ -348,7 +348,7 @@ class OutputHead(BaseModule):
             cov = cov_off_diag + cov_diag
             cov = cov @ cov.t()
             cov = cov + I
-            return mean.squeeze(), cov
+            return mean, cov
         
         cov_diag = F.softplus(cov_logits[..., 0:2])
         cov_off_diag = cov_logits[..., -1]

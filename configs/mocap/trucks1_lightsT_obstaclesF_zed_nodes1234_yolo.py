@@ -68,7 +68,8 @@ backbone_cfg=[
         kernel_size=1,
         out_channels=256,
         act_cfg=None,
-        norm_cfg=dict(type='GN', num_groups=32),
+        #norm_cfg=dict(type='GN', num_groups=32),
+        norm_cfg=None,
         num_outs=1
     )
 ]

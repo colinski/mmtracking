@@ -68,7 +68,8 @@ backbone_cfg=[
         kernel_size=1,
         out_channels=256,
         act_cfg=None,
-        norm_cfg=dict(type='GN', num_groups=32),
+        #norm_cfg=dict(type='GN', num_groups=32),
+        norm_cfg=None,
         num_outs=1
     )
 ]
@@ -134,8 +135,8 @@ optimizer = dict(
 )
 
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
-total_epochs = 50
-lr_config = dict(policy='step', step=[40])
+total_epochs = 1
+lr_config = dict(policy='step', step=[1])
 evaluation = dict(metric=['bbox', 'track'], interval=1e8)
 
 find_unused_parameters = True
