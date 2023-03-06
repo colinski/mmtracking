@@ -180,26 +180,69 @@ def main():
             super().__init__()
 
         def forward(self, x):
-            return x[-1]
+            return x[0]
     
     bb = model.backbones['zed_camera_left'].eval().cuda()
+    bb.training = False
     adapter = model.models['zed_camera_left_node_1'].eval().cuda()
     output_head = model.output_head.eval().cuda()
-    output_head.return_raw = True
+    output_head.return_raw = False
 
-    full_model = nn.Sequential(bb, Delist(), adapter, output_head).eval().cuda()
+    full_model = nn.Sequential(bb, Delist())#adapter)#output_head).eval().cuda()
+    full_model = full_model.eval().cuda()
+    
+    root = '/dev/shm/cache_test/' 
+    import pickle
+    import cv2
+    import numpy as np
+    
+        
+    for i in range(5):
+        fname = '%s/tmp_%09d.pickle' % (root, i)
+        with open(fname, 'rb') as f: 
+            data = pickle.load(f)
+        img = cv2.imdecode(data[('zed_camera_left', 'node_1')], 1)   
+        img = cv2.resize(img, (480,288))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32)
+        img = img / 255.0
+        img = img.transpose((2, 0, 1))
+        img = np.expand_dims(img, axis=0)
+        img = torch.from_numpy(img).cuda()
+
+        output = full_model(img)
+        #print(output.mean(), output.std())
+        print(img.mean(), img.std())
+        #print(outputs'dist'].loc)
+        #print(output['dist'].covariance_matrix)
+        print(data[('mocap', 'mocap')]['gt_positions'])
+    import ipdb; ipdb.set_trace() # noqa
 
     
-    dummy_input = torch.zeros(1, 3, 288, 480).cuda()
-    dummy_output = full_model(dummy_input)
+    
+    #dummy_input = torch.zeros(1, 3, 288, 480).cuda()
     input_names = ['input_img']
     output_names = ['mean', 'cov']
-    torch.onnx.export(full_model, dummy_input, "yolo-tiny.onnx", verbose=True, 
+    #output_names = ['output_feats']
+    torch.onnx.export(full_model, img, "yolo-tiny.onnx", verbose=False,
         input_names=input_names, output_names=output_names)
     model = onnx.load('yolo-tiny.onnx')
     model_simp, check = simplify(model)
     onnx.save(model, 'yolo-tiny.onnx')
-    import ipdb; ipdb.set_trace() # noqa
+
+    import onnxruntime as ort
+    sess = ort.InferenceSession('yolo-tiny.onnx', providers=['CPUExecutionProvider'])
+    outputs = sess.run(None, {'input_img': img.cpu().numpy()})
+    print(data[('mocap', 'mocap')]['gt_positions'])
+    print(outputs)
+
+    import onnxruntime as ort
+    sess = ort.InferenceSession('modified_yolo-tiny.onnx', providers=['CPUExecutionProvider'])
+    outputs = sess.run(None, {'input_img': img.cpu().numpy()})
+    print(data[('mocap', 'mocap')]['gt_positions'])
+    print(outputs)
+
+
+
 
     # model = onnx.load('yolo-tiny-adapter.onnx')
     # model_simp, check = simplify(model)

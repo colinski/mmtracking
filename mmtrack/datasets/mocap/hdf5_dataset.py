@@ -347,8 +347,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             grid_res = self.grid_search(outputs, gt)
         logdir = eval_kwargs['logdir']
         
-        res, vid_outputs = self.track_eval(outputs, gt)
-        grid_res['uncalibrated'] = res
+        vid_outputs = outputs
+        
+        if 'track' in eval_kwargs.keys():
+            res, vid_outputs = self.track_eval(outputs, gt)
+            grid_res['uncalibrated'] = res
         
         if 'calib_file' in eval_kwargs.keys():
             calib_outputs = self.calibrate_outputs(outputs, eval_kwargs['calib_file'], eval_kwargs['calib_metric'])
@@ -362,7 +365,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         metrics = eval_kwargs['metric']
         if 'vid' in metrics:
             self.write_video(vid_outputs, **eval_kwargs)
-        return res
+        return grid_res
 
     def write_video(self, outputs=None, **eval_kwargs): 
         logdir = eval_kwargs['logdir']
@@ -438,32 +441,32 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                                 ellipse = gen_ellipse(mean, cov, edgecolor='black', fc='None', lw=2, linestyle='--')
                                 axes[key].add_patch(ellipse)
                         
-                        # if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
-                        pred_means = outputs['track_means'][i] 
-                        pred_covs = outputs['track_covs'][i]
-                        #pred_rots = outputs['track_rot'][i]
-                        ids = outputs['track_ids'][i].to(int)
-                        # slot_ids = outputs['slot_ids'][i].to(int)
-                        print(pred_means, pred_covs)
-                        for j in range(len(pred_means)):
-                            #rot = pred_rots[j]
-                            #angle = torch.arctan(rot[0]/rot[1]) * 360
-                            mean = pred_means[j]
-                            color = self.colors[j % len(self.colors)]
-                            
-                            #rec, _ = gen_rectange(mean, angle, w=self.truck_w, h=self.truck_h, color=color)
-                            #axes[key].add_patch(rec)
+                        if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
+                            pred_means = outputs['track_means'][i] 
+                            pred_covs = outputs['track_covs'][i]
+                            #pred_rots = outputs['track_rot'][i]
+                            ids = outputs['track_ids'][i].to(int)
+                            # slot_ids = outputs['slot_ids'][i].to(int)
+                            print(pred_means, pred_covs)
+                            for j in range(len(pred_means)):
+                                #rot = pred_rots[j]
+                                #angle = torch.arctan(rot[0]/rot[1]) * 360
+                                mean = pred_means[j]
+                                color = self.colors[j % len(self.colors)]
+                                
+                                #rec, _ = gen_rectange(mean, angle, w=self.truck_w, h=self.truck_h, color=color)
+                                #axes[key].add_patch(rec)
 
 
-                            # axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
-                            cov = pred_covs[j]
-                            ID = ids[j]
-                            # sID = slot_ids[j]
-                            #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
-                            axes[key].text(mean[0], mean[1], s=f'KF', fontdict={'color': color})
-                            if self.draw_cov:
-                                ellipse = gen_ellipse(mean, cov, edgecolor=color, fc='None', lw=2, linestyle='--')
-                                axes[key].add_patch(ellipse)
+                                # axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
+                                cov = pred_covs[j]
+                                ID = ids[j]
+                                # sID = slot_ids[j]
+                                #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
+                                axes[key].text(mean[0], mean[1], s=f'KF', fontdict={'color': color})
+                                if self.draw_cov:
+                                    ellipse = gen_ellipse(mean, cov, edgecolor=color, fc='None', lw=2, linestyle='--')
+                                    axes[key].add_patch(ellipse)
                     
                     
 
@@ -537,7 +540,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     axes[key].clear()
                     axes[key].set_title(key)
                     axes[key].set_ylim(-1,1)
-                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    img = data[key].T #['img'].data[0].cpu().squeeze().numpy()
                     max_val = img[0].max()
                     min_val = img[0].min()
                     axes[key].plot(img[0], color='black')

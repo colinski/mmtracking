@@ -26,6 +26,16 @@ from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 from mmdet.apis import init_detector, inference_detector
+import onnxruntime as ort
+import onnx
+from onnxsim import simplify
+
+class Delist(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x[0]
 
 def calc_grid_loss(dist, grid, scale=1):
     No, G, f = grid.shape
@@ -119,6 +129,7 @@ class KFDETR(BaseMocapModel):
             # self.init_weights()
         self.freeze_backbone = freeze_backbone
         self.kf_train = kf_train
+        self.sessions = None
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -140,6 +151,60 @@ class KFDETR(BaseMocapModel):
             else:
                 return self.forward_test(data, **kwargs)
 
+
+    def export(self, num_views=4):
+        bb = self.backbones['zed_camera_left'].eval().cuda()
+        output_head = self.output_head.eval().cuda()
+        output_head.return_raw = True
+        input_names = ['input_img']
+        output_names = ['mean', 'cov']
+        img = torch.zeros(1, 3, 288, 480).float().cuda()
+        sessions = []
+
+        for i in range(num_views):
+            adapter = self.models['zed_camera_left_node_%d' % (i+1)].eval().cuda()
+            view_model = nn.Sequential(bb, Delist(), adapter, output_head)
+            fname = 'yolo_tiny_node_%d.onnx' % (i + 1)
+            torch.onnx.export(view_model, img, fname, verbose=False,
+                input_names=input_names, output_names=output_names)
+            model = onnx.load(fname)
+            model_simp, check = simplify(model)
+            onnx.save(model, fname)
+            sess = ort.InferenceSession(fname, providers=['CUDAExecutionProvider'])
+            sessions.append(sess)
+        return sessions
+
+
+
+    def forward_track_debug(self, datas, return_unscaled=False, **kwargs):
+        gt_pos = datas[0][('mocap', 'mocap')]['gt_positions'].squeeze()
+
+        if self.sessions is None:
+            self.sessions = self.export()
+
+        num_views = 4
+        
+        assert len(datas) == 1
+        data = datas[0]
+        
+        means, covs = [], []
+        for i in range(num_views):
+            img = data[('zed_camera_left', 'node_%d' % (i+1))]['img']
+            sess = self.sessions[i]
+            output = sess.run(None, {'input_img': img.cpu().numpy()})
+            mean, cov = output
+            mean, cov = torch.from_numpy(mean), torch.from_numpy(cov)
+            means.append(mean.squeeze())
+            covs.append(cov.squeeze().cpu())#.cpu().numpy())
+
+        means = torch.stack(means, dim=0).t()#.cpu().numpy()
+        
+        result = {
+            'det_means': means.cpu(),
+            'det_covs': covs
+        }
+        return result
+
     def forward_track(self, datas, return_unscaled=False, **kwargs):
         gt_pos = datas[0][('mocap', 'mocap')]['gt_positions'].squeeze()
         start = torch.cuda.Event(enable_timing=True)
@@ -150,7 +215,7 @@ class KFDETR(BaseMocapModel):
             det_embeds = [self._forward_single(data) for data in datas]
             det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
         
-            assert det_embeds.shape[2] == 1 #assuming 1 object for now
+            #assert det_embeds.shape[2] == 1 #assuming 1 object for now
 
             num_views = det_embeds.shape[1]
             
@@ -160,9 +225,17 @@ class KFDETR(BaseMocapModel):
                 # cov = torch.eye(2) * 30
                 output = self.output_head(det_embeds[:, i])
                 dist = output['dist']
-                mean, cov = dist.loc, dist.covariance_matrix
-                means.append(mean.squeeze())
-                covs.append(cov.squeeze().cpu())#.cpu().numpy())
+                if isinstance(dist, D.MixtureSameFamily):
+                    comp = dist.component_distribution
+                    mean, cov = comp.loc, comp.covariance_matrix
+                    mean, cov = mean.squeeze(), cov.squeeze()
+                    for i in range(len(mean)):
+                        means.append(mean[i])
+                        covs.append(cov[i].cpu())
+                else: 
+                    mean, cov = dist.loc, dist.covariance_matrix
+                    means.append(mean.squeeze())
+                    covs.append(cov.squeeze().cpu())#.cpu().numpy())
         end.record()
         torch.cuda.synchronize()
         t = start.elapsed_time(end)
@@ -268,6 +341,8 @@ class KFDETR(BaseMocapModel):
 
                     elif self.loss_type == 'nll':
                         pos_neg_log_probs = -dist.log_prob(gt_positions[i,j])
+                        if len(pos_neg_log_probs.shape) == 1:
+                            pos_neg_log_probs = pos_neg_log_probs.unsqueeze(0)
                     
                     if len(pos_neg_log_probs) == 1: #one object
                         assign_idx = torch.zeros(1, 2).long()

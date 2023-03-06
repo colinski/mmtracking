@@ -28,17 +28,28 @@ from mmcv import build_from_cfg
 from ..builder import MODELS, build_tracker, build_model
 import torch.distributions as D
 
+def shift(x, a, b):
+    return a + (b - a) * x
+
+def generate_intervals(length, interval_size=100):
+    intervals = torch.stack([
+        torch.arange(0, length, interval_size),
+        torch.arange(interval_size, length + interval_size, interval_size)
+    ]).t()
+    return intervals
+
 @MODELS.register_module()
-class PoolingOutputHead(BaseModule):
+class AnchorOutputHead(BaseModule):
     def __init__(self,
                  include_z=False,
                  predict_full_cov=True,
                  predict_rotation=False,
                  predict_velocity=False,
+                 predict_obj_prob=False,
                  num_sa_layers=0,
-                 num_objects=1,
                  input_dim=256,
                  mean_scale=[700,500],
+                 interval_size=100,
                  to_cm=False,
                  cov_add=1,
                  mlp_dropout_rate=0.0,
@@ -50,29 +61,14 @@ class PoolingOutputHead(BaseModule):
         self.predict_rotation = predict_rotation
         self.predict_velocity = predict_velocity
         self.predict_full_cov = predict_full_cov
+        self.predict_obj_prob = predict_obj_prob
         self.to_cm = to_cm
-        #self.pooler = nn.AdaptiveAvgPool2d((1, num_objects))
-        self.pooler = nn.AdaptiveMaxPool2d((1, num_objects))
-        self.big_lin = nn.Linear(70*50, num_objects)
+        self.return_raw = False
 
-
-        # self.num_outputs = 2 + 1
-        # if self.include_z:
-            # self.num_outputs += 1
-        
-        # if predict_full_cov:
-            # if self.include_z:
-                # self.num_outputs += 9
-            # else:
-                # self.num_outputs += 3
-        # else:
-            # if self.include_z:
-                # self.num_outputs += 3
-            # else:
-                # self.num_outputs += 2
-
-        # if self.predict_rotation:
-            # self.num_outputs += 9
+        x_intervals = generate_intervals(mean_scale[0], interval_size)
+        y_intervals = generate_intervals(mean_scale[1], interval_size)
+        self.register_buffer('x_intervals', x_intervals)
+        self.register_buffer('y_intervals', y_intervals)
 
         
         if include_z:
@@ -83,21 +79,22 @@ class PoolingOutputHead(BaseModule):
         self.register_buffer('mean_scale', torch.tensor(mean_scale))
          
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim, input_dim),
-            #nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
+            nn.Conv2d(input_dim, input_dim, kernel_size=1),
             nn.GELU(),
-            nn.Linear(input_dim, input_dim),
-            #nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
+            nn.Conv2d(input_dim, input_dim, kernel_size=1),
             nn.GELU(),
             nn.Dropout(mlp_dropout_rate)
         )
         
 
-        self.mean_head = nn.Linear(input_dim, 2)
-        self.cov_head = nn.Linear(input_dim, 3)
-        self.obj_prob_head = nn.Linear(input_dim, 1)
+        self.num_outputs = 2 + 3 
+        self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=1)
+        self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=1)
+
+        if self.predict_obj_prob:
+            self.obj_prob_head = nn.Linear(input_dim, 1)
+            self.num_outputs += 1
         
-        self.num_outputs = 2 + 3 + 1
         
         if self.predict_rotation:
             self.rot_head = nn.Linear(input_dim, 2)
@@ -114,7 +111,6 @@ class PoolingOutputHead(BaseModule):
              out_proj=True,
              attn_drop=0.0, 
              seq_drop=0.0,
-             return_weights=False,
              v_dim=None
         )
         
@@ -128,75 +124,100 @@ class PoolingOutputHead(BaseModule):
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
     def forward(self, x):
-        # x = self.pooler(x)[:, :, 0] #B C nO
-        # x = x.permute(0, 2, 1)
-        x = x.flatten(2)
-        x = self.big_lin(x).transpose(-2,-1)
-        #x = x.mean(dim=[2,3]).unsqueeze(0) #WARNING!!!!
         x = self.mlp(x)
+        means = self.mean_head(x)
+        cov_logits = self.cov_head(x)
+
+        means = means.permute(0, 2, 3, 1)
+        cov_logits= cov_logits.permute(0, 2, 3, 1)
+        
+        means = means.sigmoid()
+
+        
+        x_vals = []
+        for i, xi in enumerate(self.x_intervals):
+            x_vals.append(shift(means[:, i, :, 0], xi[0], xi[1]))
+        
+        y_vals = []
+        for i, yi in enumerate(self.y_intervals):
+            y_vals.append(shift(means[:, :, i, 1], yi[0], yi[1]))
+
+        x_vals = torch.stack(x_vals, dim=1)
+        y_vals = torch.stack(y_vals, dim=-1)
+
+        means = torch.stack([x_vals, y_vals], dim=-1)
+
+
         outputs = []
         result = {}
-        outputs.append(self.mean_head(x))
-        outputs.append(self.cov_head(x))
-        outputs.append(self.obj_prob_head(x))
-        if self.predict_rotation:
-            outputs.append(self.rot_head(x))
-        
-        if self.predict_velocity:
-            outputs.append(self.vel_head(x))
 
-        outputs = torch.cat(outputs, dim=-1)
-        outputs = self.output_sa(outputs)
-        mean = outputs[..., 0:2]
-        cov_logits = outputs[..., 2:5]
-        obj_logits = outputs[..., 5]
-
-        if self.predict_rotation:
-            rot_logits = outputs[..., 5:7]
-            rot = torch.stack([
-                torch.sin(rot_logits[..., 0]),
-                torch.cos(rot_logits[..., 1])
-            ], dim=-1)
-            result['rot'] = rot
-        # mean = self.mean_head(x)
-        # cov_logits = self.cov_head(x)
-        
-        # if self.include_z:
-            # mean = output_vals[..., 0:3]
-        # else:
-            # mean = output_vals[..., 0:2]
-        # if self.add_grid_to_mean:
-            # mean[..., 0] += self.global_pos_encoding.unscaled_params_x.flatten()
-            # mean[..., 1] += self.global_pos_encoding.unscaled_params_y.flatten()
-        mean = mean.sigmoid()
-        mean = mean * self.mean_scale
+        if self.return_raw:
+            return None
+            assert len(mean) == 1
+            I = torch.eye(2).cuda()
+            cov_diag = I * F.softplus(cov_logits[..., 0:2]).squeeze()
+            cov_off_diag = cov_logits[..., -1]
+            rI = torch.tensor([[0,1],[1,0]]).float().cuda()
+            cov_off_diag = rI * cov_logits.squeeze()[-1]
+            cov = cov_off_diag + cov_diag
+            cov = cov @ cov.t()
+            cov = cov + I
+            return mean, cov
         
         cov_diag = F.softplus(cov_logits[..., 0:2])
         cov_off_diag = cov_logits[..., -1]
         cov = torch.diag_embed(cov_diag)
         cov[..., -1, 0] += cov_off_diag
-        B, N, _, _ = cov.shape
-        cov = cov.reshape(B*N, 2, 2)
+        B, H, W, _, _ = cov.shape
+        cov = cov.reshape(B*H*W, 2, 2)
         cov = torch.bmm(cov, cov.transpose(-2,-1))
-        cov = cov.reshape(B, N, 2, 2)
-
+        cov = cov.reshape(B, H, W, 2, 2)
         cov = cov + self.cov_add
+
+        means = means.reshape(B, H*W, 2)
+        cov = cov.reshape(B, H*W, 2, 2)
+        normals = D.MultivariateNormal(means, cov)
+        mix = D.Categorical(torch.ones(35,).cuda())
+        dist = D.MixtureSameFamily(mix, normals)
+
+        
 
         # if self.to_cm:
             # mean = mean*100
             # cov = cov*100
 
-        result['dist'] = D.MultivariateNormal(mean, cov)
-        result['obj_logits'] = obj_logits
+        result['dist'] = dist
+        
         # if self.predict_rotation:
             # result['rot'] = self.rot_head(x).tanh()
 
         # if self.predict_velocity:
             # assert 1==2
             # result['vel'] = self.vel_head(x)
+
         return result
 
 
+
+        # if self.predict_full_cov and self.include_z:
+            # cov = F.softplus(output_vals[..., 3:3+9])
+            # cov = cov.view(B*Nt, L, 3,3).tril()
+        # elif not self.predict_full_cov and self.include_z:
+            # cov = F.softplus(output_vals[..., 3:6])
+        # elif not self.predict_full_cov and not self.include_z:
+            # cov = F.softplus(output_vals[..., 2:4])
+            # cov = torch.diag_embed(cov)
+        # elif self.predict_full_cov and not self.include_z:
+            # cov = F.softplus(output_vals[..., 2:4])
+            # cov = torch.diag_embed(cov)
+            # cov[..., -1, 0] += output_vals[..., 4]
+            # B, N, _, _ = cov.shape
+            # cov = cov.reshape(B*N, 2, 2)
+            # cov = torch.bmm(cov, cov.transpose(-2,-1))
+            # cov = cov.reshape(B, N, 2, 2)
+        # cov = cov + self.cov_add
+        # obj_logits = output_vals[..., -1]
+        # return dist, obj_logits
 @MODELS.register_module()
 class OutputHead(BaseModule):
     def __init__(self,

@@ -86,6 +86,27 @@ class DETRModalityModel(BaseModule):
         return output_embeds
 
 @MODELS.register_module()
+class ConvAdapter(BaseModule):
+    def __init__(self,
+                 in_len=100,
+                 out_len=1,
+                 # in_dim=4,
+                 # out_dim=6,
+                 ffn_cfg=dict(type='SLP', in_channels=256),
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        #self.lin_len = nn.Linear(in_len, out_len)
+        #self.lin_dim = nn.Linear(in_dim, out_dim)
+        #self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
+        self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=(2,3), padding=(3,1))
+    
+    #x has shape B x in_len x D
+    def forward(self, x, pos_embeds=None):
+        x = self.conv(x)
+        return x
+
+@MODELS.register_module()
 class LinearEncoder(BaseModule):
     def __init__(self,
                  in_len=100,
