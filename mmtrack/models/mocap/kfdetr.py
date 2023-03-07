@@ -301,8 +301,44 @@ class KFDETR(BaseMocapModel):
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
-           
+     
     def forward_train(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+        
+        gt_positions = mocaps['gt_positions']
+        gt_positions = gt_positions.transpose(0,1)
+
+        gt_ids = mocaps['gt_ids']
+        T, B, f = gt_ids.shape
+        gt_ids = gt_ids.transpose(0,1)
+
+        gt_grids = mocaps['gt_grids']
+        T, B, N, Np, f = gt_grids.shape
+        gt_grids = gt_grids.transpose(0,1)
+        
+        all_embeds = [self._forward_single(data) for data in datas]
+        all_embeds = torch.stack(all_embeds, dim=0) 
+        all_embeds = all_embeds.transpose(0, 1) #B T L D
+        num_views = all_embeds.shape[2]
+        
+        all_outputs = []
+        for q in range(num_views):
+            for i in range(B):
+                for j in range(T):
+                    output = self.output_head(all_embeds[i,j,q].unsqueeze(0))
+                    dist = output['dist']
+                    nll = -dist.log_prob(gt_positions[i,j])
+                    pos_loss = nll.mean()
+                    pos_loss = pos_loss * self.pos_loss_weight
+                    losses['pos_loss_%d' % q].append(pos_loss)
+                    #losses['rot_loss'].append(rot_loss)
+
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
+      
+    def forward_train_preanchor(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
@@ -343,7 +379,7 @@ class KFDETR(BaseMocapModel):
                         pos_neg_log_probs = -dist.log_prob(gt_positions[i,j])
                         if len(pos_neg_log_probs.shape) == 1:
                             pos_neg_log_probs = pos_neg_log_probs.unsqueeze(0)
-                    
+                     
                     if len(pos_neg_log_probs) == 1: #one object
                         assign_idx = torch.zeros(1, 2).long()
                     elif self.match_by_id:

@@ -90,6 +90,7 @@ class AnchorOutputHead(BaseModule):
         self.num_outputs = 2 + 3 
         self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=1)
         self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=1)
+        self.mix_head = nn.Conv2d(input_dim, 1, kernel_size=1)
 
         if self.predict_obj_prob:
             self.obj_prob_head = nn.Linear(input_dim, 1)
@@ -127,6 +128,7 @@ class AnchorOutputHead(BaseModule):
         x = self.mlp(x)
         means = self.mean_head(x)
         cov_logits = self.cov_head(x)
+        mix_weights = self.mix_head(x)
 
         means = means.permute(0, 2, 3, 1)
         cov_logits= cov_logits.permute(0, 2, 3, 1)
@@ -177,7 +179,11 @@ class AnchorOutputHead(BaseModule):
         means = means.reshape(B, H*W, 2)
         cov = cov.reshape(B, H*W, 2, 2)
         normals = D.MultivariateNormal(means, cov)
-        mix = D.Categorical(torch.ones(35,).cuda())
+        
+        #mix = D.Categorical(torch.ones(35,).cuda())
+        mix_weights = mix_weights.flatten()
+        mix_weights = torch.softmax(mix_weights, dim=0)
+        mix = D.Categorical(probs=mix_weights)
         dist = D.MixtureSameFamily(mix, normals)
 
         
