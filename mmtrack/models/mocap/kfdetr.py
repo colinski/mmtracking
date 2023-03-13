@@ -220,6 +220,7 @@ class KFDETR(BaseMocapModel):
             num_views = det_embeds.shape[1]
             
             means, covs = [], []
+            weights = []
             for i in range(num_views):
                 # mean = gt_pos.cpu() + 30 * torch.randn(2)
                 # cov = torch.eye(2) * 30
@@ -229,6 +230,10 @@ class KFDETR(BaseMocapModel):
                     comp = dist.component_distribution
                     mean, cov = comp.loc, comp.covariance_matrix
                     mean, cov = mean.squeeze(), cov.squeeze()
+                    weights.append(dist.mixture_distribution.probs.cpu())
+                    mask = dist.mixture_distribution.probs > 0.05
+                    mean = mean[mask]
+                    cov = cov[mask]
                     for i in range(len(mean)):
                         means.append(mean[i])
                         covs.append(cov[i].cpu())
@@ -243,6 +248,7 @@ class KFDETR(BaseMocapModel):
 
         # means = torch.cat(means, dim=0).squeeze().t()
         means = torch.stack(means, dim=0).t()#.cpu().numpy()
+        weights = torch.stack(weights)
         
         
         #dist = output['dist']
@@ -255,7 +261,8 @@ class KFDETR(BaseMocapModel):
         result = {
             'det_means': means.cpu(),
             #'det_covs': torch.stack(covs, dim=-1).cpu()
-            'det_covs': covs
+            'det_covs': covs,
+            'det_weights': weights
         }
         #return self.tracker(result)
         return result

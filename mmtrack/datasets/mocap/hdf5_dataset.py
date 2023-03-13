@@ -341,6 +341,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
 
     def evaluate(self, outputs, **eval_kwargs):
+        metrics = eval_kwargs['metric']
         gt = self.collect_gt()
         grid_res = {}
         if eval_kwargs['grid_search']:
@@ -348,8 +349,20 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         logdir = eval_kwargs['logdir']
         
         vid_outputs = outputs
+
+        kf = TorchMultiObsKalmanFilter(dt=1, std_acc=1)
+        with torch.no_grad():
+            track_output = kf.forward(outputs['det_means'], outputs['det_covs'])
+        track_means = track_output[0].t()
+        track_covs = track_output[1].permute(2, 0, 1)
+        track_ids = [torch.zeros(1) for _ in outputs['det_covs']]
+        new_outputs = {'track_means': track_means.unsqueeze(1), 'track_covs': track_covs.unsqueeze(1), 'track_ids': track_ids}
+        vid_outputs = new_outputs
+        vid_outputs['det_means'] = outputs['det_means']
+        vid_outputs['det_covs'] = outputs['det_covs']
+        vid_outputs['det_weights'] = outputs['det_weights']
         
-        if 'track' in eval_kwargs.keys():
+        if 'track' in metrics:
             res, vid_outputs = self.track_eval(outputs, gt)
             grid_res['uncalibrated'] = res
         
@@ -362,7 +375,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         with open(fname, 'w') as f:
             json.dump(grid_res, f)
 
-        metrics = eval_kwargs['metric']
         if 'vid' in metrics:
             self.write_video(vid_outputs, **eval_kwargs)
         return grid_res
@@ -437,7 +449,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                                 mean = pred_means[j].cpu()
                                 cov = pred_covs[j].cpu()
                                 ID = str(j+1)
-                                axes[key].scatter(mean[0], mean[1], color='black', marker='$%s$' % ID, lw=1, s=20*4**2)
+                                #axes[key].scatter(mean[0], mean[1], color='black', marker='$%s$' % ID, lw=1, s=20*4**2)
+                                axes[key].scatter(mean[0], mean[1], color='black', lw=1, s=20*4**2)
                                 ellipse = gen_ellipse(mean, cov, edgecolor='black', fc='None', lw=2, linestyle='--')
                                 axes[key].add_patch(ellipse)
                         
@@ -499,6 +512,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     # img = img.astype(np.uint8)
                     #img = np.concatenate([img, head_dists], axis=0)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    node_id = int(node.split('_')[-1]) - 1
+                    weights = outputs['det_weights'][i][node_id]
+                    weights = weights.reshape(7,5) * 255
+                    weights = weights.numpy().astype(np.uint8).T
+                    weights = np.flip(weights, axis=1)
+                    weights = np.flip(weights, axis=0)
+                    weights = np.fliplr(weights)
+                    weights = np.stack([weights]*3, axis=-1)
+                    weights = cv2.resize(weights, dsize=(480,270))
+                    img = np.hstack([img, weights])
                     axes[key].imshow(img)
 
                 if 'r50' in mod:
