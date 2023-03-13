@@ -342,11 +342,15 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
     def evaluate(self, outputs, **eval_kwargs):
         metrics = eval_kwargs['metric']
+        logdir = eval_kwargs['logdir']
+        
+        fname = f'{logdir}/outputs.pt'
+        torch.save(outputs, fname)
+        import ipdb; ipdb.set_trace() # noqa
         gt = self.collect_gt()
         grid_res = {}
         if eval_kwargs['grid_search']:
             grid_res = self.grid_search(outputs, gt)
-        logdir = eval_kwargs['logdir']
         
         vid_outputs = outputs
 

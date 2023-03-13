@@ -117,7 +117,37 @@ class DetectorEnsemble(BaseMocapModel):
             else:
                 return self.forward_test(data, **kwargs)
 
-    
+    def forward_track(self, datas, return_unscaled=False, **kwargs):
+        preds = {}
+        # mocaps = [d[('mocap', 'mocap')] for d in datas]
+        # mocaps = mmcv.parallel.collate(mocaps)
+        
+        # num_timesteps x batch_size x num_objects x (2 or 3)
+        #gt_positions = mocaps['gt_positions']
+        
+        #num_timesteps x batch_size x num_views x D x H x W
+        all_outputs = [self._forward_single(data) for data in datas]
+        assert len(all_outputs) == 1
+        for t, output in enumerate(all_outputs):
+            for key, embeds in output.items():
+                loss_key = '_'.join(key)
+                assert len(embeds) == 1
+                for b, embed in enumerate(embeds): 
+                    #gt_pos = gt_positions[t, b]
+                    dist = self.output_head(embed.unsqueeze(0))['dist']
+                    # comp_dist = dist.componet_distribution
+                    comp_dist = dist.component_distribution
+                    mean, cov = comp_dist.loc, comp_dist.covariance_matrix
+                    weights = dist.mixture_distribution.probs
+                    result = {
+                        'mean': mean.reshape(28,20,2).cpu(),
+                        'cov': cov.reshape(28,20,2,2).cpu(),
+                        'weights': weights.reshape(28,20).cpu()
+                    }
+                    preds[loss_key] = result
+        
+        return preds
+
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
@@ -125,17 +155,6 @@ class DetectorEnsemble(BaseMocapModel):
         
         # num_timesteps x batch_size x num_objects x (2 or 3)
         gt_positions = mocaps['gt_positions']
-
-
-        # gt_positions = gt_positions.transpose(0,1)
-
-        # gt_ids = mocaps['gt_ids']
-        # T, B, f = gt_ids.shape
-        # gt_ids = gt_ids.transpose(0,1)
-
-        # gt_grids = mocaps['gt_grids']
-        # T, B, N, Np, f = gt_grids.shape
-        # gt_grids = gt_grids.transpose(0,1)
         
         #num_timesteps x batch_size x num_views x D x H x W
         all_outputs = [self._forward_single(data) for data in datas]
@@ -147,25 +166,6 @@ class DetectorEnsemble(BaseMocapModel):
                     dist = self.output_head(embed.unsqueeze(0))['dist']
                     nll = -dist.log_prob(gt_pos)
                     losses[loss_key].append(nll.mean()) 
-
-        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
-        return losses
-        import ipdb; ipdb.set_trace() # noqa
-        all_embeds = torch.stack(all_embeds, dim=0) 
-        all_embeds = all_embeds.transpose(0, 1) #B T L D
-        num_views = all_embeds.shape[2]
-        
-        all_outputs = []
-        for q in range(num_views):
-            for i in range(B):
-                for j in range(T):
-                    output = self.output_head(all_embeds[i,j,q].unsqueeze(0))
-                    dist = output['dist']
-                    nll = -dist.log_prob(gt_positions[i,j])
-                    pos_loss = nll.mean()
-                    pos_loss = pos_loss * self.pos_loss_weight
-                    losses['pos_loss_%d' % q].append(pos_loss)
-                    #losses['rot_loss'].append(rot_loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
