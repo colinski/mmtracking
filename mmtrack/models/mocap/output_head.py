@@ -168,8 +168,18 @@ class AnchorOutputHead(BaseModule):
         
         cov_diag = F.softplus(cov_logits[..., 0:2])
         cov_off_diag = cov_logits[..., -1]
-        cov = torch.diag_embed(cov_diag)
-        cov[..., -1, 0] += cov_off_diag
+        
+        eye = torch.eye(2).cuda()
+        cov_diag = cov_diag.unsqueeze(-1) * eye
+
+        reye = torch.flip(eye, dims=[1])
+        cov_off_diag = cov_off_diag.unsqueeze(-1).unsqueeze(-1) * reye
+        
+        cov = cov_diag + cov_off_diag
+
+        # cov = torch.diag_embed(cov_diag)
+        # cov[..., -1, 0] += cov_off_diag
+        
         B, H, W, _, _ = cov.shape
         cov = cov.reshape(B*H*W, 2, 2)
         cov = torch.bmm(cov, cov.transpose(-2,-1))

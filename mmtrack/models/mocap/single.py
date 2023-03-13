@@ -99,11 +99,20 @@ class ConvAdapter(BaseModule):
         #self.lin_len = nn.Linear(in_len, out_len)
         #self.lin_dim = nn.Linear(in_dim, out_dim)
         #self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
-        self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=(2,3), padding=(3,1))
+        #self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=(2,3), padding=(3,1))
+        #self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=(2,3), padding=(3,1))
+        self.conv1 = nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0))
+        #self.up1 = nn.Upsample(scale_factor=2)
+        self.conv2 = nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0))
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
-        x = self.conv(x)
+        x = self.conv1(x)
+        x = x.transpose(-2, -1)
+        #x = self.up1(x)
+        x = F.interpolate(x, size=(28, 20))
+        x = self.conv2(x)
+        # x = self.conv(x)
         return x
 
 @MODELS.register_module()
