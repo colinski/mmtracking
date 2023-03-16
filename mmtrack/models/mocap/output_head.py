@@ -48,8 +48,8 @@ class AnchorOutputHead(BaseModule):
                  predict_obj_prob=False,
                  num_sa_layers=0,
                  input_dim=256,
-                 mean_scale=[700,500],
-                 interval_size=100,
+                 room_size=[700,500],
+                 interval_sizes=[700,500],
                  to_cm=False,
                  cov_add=1,
                  mlp_dropout_rate=0.0,
@@ -65,8 +65,8 @@ class AnchorOutputHead(BaseModule):
         self.to_cm = to_cm
         self.return_raw = False
 
-        x_intervals = generate_intervals(mean_scale[0], interval_size)
-        y_intervals = generate_intervals(mean_scale[1], interval_size)
+        x_intervals = generate_intervals(room_size[0], interval_sizes[0])
+        y_intervals = generate_intervals(room_size[1], interval_sizes[1])
         self.register_buffer('x_intervals', x_intervals)
         self.register_buffer('y_intervals', y_intervals)
 
@@ -76,7 +76,7 @@ class AnchorOutputHead(BaseModule):
         else:
             self.register_buffer('cov_add', torch.eye(2) * cov_add)
 
-        self.register_buffer('mean_scale', torch.tensor(mean_scale))
+        # self.register_buffer('mean_scale', torch.tensor(mean_scale))
          
         self.mlp = nn.Sequential(
             nn.Conv2d(input_dim, input_dim, kernel_size=1),
@@ -85,7 +85,6 @@ class AnchorOutputHead(BaseModule):
             nn.GELU(),
             nn.Dropout(mlp_dropout_rate)
         )
-        
 
         self.num_outputs = 2 + 3 
         self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=1)
@@ -131,11 +130,10 @@ class AnchorOutputHead(BaseModule):
         mix_weights = self.mix_head(x)
 
         means = means.permute(0, 2, 3, 1)
-        cov_logits= cov_logits.permute(0, 2, 3, 1)
+        cov_logits = cov_logits.permute(0, 2, 3, 1)
         
         means = means.sigmoid()
 
-        
         x_vals = []
         for i, xi in enumerate(self.x_intervals):
             x_vals.append(shift(means[:, i, :, 0], xi[0], xi[1]))

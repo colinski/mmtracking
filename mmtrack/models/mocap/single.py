@@ -85,35 +85,38 @@ class DETRModalityModel(BaseModule):
         output_embeds = output_embeds.reshape(B, -1, D)
         return output_embeds
 
+class Interpolate(nn.Module):
+    def __init__(self, size=(1, 1)):
+        super().__init__()
+        self.size = size
+
+    def forward(self, x):
+        return F.interpolate(x, size=self.size)
+
 @MODELS.register_module()
 class ConvAdapter(BaseModule):
     def __init__(self,
-                 in_len=100,
-                 out_len=1,
-                 # in_dim=4,
-                 # out_dim=6,
-                 ffn_cfg=dict(type='SLP', in_channels=256),
+                 interpolate_size=(1,1),
+                 interpolate_fn='interpolate',
+                 #ffn_cfg=dict(type='SLP', in_channels=256),
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        #self.lin_len = nn.Linear(in_len, out_len)
-        #self.lin_dim = nn.Linear(in_dim, out_dim)
-        #self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
-        #self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=(2,3), padding=(3,1))
-        #self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=(2,3), padding=(3,1))
-        self.conv1 = nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0))
-        #self.up1 = nn.Upsample(scale_factor=2)
-        self.conv2 = nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0))
+        if interpolate_fn == 'interpolate':
+            interp_layer = Interpolate(interpolate_size) 
+        elif interpolate_fn == 'avgpool':
+            interp_layer = nn.AdaptiveAvgPool2d(interpolate_size) 
+        self.layers = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0)),
+            nn.GELU(),
+            interp_layer,
+            nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0)),
+            nn.GELU()
+        )
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
-        x = self.conv1(x)
-        x = x.transpose(-2, -1)
-        #x = self.up1(x)
-        x = F.interpolate(x, size=(28, 20))
-        x = self.conv2(x)
-        # x = self.conv(x)
-        return x
+        return self.layers(x)
 
 @MODELS.register_module()
 class LinearEncoder(BaseModule):

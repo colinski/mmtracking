@@ -449,9 +449,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         if len(outputs['det_means']) > 0:
                             pred_means = outputs['det_means'][i].t()
                             pred_covs = outputs['det_covs'][i]
+                            pred_weights = outputs['det_weights'][i]
                             for j in range(len(pred_means)):
                                 mean = pred_means[j].cpu()
                                 cov = pred_covs[j].cpu()
+                                weight = pred_weights[j].cpu()
                                 ID = str(j+1)
                                 #axes[key].scatter(mean[0], mean[1], color='black', marker='$%s$' % ID, lw=1, s=20*4**2)
                                 axes[key].scatter(mean[0], mean[1], color='black', lw=1, s=20*4**2)
@@ -516,16 +518,16 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     # img = img.astype(np.uint8)
                     #img = np.concatenate([img, head_dists], axis=0)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    node_id = int(node.split('_')[-1]) - 1
-                    weights = outputs['det_weights'][i][node_id]
-                    weights = weights.reshape(7,5) * 255
-                    weights = weights.numpy().astype(np.uint8).T
-                    weights = np.flip(weights, axis=1)
-                    weights = np.flip(weights, axis=0)
-                    weights = np.fliplr(weights)
-                    weights = np.stack([weights]*3, axis=-1)
-                    weights = cv2.resize(weights, dsize=(480,270))
-                    img = np.hstack([img, weights])
+                    # node_id = int(node.split('_')[-1]) - 1
+                    # weights = outputs['det_weights'][i][node_id]
+                    # weights = weights.reshape(7,5) * 255
+                    # weights = weights.numpy().astype(np.uint8).T
+                    # weights = np.flip(weights, axis=1)
+                    # weights = np.flip(weights, axis=0)
+                    # weights = np.fliplr(weights)
+                    # weights = np.stack([weights]*3, axis=-1)
+                    # weights = cv2.resize(weights, dsize=(480,270))
+                    # img = np.hstack([img, weights])
                     axes[key].imshow(img)
 
                 if 'r50' in mod:
