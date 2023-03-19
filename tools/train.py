@@ -68,6 +68,10 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
+    parser.add_argument(
+        '--trainset',
+        default='train',
+        help='train on trainset or valset')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
@@ -181,8 +185,10 @@ def main():
     else:
         model = build_model(cfg.model)
     model.init_weights()
-
+    
     datasets = [build_dataset(cfg.data.train)]
+    if args.trainset == 'val':
+        datasets = [build_dataset(cfg.data.val)]
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
         val_dataset.pipeline = cfg.data.train.pipeline

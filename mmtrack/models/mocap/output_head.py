@@ -53,6 +53,7 @@ class AnchorOutputHead(BaseModule):
                  to_cm=False,
                  cov_add=1,
                  mlp_dropout_rate=0.0,
+                 cov_only_train=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -64,6 +65,7 @@ class AnchorOutputHead(BaseModule):
         self.predict_obj_prob = predict_obj_prob
         self.to_cm = to_cm
         self.return_raw = False
+        self.cov_only_train = cov_only_train
 
         x_intervals = generate_intervals(room_size[0], interval_sizes[0])
         y_intervals = generate_intervals(room_size[1], interval_sizes[1])
@@ -124,46 +126,37 @@ class AnchorOutputHead(BaseModule):
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
     def forward(self, x):
-        x = self.mlp(x)
-        means = self.mean_head(x)
-        cov_logits = self.cov_head(x)
-        mix_weights = self.mix_head(x)
+        with torch.set_grad_enabled(not self.cov_only_train):
+            x = self.mlp(x)
+            means = self.mean_head(x)
+            mix_weights = self.mix_head(x)
 
-        means = means.permute(0, 2, 3, 1)
-        cov_logits = cov_logits.permute(0, 2, 3, 1)
-        
-        means = means.sigmoid()
+            means = means.permute(0, 2, 3, 1)
+                    
+            means = means.sigmoid()
 
-        x_vals = []
-        for i, xi in enumerate(self.x_intervals):
-            x_vals.append(shift(means[:, i, :, 0], xi[0], xi[1]))
-        
-        y_vals = []
-        for i, yi in enumerate(self.y_intervals):
-            y_vals.append(shift(means[:, :, i, 1], yi[0], yi[1]))
+            x_vals = []
+            for i, xi in enumerate(self.x_intervals):
+                x_vals.append(shift(means[:, i, :, 0], xi[0], xi[1]))
+            
+            y_vals = []
+            for i, yi in enumerate(self.y_intervals):
+                y_vals.append(shift(means[:, :, i, 1], yi[0], yi[1]))
 
-        x_vals = torch.stack(x_vals, dim=1)
-        y_vals = torch.stack(y_vals, dim=-1)
+            x_vals = torch.stack(x_vals, dim=1)
+            y_vals = torch.stack(y_vals, dim=-1)
 
-        means = torch.stack([x_vals, y_vals], dim=-1)
+            means = torch.stack([x_vals, y_vals], dim=-1)
 
+            mix_weights = mix_weights.flatten()
 
         outputs = []
         result = {}
 
-        if self.return_raw:
-            return None
-            assert len(mean) == 1
-            I = torch.eye(2).cuda()
-            cov_diag = I * F.softplus(cov_logits[..., 0:2]).squeeze()
-            cov_off_diag = cov_logits[..., -1]
-            rI = torch.tensor([[0,1],[1,0]]).float().cuda()
-            cov_off_diag = rI * cov_logits.squeeze()[-1]
-            cov = cov_off_diag + cov_diag
-            cov = cov @ cov.t()
-            cov = cov + I
-            return mean, cov
-        
+                
+        cov_logits = self.cov_head(x)
+        cov_logits = cov_logits.permute(0, 2, 3, 1)
+
         cov_diag = F.softplus(cov_logits[..., 0:2])
         cov_off_diag = cov_logits[..., -1]
         
@@ -186,11 +179,14 @@ class AnchorOutputHead(BaseModule):
 
         means = means.reshape(B, H*W, 2)
         cov = cov.reshape(B, H*W, 2, 2)
+
+        if self.return_raw:
+            return means, cov, mix_weights.unsqueeze(0)
+
+        mix_weights = torch.softmax(mix_weights, dim=0)
         normals = D.MultivariateNormal(means, cov)
         
         #mix = D.Categorical(torch.ones(35,).cuda())
-        mix_weights = mix_weights.flatten()
-        mix_weights = torch.softmax(mix_weights, dim=0)
         mix = D.Categorical(probs=mix_weights)
         dist = D.MixtureSameFamily(mix, normals)
 

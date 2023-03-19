@@ -346,6 +346,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         
         fname = f'{logdir}/outputs.pt'
         torch.save(outputs, fname)
+        return {}
         import ipdb; ipdb.set_trace() # noqa
         gt = self.collect_gt()
         grid_res = {}
@@ -364,7 +365,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         vid_outputs = new_outputs
         vid_outputs['det_means'] = outputs['det_means']
         vid_outputs['det_covs'] = outputs['det_covs']
-        vid_outputs['det_weights'] = outputs['det_weights']
+        #vid_outputs['det_weights'] = outputs['det_weights']
         
         if 'track' in metrics:
             res, vid_outputs = self.track_eval(outputs, gt)
@@ -449,11 +450,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         if len(outputs['det_means']) > 0:
                             pred_means = outputs['det_means'][i].t()
                             pred_covs = outputs['det_covs'][i]
-                            pred_weights = outputs['det_weights'][i]
+                            #pred_weights = outputs['det_weights'][i]
                             for j in range(len(pred_means)):
                                 mean = pred_means[j].cpu()
                                 cov = pred_covs[j].cpu()
-                                weight = pred_weights[j].cpu()
+                                # weight = pred_weights[j].cpu()
                                 ID = str(j+1)
                                 #axes[key].scatter(mean[0], mean[1], color='black', marker='$%s$' % ID, lw=1, s=20*4**2)
                                 axes[key].scatter(mean[0], mean[1], color='black', lw=1, s=20*4**2)
@@ -466,7 +467,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             #pred_rots = outputs['track_rot'][i]
                             ids = outputs['track_ids'][i].to(int)
                             # slot_ids = outputs['slot_ids'][i].to(int)
-                            print(pred_means, pred_covs)
                             for j in range(len(pred_means)):
                                 #rot = pred_rots[j]
                                 #angle = torch.arctan(rot[0]/rot[1]) * 360

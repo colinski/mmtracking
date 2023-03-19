@@ -211,36 +211,35 @@ class KFDETR(BaseMocapModel):
         end = torch.cuda.Event(enable_timing=True)
 
         start.record()
-        with torch.no_grad():
-            det_embeds = [self._forward_single(data) for data in datas]
-            det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
-        
-            #assert det_embeds.shape[2] == 1 #assuming 1 object for now
+        result = {}
+        det_embeds = [self._forward_single(data) for data in datas]
+        assert len(det_embeds) == 1
+        #det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
 
-            num_views = det_embeds.shape[1]
-            
-            means, covs = [], []
-            weights = []
-            for i in range(num_views):
-                # mean = gt_pos.cpu() + 30 * torch.randn(2)
-                # cov = torch.eye(2) * 30
-                output = self.output_head(det_embeds[:, i])
-                dist = output['dist']
-                if isinstance(dist, D.MixtureSameFamily):
-                    comp = dist.component_distribution
-                    mean, cov = comp.loc, comp.covariance_matrix
-                    mean, cov = mean.squeeze(), cov.squeeze()
-                    weights.append(dist.mixture_distribution.probs.cpu())
-                    mask = dist.mixture_distribution.probs > 0.05
-                    mean = mean[mask]
-                    cov = cov[mask]
-                    for i in range(len(mean)):
-                        means.append(mean[i])
-                        covs.append(cov[i].cpu())
-                else: 
-                    mean, cov = dist.loc, dist.covariance_matrix
-                    means.append(mean.squeeze())
-                    covs.append(cov.squeeze().cpu())#.cpu().numpy())
+        for key, val in det_embeds[0].items():
+            with torch.no_grad():
+                output = self.output_head(val)
+            dist = output['dist']
+            mean, cov = dist.loc, dist.covariance_matrix
+            result[key] = {'mean': mean, 'cov': cov}
+        return result
+
+
+    
+        #assert det_embeds.shape[2] == 1 #assuming 1 object for now
+
+        num_views = det_embeds.shape[1]
+        
+        means, covs = [], []
+        #weights = []
+        for i in range(num_views):
+            # mean = gt_pos.cpu() + 30 * torch.randn(2)
+            # cov = torch.eye(2) * 30
+            output = self.output_head(det_embeds[:, i])
+            dist = output['dist']
+            mean, cov = dist.loc, dist.covariance_matrix
+            means.append(mean.squeeze())
+            covs.append(cov.squeeze().cpu())#.cpu().numpy())
         end.record()
         torch.cuda.synchronize()
         t = start.elapsed_time(end)
@@ -248,7 +247,7 @@ class KFDETR(BaseMocapModel):
 
         # means = torch.cat(means, dim=0).squeeze().t()
         means = torch.stack(means, dim=0).t()#.cpu().numpy()
-        weights = torch.stack(weights)
+        # weights = torch.stack(weights)
         
         
         #dist = output['dist']
@@ -262,7 +261,7 @@ class KFDETR(BaseMocapModel):
             'det_means': means.cpu(),
             #'det_covs': torch.stack(covs, dim=-1).cpu()
             'det_covs': covs,
-            'det_weights': weights
+            # 'det_weights': weights
         }
         #return self.tracker(result)
         return result
@@ -324,10 +323,16 @@ class KFDETR(BaseMocapModel):
         gt_grids = mocaps['gt_grids']
         T, B, N, Np, f = gt_grids.shape
         gt_grids = gt_grids.transpose(0,1)
-        
-        all_embeds = [self._forward_single(data) for data in datas]
-        all_embeds = torch.stack(all_embeds, dim=0) 
-        all_embeds = all_embeds.transpose(0, 1) #B T L D
+       
+        all_embeds = []
+        for res in [self._forward_single(data) for data in datas]:
+            embeds = [val for key, val in res.items()]
+            all_embeds.append(torch.stack(embeds))
+
+        all_embeds = torch.stack(all_embeds, dim=0)  #T Nv B No D
+        all_embeds = all_embeds.permute(2, 0, 1, 3, 4)
+
+        # all_embeds = all_embeds.transpose(0, 1) #B T L D
         num_views = all_embeds.shape[2]
         
         all_outputs = []
@@ -409,7 +414,7 @@ class KFDETR(BaseMocapModel):
         return losses
 
     def _forward_single(self, data, return_unscaled=False, **kwargs):
-        inter_embeds = []
+        inter_embeds = {}
         for key in data.keys():
             mod, node = key
             if mod == 'mocap':
@@ -447,12 +452,10 @@ class KFDETR(BaseMocapModel):
 
             feats = feats[0]
             embeds = model(feats)
-            inter_embeds.append(embeds)
+            inter_embeds[key] = embeds
+            #inter_embeds.append(embeds)
 
-        if len(inter_embeds) == 0:
-            import ipdb; ipdb.set_trace() # noqa
-        
-        inter_embeds = torch.stack(inter_embeds, dim=1)
+        #inter_embeds = torch.stack(inter_embeds, dim=1)
         #inter_embeds = inter_embeds.mean(dim=1)
         return inter_embeds
         # inter_embeds = self.mod_dropout(inter_embeds)

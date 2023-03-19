@@ -173,7 +173,12 @@ def main():
     else:
         model = build_model(cfg.model)
     # We need call `init_weights()` to load pretained weights in MOT task.
+    model.init_cfg = dict(type='Pretrained', checkpoint=args.checkpoint) 
     model.init_weights()
+    #batch = next(iter(data_loader))
+    path = args.cfg_options['evaluation.logdir']
+    model.forward_export(dataset[0], path)
+    import ipdb; ipdb.set_trace() # noqa
     
     class Delist(nn.Module):
         def __init__(self):

@@ -26,6 +26,13 @@ from mmcv import build_from_cfg
 #from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 
+class Delist(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+        def forward(self, x):
+            return x[0]
+
 def linear_assignment(cost_matrix):
     cost_matrix = cost_matrix.cpu().detach().numpy()
     _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
@@ -51,9 +58,11 @@ class DetectorEnsemble(BaseMocapModel):
                  loss_type='nll',
                  freeze_backbone=False,
                  kf_train=False,
+                 cov_only_train=False,
+                 init_cfg={},
                  *args,
                  **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(init_cfg, *args, **kwargs)
         # config_file = '/home/csamplawski/src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
         # checkpoint_file = '/home/csamplawski/src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
         # self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
@@ -69,7 +78,9 @@ class DetectorEnsemble(BaseMocapModel):
         #self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
         #self.tracker = MultiTracker(mode='kf')
         self.loss_type = loss_type
+        self.cov_only_train = cov_only_train
         
+        output_head_cfg['cov_only_train'] = cov_only_train
         self.output_head = build_model(output_head_cfg)
         self.times = []
         
@@ -96,6 +107,8 @@ class DetectorEnsemble(BaseMocapModel):
         self.freeze_backbone = freeze_backbone
         self.kf_train = kf_train
         self.sessions = None
+        # if init_cfg != {}:
+            # self.init_weights()
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -148,6 +161,62 @@ class DetectorEnsemble(BaseMocapModel):
                         'weights': weights.reshape(H,W).cpu()
                     }
         return preds
+    
+    def forward_export(self, datas, path, return_unscaled=False, **kwargs):
+        from onnxsim import simplify
+        import onnx
+
+        for key, val in datas[0].items():
+            if key == 'mocap':
+                continue
+            img = val['img'].data.unsqueeze(0).cuda()
+            mod, node = key
+            name = mod + '_' + node
+            backbone = self.backbones[mod]
+            adapter = self.adapters[name]
+            output_head = self.output_head.eval()
+            output_head.return_raw = True
+            export_model = nn.Sequential(backbone.eval(), Delist(), adapter.eval(), output_head.eval())
+            export_model = export_model.cuda().eval()
+            import ipdb; ipdb.set_trace() # noqa
+            onnx_fname = "%s/%s.onnx" % (path,name)
+            torch.onnx.export(export_model, img, onnx_fname, verbose=True,
+                input_names=['img'], output_names=['mean', 'cov', 'mix_weights'])
+            model = onnx.load(onnx_fname)
+            model_simp, check = simplify(model)
+            onnx.save(model, onnx_fname)
+
+            import onnxruntime as ort
+            sess = ort.InferenceSession(onnx_fname, providers=['CPUExecutionProvider'])
+            outputs = sess.run(None, {'img': img.cpu().numpy()})
+            print(datas[0][('mocap', 'mocap')]['gt_positions'])
+            print(outputs)
+
+
+            
+            import ipdb; ipdb.set_trace() # noqa
+        return None
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+        
+        # num_timesteps x batch_size x num_objects x (2 or 3)
+        gt_positions = mocaps['gt_positions']
+        
+        #num_timesteps x batch_size x num_views x D x H x W
+        with torch.set_grad_enabled(not self.cov_only_train):
+            all_outputs = [self._forward_single(data) for data in datas]
+        for t, output in enumerate(all_outputs):
+            for key, embeds in output.items():
+                loss_key = '_'.join(key + ('loss',))
+                for b, embed in enumerate(embeds): 
+                    gt_pos = gt_positions[t, b]
+                    dist = self.output_head(embed.unsqueeze(0))['dist']
+                    nll = -dist.log_prob(gt_pos)
+                    losses[loss_key].append(nll.mean()) 
+
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        return losses
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
@@ -158,7 +227,8 @@ class DetectorEnsemble(BaseMocapModel):
         gt_positions = mocaps['gt_positions']
         
         #num_timesteps x batch_size x num_views x D x H x W
-        all_outputs = [self._forward_single(data) for data in datas]
+        with torch.set_grad_enabled(not self.cov_only_train):
+            all_outputs = [self._forward_single(data) for data in datas]
         for t, output in enumerate(all_outputs):
             for key, embeds in output.items():
                 loss_key = '_'.join(key + ('loss',))
