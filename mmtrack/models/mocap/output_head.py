@@ -201,6 +201,7 @@ class AnchorOutputHead(BaseModule):
             # cov = cov*100
 
         result['dist'] = dist
+        result['grid_size'] = (H, W)
         
         # if self.predict_rotation:
             # result['rot'] = self.rot_head(x).tanh()

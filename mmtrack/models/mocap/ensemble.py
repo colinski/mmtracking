@@ -134,18 +134,19 @@ class DetectorEnsemble(BaseMocapModel):
                 assert len(embeds) == 1
                 for b, embed in enumerate(embeds): 
                     #gt_pos = gt_positions[t, b]
-                    dist = self.output_head(embed.unsqueeze(0))['dist']
+                    embed = embed.unsqueeze(0)
+                    output_dict = self.output_head(embed)
+                    dist = output_dict['dist']
+                    H, W = output_dict['grid_size']
                     # comp_dist = dist.componet_distribution
                     comp_dist = dist.component_distribution
                     mean, cov = comp_dist.loc, comp_dist.covariance_matrix
                     weights = dist.mixture_distribution.probs
-                    result = {
-                        'mean': mean.reshape(28,20,2).cpu(),
-                        'cov': cov.reshape(28,20,2,2).cpu(),
-                        'weights': weights.reshape(28,20).cpu()
+                    preds[loss_key] = {
+                        'mean': mean.reshape(H,W,2).cpu(),
+                        'cov': cov.reshape(H,W,2,2).cpu(),
+                        'weights': weights.reshape(H,W).cpu()
                     }
-                    preds[loss_key] = result
-        
         return preds
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
