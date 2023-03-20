@@ -165,12 +165,13 @@ class DetectorEnsemble(BaseMocapModel):
     def forward_export(self, datas, path, return_unscaled=False, **kwargs):
         from onnxsim import simplify
         import onnx
+        import onnxruntime as ort
 
         for key, val in datas[0].items():
-            if key == 'mocap':
+            mod, node = key
+            if mod == 'mocap':
                 continue
             img = val['img'].data.unsqueeze(0).cuda()
-            mod, node = key
             name = mod + '_' + node
             backbone = self.backbones[mod]
             adapter = self.adapters[name]
@@ -178,7 +179,6 @@ class DetectorEnsemble(BaseMocapModel):
             output_head.return_raw = True
             export_model = nn.Sequential(backbone.eval(), Delist(), adapter.eval(), output_head.eval())
             export_model = export_model.cuda().eval()
-            import ipdb; ipdb.set_trace() # noqa
             onnx_fname = "%s/%s.onnx" % (path,name)
             torch.onnx.export(export_model, img, onnx_fname, verbose=True,
                 input_names=['img'], output_names=['mean', 'cov', 'mix_weights'])
@@ -186,37 +186,11 @@ class DetectorEnsemble(BaseMocapModel):
             model_simp, check = simplify(model)
             onnx.save(model, onnx_fname)
 
-            import onnxruntime as ort
             sess = ort.InferenceSession(onnx_fname, providers=['CPUExecutionProvider'])
             outputs = sess.run(None, {'img': img.cpu().numpy()})
             print(datas[0][('mocap', 'mocap')]['gt_positions'])
             print(outputs)
-
-
-            
-            import ipdb; ipdb.set_trace() # noqa
         return None
-        losses = defaultdict(list)
-        mocaps = [d[('mocap', 'mocap')] for d in datas]
-        mocaps = mmcv.parallel.collate(mocaps)
-        
-        # num_timesteps x batch_size x num_objects x (2 or 3)
-        gt_positions = mocaps['gt_positions']
-        
-        #num_timesteps x batch_size x num_views x D x H x W
-        with torch.set_grad_enabled(not self.cov_only_train):
-            all_outputs = [self._forward_single(data) for data in datas]
-        for t, output in enumerate(all_outputs):
-            for key, embeds in output.items():
-                loss_key = '_'.join(key + ('loss',))
-                for b, embed in enumerate(embeds): 
-                    gt_pos = gt_positions[t, b]
-                    dist = self.output_head(embed.unsqueeze(0))['dist']
-                    nll = -dist.log_prob(gt_pos)
-                    losses[loss_key].append(nll.mean()) 
-
-        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
-        return losses
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
