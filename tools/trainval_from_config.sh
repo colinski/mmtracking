@@ -13,4 +13,4 @@ singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/di
     --work-dir $VALDIR\
     --seed 5\
     --trainset val\
-    --cfg-options "model.init_cfg.type=Pretrained" "model.init_cfg.checkpoint=${EXPDIR}/latest.pth" "model.cov_only_train=True" "total_epochs=10"
+    --cfg-options "model.init_cfg.type=Pretrained" "model.init_cfg.checkpoint=${EXPDIR}/latest.pth" "model.cov_only_train=True" #"total_epochs=10"
