@@ -68,8 +68,10 @@ backbone_cfg=[
 ]
 
 
-adapter_cfg=dict(type='ConvAdapter', in_len=135, out_len=1,
-        ffn_cfg=dict(type='SLP', in_channels=256))
+adapter_cfg=dict(type='ConvAdapter', 
+        interpolate_size=(28,20),
+        interpolate_fn='interpolate'
+)
 
 adapter_cfgs = {('zed_camera_left', 'node_1'): adapter_cfg,
               ('zed_camera_left', 'node_2'): adapter_cfg,
@@ -91,7 +93,7 @@ model = dict(type='DetectorEnsemble',
         num_sa_layers=0,
         to_cm=True,
         mlp_dropout_rate=0.0,
-        interval_size=25,
+        interval_sizes=[25,25]
     ),
     track_eval=True,
     pos_loss_weight=1,

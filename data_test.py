@@ -67,11 +67,11 @@ pipelines = {
             # 'range_doppler', 'azimuth_static', 'mic_waveform',
             # 'realsense_camera_depth', 'realsense_camera_img']
 
-valid_mods=['mocap', 'zed_camera_left']
+valid_mods=['mocap', 'zed_camera_left', 'mic_waveform']
 
 valid_nodes=[1,2,3,4]
 
-data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/train'
+data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/train'
 trainset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         hdf5_fnames=[
@@ -105,6 +105,7 @@ trainset=dict(type='HDF5Dataset',
 
 dataset = build_dataset(trainset)
 
+import ipdb; ipdb.set_trace() # noqa
 data_loader = build_dataloader(
     dataset,
     samples_per_gpu=2, #batch_size per gpu
