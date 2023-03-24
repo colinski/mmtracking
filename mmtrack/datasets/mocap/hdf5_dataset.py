@@ -547,7 +547,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key)
-                    dmap = data[key]['img'].data[0].cpu().squeeze()
+                    dmap = data[key]#['img'].data[0].cpu().squeeze()
                     axes[key].imshow(dmap, cmap='turbo')#vmin=0, vmax=10000)
 
                 if mod == 'range_doppler':
@@ -562,7 +562,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key)
-                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
+                    img = data[key]#['img'].data[0].cpu().squeeze().numpy()
                     axes[key].imshow(img, cmap='turbo', aspect='auto')
 
                 if mod == 'mic_waveform':
