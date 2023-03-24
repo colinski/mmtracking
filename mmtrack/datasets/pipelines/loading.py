@@ -32,12 +32,23 @@ class LoadAudio(object):
 
 @PIPELINES.register_module()
 class LoadFromNumpyArray(object):
-    def __init__(self, force_float32=False, transpose=False, force_rgb=False):
+    def __init__(self, force_float32=False, transpose=False, force_rgb=False,
+            remove_first_last=False):
         self.force_float32 = force_float32
         self.transpose = transpose
         self.force_rgb = force_rgb
+        self.remove_first_last = remove_first_last
 
     def __call__(self, array):
+        if self.remove_first_last:
+            array = array[:, 1:5]
+            if len(array) != 1056:
+                num_zeros = 1056 - len(array)
+                zeros = np.zeros([num_zeros, 4])
+                array = np.concatenate([array, zeros], axis=0)
+            #array = array.T
+            array = array[:, np.newaxis, :]
+
         if self.force_float32:
             array = array.astype(np.float32)
         if self.transpose:

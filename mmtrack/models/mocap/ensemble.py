@@ -60,6 +60,7 @@ class DetectorEnsemble(BaseMocapModel):
                  kf_train=False,
                  cov_only_train=False,
                  init_cfg={},
+                 is_audio=False,
                  *args,
                  **kwargs):
         super().__init__(init_cfg, *args, **kwargs)
@@ -75,6 +76,7 @@ class DetectorEnsemble(BaseMocapModel):
         self.prev_frame = None
         self.dim = dim
         self.match_by_id = match_by_id
+        self.is_audio = is_audio
         #self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
         #self.tracker = MultiTracker(mode='kf')
         self.loss_type = loss_type
@@ -109,6 +111,11 @@ class DetectorEnsemble(BaseMocapModel):
         self.sessions = None
         # if init_cfg != {}:
             # self.init_weights()
+
+        self.audio_network = nn.Sequential(
+            nn.Linear(5,5),
+            nn.ReLU()
+        )
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -120,6 +127,9 @@ class DetectorEnsemble(BaseMocapModel):
         should be double nested (i.e.  List[Tensor], List[List[dict]]), with
         the outer list indicating test time augmentations.
         """
+        if self.is_audio:
+            return self.forward_train_audio(data, **kwargs)
+
         if return_loss:
             if self.kf_train:
                 return self.forward_train_track(data, **kwargs)
@@ -191,6 +201,22 @@ class DetectorEnsemble(BaseMocapModel):
             print(datas[0][('mocap', 'mocap')]['gt_positions'])
             print(outputs)
         return None
+    
+    def forward_train_audio(self, datas, return_unscaled=False, **kwargs):
+        losses = defaultdict(list)
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+        
+        # num_timesteps x batch_size x num_objects x (2 or 3)
+        gt_positions = mocaps['gt_positions']
+
+        #concat and compute RMS on datas
+        #apply network
+        #compute loss
+        #return {'mse_loss': loss}
+        
+        losses['mse_loss'] = 5
+        return losses
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)

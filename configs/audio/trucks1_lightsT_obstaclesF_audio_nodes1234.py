@@ -14,7 +14,7 @@ img_pipeline = [
 ]
 
 audio_pipeline = [
-    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
+    dict(type='LoadFromNumpyArray', force_float32=True, transpose=False, remove_first_last=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
@@ -62,9 +62,9 @@ testset=dict(type='HDF5Dataset',
 )
 
 backbone_cfg=[
-    dict(type='YOLOv7', weights='src/mmtracking/yolov7.pt'),
+    dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt'),
     dict(type='ChannelMapper',
-        in_channels=[1024],
+        in_channels=[512],
         kernel_size=1,
         out_channels=256,
         act_cfg=None,
@@ -106,7 +106,8 @@ model = dict(type='DetectorEnsemble',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
-    loss_type='nll'
+    loss_type='nll',
+    is_audio=True
 )
 
 
@@ -114,7 +115,7 @@ model = dict(type='DetectorEnsemble',
 # orig_lr = 1e-4 
 # factor = 4
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=3,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
