@@ -26,6 +26,7 @@ from collections import defaultdict
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from ..builder import MODELS, build_tracker, build_model
+from einops.layers.torch import Rearrange
 
 
 @MODELS.register_module()
@@ -98,6 +99,7 @@ class ConvAdapter(BaseModule):
     def __init__(self,
                  interpolate_size=(1,1),
                  interpolate_fn='interpolate',
+                 transpose=True,
                  #ffn_cfg=dict(type='SLP', in_channels=256),
                  *args,
                  **kwargs):
@@ -106,13 +108,16 @@ class ConvAdapter(BaseModule):
             interp_layer = Interpolate(interpolate_size) 
         elif interpolate_fn == 'avgpool':
             interp_layer = nn.AdaptiveAvgPool2d(interpolate_size) 
-        self.layers = nn.Sequential(
+        self.layers = [
             nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0)),
             nn.GELU(),
-            interp_layer,
-            nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0)),
-            nn.GELU()
-        )
+        ]
+        if transpose:
+            self.layers.append(Rearrange('b c h w -> b c w h')) 
+        self.layers.append(interp_layer)
+        self.layers.append(nn.Conv2d(256, 256, kernel_size=1, stride=(1,1), padding=(0,0)))
+        self.layers.append(nn.GELU())
+        self.layers = nn.Sequential(*self.layers)
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
