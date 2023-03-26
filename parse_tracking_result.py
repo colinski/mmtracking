@@ -27,7 +27,28 @@ pipelines = {
 valid_mods=['mocap', 'zed_camera_left']
 valid_nodes=[1,2,3,4]
 
-data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
+data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/train'
+trainset=dict(type='HDF5Dataset',
+    cacher_cfg=dict(type='DataCacher',
+        cache_dir= f'/dev/shm/cache_train/',
+        hdf5_fnames=[
+            f'{data_root}/mocap.hdf5',
+            f'{data_root}/node_1/zed.hdf5',
+            f'{data_root}/node_2/zed.hdf5',
+            f'{data_root}/node_3/zed.hdf5',
+            f'{data_root}/node_4/zed.hdf5',
+        ],
+        valid_mods=valid_mods,
+        valid_nodes=valid_nodes,
+        include_z=False, #(x,y) position only
+    ),
+    num_future_frames=0,
+    num_past_frames=0, #sequence of length 5
+    pipelines=pipelines,
+)
+trainset = build_dataset(trainset)
+
+data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/val'
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_val/',
@@ -48,7 +69,7 @@ valset=dict(type='HDF5Dataset',
 )
 valset = build_dataset(valset)
 
-data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
+data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/test'
 testset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_test/',
@@ -69,12 +90,6 @@ testset=dict(type='HDF5Dataset',
 )
 testset = build_dataset(testset)
 
-# val_gt = valset.collect_gt()
-test_gt = testset.collect_gt()
-
-
-
-expdir = 'logs/trucks2_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_ensemble_coarse'
 
 def collect_outputs(preds):
     for key, val in preds.items():
@@ -94,21 +109,13 @@ def collect_outputs(preds):
     outputs = {'det_means': mean_seq, 'det_covs': cov_seq}
     return outputs
 
-
-# In[52]:
-
-
 grid_x, grid_y = torch.meshgrid([torch.arange(0,700), torch.arange(0,500)])
 grid = torch.stack([grid_x, grid_y], dim=-1).cuda().float()
 
-preds = torch.load(f'{expdir}/test/outputs.pt')
-test_outputs = collect_outputs(preds)
-#res, test_outputs = testset.track_eval(test_outputs, test_gt)
-testset.write_video(None, logdir=f'{expdir}/test/', video_length=500)
 
 def write_vid(frames, vid_name='pdf_node_1.mp4', size=100, key='log_probs', norm=True):
     vid = cv2.VideoWriter(vid_name, cv2.VideoWriter_fourcc(*'mp4v'), 20, (700,500))
-    for lp in tqdm(frames):
+    for lp in frames:
         lp = lp.numpy()
         lp = np.fliplr(lp)
         lp = lp.T
@@ -123,9 +130,9 @@ def write_vid(frames, vid_name='pdf_node_1.mp4', size=100, key='log_probs', norm
         vid.write(lp)
     vid.release()
 
-frames = []
 
 def get_pdf_frames(preds, key='zed_camera_left_node_1', size=500):
+    frames = []
     for vals in tqdm(preds[key][0:size]):
         mean, cov, weights = vals['mean'].cuda(), vals['cov'].cuda(), vals['weights'].cuda()
         H, W, _ = mean.shape
@@ -136,22 +143,49 @@ def get_pdf_frames(preds, key='zed_camera_left_node_1', size=500):
         mix = torch.distributions.Categorical(probs=weights)
         dist = torch.distributions.MixtureSameFamily(mix, normal)
         nll_vals = dist.log_prob(grid).cpu()
-        nll_vals[nll_vals < -15] = -15
+        nll_vals = nll_vals.exp()
+        #nll_vals[nll_vals < -15] = -15
         frames.append(nll_vals)
+    frames = torch.stack(frames)
+    #frames = frames / frames.max()
     return frames
 
+datasets = {'train': trainset, 'val': valset, 'test': testset}
+
+expdir = 'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20'
+for ds in ['train', 'val', 'test']:
+    dataset = datasets[ds]
+    gt = dataset.collect_gt()
+    preds = torch.load(f'{expdir}/{ds}/outputs.pt')
+    outputs = collect_outputs(preds)
+    #res, outputs = dataset.track_eval(outputs, gt)
+    dataset.write_video(outputs, logdir=f'{expdir}/{ds}/', video_length=500)
+
+    frames = get_pdf_frames(preds, 'zed_camera_left_node_1', size=500)
+    write_vid(frames, f'{expdir}/{ds}/pdf_node_1.mp4')
+
+    frames = get_pdf_frames(preds, 'zed_camera_left_node_2', size=500)
+    write_vid(frames, f'{expdir}/{ds}/pdf_node_2.mp4')
+
+    frames = get_pdf_frames(preds, 'zed_camera_left_node_3', size=500)
+    write_vid(frames, f'{expdir}/{ds}/pdf_node_3.mp4')
+
+    frames = get_pdf_frames(preds, 'zed_camera_left_node_4', size=500)
+    write_vid(frames, f'{expdir}/{ds}/pdf_node_4.mp4')
+
+assert 1==2
 
 frames = get_pdf_frames(preds, 'zed_camera_left_node_1', size=500)
-write_vid(frames, f'{expdir}/test/pdf_node_1.mp4')
+write_vid(frames, f'{expdir}/train/pdf_node_1.mp4')
 
 frames = get_pdf_frames(preds, 'zed_camera_left_node_2', size=500)
-write_vid(frames, f'{expdir}/test/pdf_node_2.mp4')
+write_vid(frames, f'{expdir}/train/pdf_node_2.mp4')
 
 frames = get_pdf_frames(preds, 'zed_camera_left_node_3', size=500)
-write_vid(frames, f'{expdir}/test/pdf_node_3.mp4')
+write_vid(frames, f'{expdir}/train/pdf_node_3.mp4')
 
 frames = get_pdf_frames(preds, 'zed_camera_left_node_4', size=500)
-write_vid(frames, f'{expdir}/test/pdf_node_4.mp4')
+write_vid(frames, f'{expdir}/train/pdf_node_4.mp4')
 import ipdb; ipdb.set_trace() # noqa
 
 assert 1==2
