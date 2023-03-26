@@ -155,11 +155,11 @@ datasets = {'train': trainset, 'val': valset, 'test': testset}
 expdir = 'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20'
 for ds in ['train', 'val', 'test']:
     dataset = datasets[ds]
-    gt = dataset.collect_gt()
     preds = torch.load(f'{expdir}/{ds}/outputs.pt')
-    outputs = collect_outputs(preds)
+    #gt = dataset.collect_gt()
+    #outputs = collect_outputs(preds)
     #res, outputs = dataset.track_eval(outputs, gt)
-    dataset.write_video(outputs, logdir=f'{expdir}/{ds}/', video_length=500)
+    #dataset.write_video(outputs, logdir=f'{expdir}/{ds}/', video_length=500)
 
     frames = get_pdf_frames(preds, 'zed_camera_left_node_1', size=500)
     write_vid(frames, f'{expdir}/{ds}/pdf_node_1.mp4')
