@@ -17,13 +17,15 @@ from mmdet.apis import init_detector, inference_detector
 class YOLOv7(BaseModule):
     def __init__(self, 
             out_channels=256,
-            weights='src/mmtracking/yolov7-tiny.pt'
+            weights='src/mmtracking/yolov7-tiny.pt',
+            return_idx=-1,
         ):
         super().__init__()
         # for w in weights if isinstance(weights, list) else [weights]:
             # attempt_download(w)
         ckpt = torch.load(weights)
         self.yolo = ckpt['ema' if ckpt.get('ema') else 'model'].float()
+        self.return_idx = return_idx
         
         # Compatibility updates
         for m in self.yolo.modules():
@@ -44,7 +46,7 @@ class YOLOv7(BaseModule):
     #@torch.no_grad()
     def forward(self, x):
         output = self.yolo.forward_once(x, apply_detector=False)
-        return (output[-1], )
+        return (output[self.return_idx], )
 
 
 @BACKBONES.register_module()

@@ -8,6 +8,7 @@ import cv2
 from tracker import TorchMultiObsKalmanFilter
 from mmtrack.datasets.mocap.viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 import json
+import sys
 
 img_norm_cfg = dict(mean=[0,0,0], std=[255,255,255], to_rgb=True)
 img_pipeline = [
@@ -27,7 +28,11 @@ pipelines = {
 valid_mods=['mocap', 'zed_camera_left']
 valid_nodes=[1,2,3,4]
 
-data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/train'
+root = sys.argv[1]
+expdir = sys.argv[2]
+
+#data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/train'
+data_root = f'{root}/train'
 trainset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_train/',
@@ -48,7 +53,8 @@ trainset=dict(type='HDF5Dataset',
 )
 trainset = build_dataset(trainset)
 
-data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/val'
+# data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/val'
+data_root = f'{root}/val'
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_val/',
@@ -69,7 +75,8 @@ valset=dict(type='HDF5Dataset',
 )
 valset = build_dataset(valset)
 
-data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/test'
+# data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
+data_root = f'{root}/test'
 testset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_test/',
@@ -89,7 +96,6 @@ testset=dict(type='HDF5Dataset',
     pipelines=pipelines,
 )
 testset = build_dataset(testset)
-
 
 def collect_outputs(preds):
     for key, val in preds.items():
@@ -152,14 +158,14 @@ def get_pdf_frames(preds, key='zed_camera_left_node_1', size=500):
 
 datasets = {'train': trainset, 'val': valset, 'test': testset}
 
-expdir = 'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20'
+#expdir = 'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20'
 for ds in ['train', 'val', 'test']:
     dataset = datasets[ds]
     preds = torch.load(f'{expdir}/{ds}/outputs.pt')
     #gt = dataset.collect_gt()
     #outputs = collect_outputs(preds)
     #res, outputs = dataset.track_eval(outputs, gt)
-    #dataset.write_video(outputs, logdir=f'{expdir}/{ds}/', video_length=500)
+    dataset.write_video(None, logdir=f'{expdir}/{ds}/', video_length=500)
 
     frames = get_pdf_frames(preds, 'zed_camera_left_node_1', size=500)
     write_vid(frames, f'{expdir}/{ds}/pdf_node_1.mp4')

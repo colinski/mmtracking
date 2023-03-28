@@ -6,7 +6,8 @@ img_norm_cfg = dict(mean=[0,0,0], std=[255,255,255], to_rgb=True)
 img_pipeline = [
     dict(type='DecodeJPEG'),
     dict(type='LoadFromNumpyArray'),
-    dict(type='Resize', img_scale=(32*60, 32*34), keep_ratio=False),
+    #dict(type='Resize', img_scale=(32*60, 32*34), keep_ratio=False),
+    dict(type='Resize', img_scale=(480, 288), keep_ratio=False),
     #dict(type='Resize', img_scale=(35*32, 25*32), keep_ratio=False),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='Normalize', **img_norm_cfg),
@@ -18,7 +19,8 @@ pipelines = {
     'zed_camera_left': img_pipeline,
 }
 
-data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/train'
+#data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/train'
+data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/train'
 trainset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_train/',
@@ -38,7 +40,8 @@ trainset=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
-data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/val'
+#data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/val'
+data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/val'
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val/',
@@ -58,7 +61,8 @@ valset=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
-data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/test'
+#data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/test'
+data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
 testset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_test/',
@@ -78,18 +82,19 @@ testset=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
-backbone_cfg=[
-    dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt'),
-    dict(type='ChannelMapper',
-        in_channels=[512],
-        kernel_size=1,
-        out_channels=256,
-        act_cfg=None,
-        #norm_cfg=dict(type='GN', num_groups=32),
-        norm_cfg=None,
-        num_outs=1
-    )
-]
+# backbone_cfg=[
+    # dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt'),
+    # dict(type='ChannelMapper',
+        # in_channels=[512],
+        # kernel_size=1,
+        # out_channels=256,
+        # act_cfg=None,
+        # norm_cfg=None,
+        # num_outs=1
+    # )
+# ]
+
+backbone_cfg=dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt', return_idx=1)
 
 
 adapter_cfg=dict(type='ConvAdapter', 
@@ -110,7 +115,7 @@ model = dict(type='DetectorEnsemble',
     output_head_cfg=dict(type='AnchorOutputHead',
         include_z=False,
         predict_full_cov=True,
-        cov_add=1.0,
+        cov_add=30.0,
         input_dim=256,
         predict_rotation=False,
         predict_velocity=False,
