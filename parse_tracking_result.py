@@ -10,6 +10,9 @@ from mmtrack.datasets.mocap.viz import init_fig, gen_rectange, gen_ellipse, rot2
 import json
 import sys
 
+
+
+
 img_norm_cfg = dict(mean=[0,0,0], std=[255,255,255], to_rgb=True)
 img_pipeline = [
     dict(type='DecodeJPEG'),
@@ -21,6 +24,8 @@ img_pipeline = [
     dict(type='Collect', keys=['img']),
 ]
 
+
+
 pipelines = {
     'zed_camera_left': img_pipeline,
 } 
@@ -28,11 +33,15 @@ pipelines = {
 valid_mods=['mocap', 'zed_camera_left']
 valid_nodes=[1,2,3,4]
 
+<<<<<<< HEAD
 root = sys.argv[1]
 expdir = sys.argv[2]
 
 #data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/train'
 data_root = f'{root}/train'
+=======
+data_root = 'data/mmm/2022-09-01_1080p/trucks2_lightsT_obstaclesF/train'
+>>>>>>> fa54b3cfbe41f242651260d7a0c3b5e4d25589ab
 trainset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_train/',
@@ -53,8 +62,12 @@ trainset=dict(type='HDF5Dataset',
 )
 trainset = build_dataset(trainset)
 
+<<<<<<< HEAD
 # data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/val'
 data_root = f'{root}/val'
+=======
+data_root = 'data/mmm/2022-09-01_1080p/trucks2_lightsT_obstaclesF/val'
+>>>>>>> fa54b3cfbe41f242651260d7a0c3b5e4d25589ab
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_val/',
@@ -75,8 +88,12 @@ valset=dict(type='HDF5Dataset',
 )
 valset = build_dataset(valset)
 
+<<<<<<< HEAD
 # data_root = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
 data_root = f'{root}/test'
+=======
+data_root = 'data/mmm/2022-09-01_1080p/trucks2_lightsT_obstaclesF/test'
+>>>>>>> fa54b3cfbe41f242651260d7a0c3b5e4d25589ab
 testset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir= f'/dev/shm/cache_test/',
@@ -139,7 +156,7 @@ def write_vid(frames, vid_name='pdf_node_1.mp4', size=100, key='log_probs', norm
 
 def get_pdf_frames(preds, key='zed_camera_left_node_1', size=500):
     frames = []
-    for vals in tqdm(preds[key][0:size]):
+    for vals in preds[key][0:size]:
         mean, cov, weights = vals['mean'].cuda(), vals['cov'].cuda(), vals['weights'].cuda()
         H, W, _ = mean.shape
         mean = mean.reshape(H*W,2)
@@ -158,6 +175,7 @@ def get_pdf_frames(preds, key='zed_camera_left_node_1', size=500):
 
 datasets = {'train': trainset, 'val': valset, 'test': testset}
 
+<<<<<<< HEAD
 #expdir = 'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20'
 for ds in ['train', 'val', 'test']:
     dataset = datasets[ds]
@@ -179,6 +197,38 @@ for ds in ['train', 'val', 'test']:
     frames = get_pdf_frames(preds, 'zed_camera_left_node_4', size=500)
     write_vid(frames, f'{expdir}/{ds}/pdf_node_4.mp4')
 
+=======
+expdir = 'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20'
+#'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20', 
+expdirs = [#'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_7x5', 
+           #'logs/trucks1_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_1x1',
+           'logs/trucks2_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20', 
+           'logs/trucks2_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_7x5', 
+           'logs/trucks2_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_1x1']
+
+for expdir in expdirs:
+    print(expdir)
+    for ds in ['train', 'val', 'test']:
+        print(ds)
+        dataset = datasets[ds]
+        preds = torch.load(f'{expdir}/{ds}/outputs.pt')
+        #gt = dataset.collect_gt()
+        #outputs = collect_outputs(preds)
+        #res, outputs = dataset.track_eval(outputs, gt)
+        dataset.write_video(None, logdir=f'{expdir}/{ds}/', video_length=500)
+
+        # frames = get_pdf_frames(preds, 'zed_camera_left_node_1', size=500)
+        # write_vid(frames, f'{expdir}/{ds}/pdf_node_1.mp4')
+
+        # frames = get_pdf_frames(preds, 'zed_camera_left_node_2', size=500)
+        # write_vid(frames, f'{expdir}/{ds}/pdf_node_2.mp4')
+
+        # frames = get_pdf_frames(preds, 'zed_camera_left_node_3', size=500)
+        # write_vid(frames, f'{expdir}/{ds}/pdf_node_3.mp4')
+
+        # frames = get_pdf_frames(preds, 'zed_camera_left_node_4', size=500)
+        # write_vid(frames, f'{expdir}/{ds}/pdf_node_4.mp4')
+>>>>>>> fa54b3cfbe41f242651260d7a0c3b5e4d25589ab
 assert 1==2
 
 frames = get_pdf_frames(preds, 'zed_camera_left_node_1', size=500)
