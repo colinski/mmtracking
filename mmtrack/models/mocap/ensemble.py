@@ -61,6 +61,7 @@ class DetectorEnsemble(BaseMocapModel):
                  cov_only_train=False,
                  init_cfg={},
                  is_audio=False,
+                 entropy_loss_weight=0.0,
                  *args,
                  **kwargs):
         super().__init__(init_cfg, *args, **kwargs)
@@ -77,6 +78,7 @@ class DetectorEnsemble(BaseMocapModel):
         self.dim = dim
         self.match_by_id = match_by_id
         self.is_audio = is_audio
+        self.entropy_loss_weight = entropy_loss_weight
         #self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
         #self.tracker = MultiTracker(mode='kf')
         self.loss_type = loss_type
@@ -237,6 +239,11 @@ class DetectorEnsemble(BaseMocapModel):
                     dist = self.output_head(embed.unsqueeze(0))['dist']
                     nll = -dist.log_prob(gt_pos)
                     losses[loss_key].append(nll.mean()) 
+                    if self.entropy_loss_weight > 0:
+                        loss_key = '_'.join(key + ('entropy_loss',))
+                        entropy_loss = dist.mixture_distribution.entropy()
+                        losses[loss_key].append(entropy_loss * self.entropy_loss_weight)
+
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
