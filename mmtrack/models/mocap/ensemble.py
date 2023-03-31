@@ -115,9 +115,12 @@ class DetectorEnsemble(BaseMocapModel):
             # self.init_weights()
 
         self.audio_network = nn.Sequential(
-            nn.Linear(5,5),
-            nn.ReLU()
-        )
+            nn.Linear(16, 8),
+            nn.Linear(8, 4),
+            nn.Linear(4, 2),
+            nn.Linear(2, 2),
+            nn.Sigmoid()
+        ).cuda()
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -212,12 +215,27 @@ class DetectorEnsemble(BaseMocapModel):
         # num_timesteps x batch_size x num_objects x (2 or 3)
         gt_positions = mocaps['gt_positions']
 
-        #concat and compute RMS on datas
-        #apply network
-        #compute loss
-        #return {'mse_loss': loss}
+        # concat and compute RMS on datas
+        waveforms = []
+        positions = []
+        for i in range(len(datas[0][('mic_waveform', 'node_1')]['img'])):
+            waveforms.append(torch.stack([datas[0][('mic_waveform', 'node_1')]['img'][i], datas[0][('mic_waveform', 'node_2')]['img'][i], datas[0][('mic_waveform', 'node_3')]['img'][i], datas[0][('mic_waveform', 'node_4')]['img'][i]]).reshape(4,4,-1).permute(2,0,1))
+            positions.append(torch.tensor(datas[0][('mocap', 'mocap')]['gt_positions'][0]).reshape(2))
+
+        waveforms = torch.stack(waveforms) # Filter out 1st, last channel
+        positions = torch.stack(positions)
+
+        waveform_rms_vals = torch.sqrt(torch.mean(waveforms ** 2, axis=1))
         
-        losses['mse_loss'] = 5
+        loss_func = nn.MSELoss()
+        
+        # apply network
+        out = self.audio_network(waveform_rms_vals.reshape(-1, 16)) * torch.tensor([700, 500]).cuda()
+
+        # compute loss
+        loss = loss_func(out, positions)
+        
+        losses['mse_loss'] = loss
         return losses
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
