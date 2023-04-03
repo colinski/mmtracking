@@ -26,7 +26,7 @@ from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from pyro.contrib.tracking.measurements import PositionMeasurement
 #from resource_constrained_tracking.tracker import TorchMultiObsKalmanFilter
-from tracker import TorchMultiObsKalmanFilter
+#from tracker import TorchMultiObsKalmanFilter
 #from rct.tracker import MultiObsKalmanFilter
 
 def linear_assignment(cost_matrix):

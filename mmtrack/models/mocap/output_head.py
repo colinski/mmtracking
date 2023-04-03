@@ -54,6 +54,7 @@ class AnchorOutputHead(BaseModule):
                  cov_add=1,
                  mlp_dropout_rate=0.0,
                  cov_only_train=False,
+                 binary_prob=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -66,6 +67,7 @@ class AnchorOutputHead(BaseModule):
         self.to_cm = to_cm
         self.return_raw = False
         self.cov_only_train = cov_only_train
+        self.binary_prob = binary_prob
 
         x_intervals = generate_intervals(room_size[0], interval_sizes[0])
         y_intervals = generate_intervals(room_size[1], interval_sizes[1])
@@ -129,7 +131,7 @@ class AnchorOutputHead(BaseModule):
         with torch.set_grad_enabled(not self.cov_only_train):
             x = self.mlp(x)
             means = self.mean_head(x)
-            mix_weights = self.mix_head(x)
+            mix_logits = self.mix_head(x)
 
             means = means.permute(0, 2, 3, 1)
                     
@@ -148,7 +150,7 @@ class AnchorOutputHead(BaseModule):
 
             means = torch.stack([x_vals, y_vals], dim=-1)
 
-            mix_weights = mix_weights.flatten()
+            mix_logits = mix_logits.flatten()
 
         outputs = []
         result = {}
@@ -175,15 +177,21 @@ class AnchorOutputHead(BaseModule):
         cov = cov.reshape(B*H*W, 2, 2)
         cov = torch.bmm(cov, cov.transpose(-2,-1))
         cov = cov.reshape(B, H, W, 2, 2)
-        cov = cov + self.cov_add
+
+        if self.binary_prob:
+            binary_probs = mix_logits.sigmoid()
+            binary_probs = binary_probs.reshape(B, H, W, 1, 1)
+            cov = binary_probs * cov + (1 - binary_probs) * self.cov_add
+        else: 
+            cov = cov + self.cov_add
 
         means = means.reshape(B, H*W, 2)
         cov = cov.reshape(B, H*W, 2, 2)
 
         if self.return_raw:
-            return means, cov, mix_weights.unsqueeze(0)
+            return means, cov, mix_logits.unsqueeze(0)
 
-        mix_weights = torch.softmax(mix_weights, dim=0)
+        mix_weights = torch.softmax(mix_logits, dim=0)
         normals = D.MultivariateNormal(means, cov)
         
         #mix = D.Categorical(torch.ones(35,).cuda())
