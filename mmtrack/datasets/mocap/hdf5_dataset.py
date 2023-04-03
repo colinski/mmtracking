@@ -26,7 +26,7 @@ import matplotlib
 from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 from mmtrack.datasets import build_dataset
 import torch.nn.functional as F
-from tracker import TorchMultiObsKalmanFilter
+#from tracker import TorchMultiObsKalmanFilter
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
@@ -448,7 +448,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             
                     if outputs is not None: 
                         if len(outputs['det_means']) > 0:
-                            pred_means = outputs['det_means'][i].t()
+                            pred_means = outputs['det_means'][i]#.t()
                             pred_covs = outputs['det_covs'][i]
                             #pred_weights = outputs['det_weights'][i]
                             for j in range(len(pred_means)):
@@ -465,7 +465,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             pred_means = outputs['track_means'][i] 
                             pred_covs = outputs['track_covs'][i]
                             #pred_rots = outputs['track_rot'][i]
-                            ids = outputs['track_ids'][i].to(int)
+                            #ids = outputs['track_ids'][i].to(int)
                             # slot_ids = outputs['slot_ids'][i].to(int)
                             for j in range(len(pred_means)):
                                 #rot = pred_rots[j]
@@ -479,7 +479,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
                                 # axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
                                 cov = pred_covs[j]
-                                ID = ids[j]
+                                #ID = ids[j]
                                 # sID = slot_ids[j]
                                 #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
                                 axes[key].text(mean[0], mean[1], s=f'KF', fontdict={'color': color})
