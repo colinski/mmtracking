@@ -26,6 +26,7 @@ import matplotlib
 from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
 from mmtrack.datasets import build_dataset
 import torch.nn.functional as F
+import matplotlib.patches as patches
 #from tracker import TorchMultiObsKalmanFilter
 
 font = {#'family' : 'normal',
@@ -423,6 +424,29 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     num_nodes = len(val['node_pos'])
                     for j in range(num_nodes):
                         pos = val['node_pos'][j]
+                        if j == 0:
+                            p1 = (pos[0], pos[1])
+                            p2 = (500,0)
+                            p3 = (500,500)
+                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='red'))
+                        if j == 1:
+                            p1 = (pos[0], pos[1]+50)
+                            p2 = (0,250)
+                            p3 = (700,500)
+                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='blue'))
+                        if j == 2:
+                            #p1 = (pos[0], pos[1])
+                            p1 = (50, pos[1])
+                            p2 = (200,0)
+                            p3 = (225,500)
+                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='green'))
+                        if j == 3:
+                            p1 = (pos[0], pos[1])
+                            p2 = (0,300)
+                            p3 = (500,0)
+                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='black'))
+
+
                         node_id = val['node_ids'][j] + 1
                         axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_id, color='black', lw=1, s=20*4**2)
                     
