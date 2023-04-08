@@ -425,9 +425,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     for j in range(num_nodes):
                         pos = val['node_pos'][j]
                         if j == 0:
-                            p1 = (pos[0], pos[1])
+                            p1 = (pos[0] - 30, pos[1])
                             p2 = (500,0)
-                            p3 = (500,500)
+                            p3 = (200, 500)
                             axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='red'))
                         if j == 1:
                             p1 = (pos[0], pos[1]+50)
@@ -463,8 +463,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         
                         axes[key].scatter(pos[0], pos[1], marker=markers[ID], color=color) 
                         
+                        
+
+                        
                         angle = rot2angle(rot, return_rads=False)
                         rec, _ = gen_rectange(pos, angle, w=self.truck_w, h=self.truck_h, color=color)
+                        axes[key].text(pos[0], pos[1], '%d, %d' % (pos[0], pos[1]))
                         axes[key].add_patch(rec)
 
                         r=self.truck_w/2
