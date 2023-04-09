@@ -23,7 +23,7 @@ import torch.distributions as D
 from scipy.spatial import distance
 from trackeval.metrics import CLEAR, HOTA, Identity
 import matplotlib
-from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec
+from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec, points_in_polygon, get_node_info
 from mmtrack.datasets import build_dataset
 import torch.nn.functional as F
 import matplotlib.patches as patches
@@ -70,6 +70,38 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
 
         self.test_mode = test_mode
         self.flag = np.zeros(len(self), dtype=np.uint8) #ones?
+        
+        self.nodes = get_node_info()
+        # self.node_pos = torch.tensor([
+            # [608.2496, 197.5388],
+            # [231.8911,  12.0564],
+            # [ 12.2432, 117.5110],
+            # [419.3237, 391.6695]
+        # ])
+
+        # self.nodes = {}
+        # fill = False
+        # alpha = 1
+        # for j in range(len(self.node_pos)):
+            # pos = self.node_pos[j]
+            # name = 'node_{}'.format(j+1)
+            # if j == 0:
+                # xy = [(pos[0] - 30, pos[1]), (500,0), (0,0), (0,500), (350,500)]
+                # poly = patches.Polygon(xy=xy, fill=fill, color='red', alpha=alpha)
+                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            # if j == 1:
+                # xy = [(pos[0], pos[1] + 60), (0,250), (0,500), (700,500)]
+                # poly = patches.Polygon(xy=xy, fill=fill, color='blue', alpha=alpha)
+                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            # if j == 2:
+                # xy = [(50, pos[1]), (150,500), (700,500), (700,0), (250,0)]
+                # poly = patches.Polygon(xy=xy, fill=fill, color='green', alpha=alpha)
+                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            # if j == 3:
+                # xy = [(pos[0]-25, pos[1]-25), (0,300), (0,0),(500,0)]
+                # poly = patches.Polygon(xy=xy, fill=fill, color='black', alpha=alpha)
+                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+
     
     def __len__(self):
         return len(self.fnames)
@@ -409,7 +441,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             data = self[i][-1] #get last frame, eval shouldnt have future
             data = self.__getitem__(i, apply_pipelines=False)[-1]
             save_frame = False
-            for key, val in data.items():
+            gt_pos = None
+            keys = sorted(list(data.keys()))
+            for key in keys:
+                val = data[key]
                 mod, node = key
                 if mod == 'mocap':
                     save_frame = True
@@ -421,35 +456,42 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].set_ylim(0,500)
                         axes[key].set_aspect('equal')
 
-                    num_nodes = len(val['node_pos'])
-                    for j in range(num_nodes):
-                        pos = val['node_pos'][j]
-                        if j == 0:
-                            p1 = (pos[0] - 30, pos[1])
-                            p2 = (500,0)
-                            p3 = (200, 500)
-                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='red'))
-                        if j == 1:
-                            p1 = (pos[0], pos[1]+50)
-                            p2 = (0,250)
-                            p3 = (700,500)
-                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='blue'))
-                        if j == 2:
-                            #p1 = (pos[0], pos[1])
-                            p1 = (50, pos[1])
-                            p2 = (200,0)
-                            p3 = (225,500)
-                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='green'))
-                        if j == 3:
-                            p1 = (pos[0], pos[1])
-                            p2 = (0,300)
-                            p3 = (500,0)
-                            axes[key].add_patch(patches.Polygon(xy=[p1,p2,p3], fill=False, color='black'))
+                    for node_name, node_info in self.nodes.items():
+                        axes[key].add_patch(node_info['poly'])
+                        pos = node_info['pos']
+                        axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_info['id'], color='black', lw=1, s=20*4**2)
+
+                    # num_nodes = len(val['node_pos'])
+                    # for j in range(num_nodes):
+                        # pos = val['node_pos'][j]
+                        # if j == 0:
+                            # xy = [(pos[0] - 30, pos[1]), (500,0), (0,0), (100,500)]
+                            # poly = patches.Polygon(xy=xy, fill=True, color='red', alpha=0.1)
+                            # axes[key].add_patch(poly)
+                        # if j == 1:
+                            # p1 = (pos[0], pos[1]+50)
+                            # p2 = (0,250)
+                            # p3 = (700,500)
+                            # xy = [(pos[0], pos[1] + 50), (0,250), (0,500), (700,500)]
+                            # axes[key].add_patch(patches.Polygon(xy=xy, fill=True, color='blue', alpha=0.1))
+                        # if j == 2:
+                            # p1 = (50, pos[1])
+                            # p2 = (200,0)
+                            # p3 = (225,500)
+                            # xy = [(50, pos[1]), (200,0), (700,0), (700,500)]
+                            # axes[key].add_patch(patches.Polygon(xy=xy, fill=True, alpha=0.1, color='green'))
+                        # if j == 3:
+                            # p1 = (pos[0], pos[1])
+                            # p2 = (0,300)
+                            # p3 = (500,0)
+                            # xy = [(pos[0], pos[1]), (0,300), (0,0),(500,0)]
+                            # axes[key].add_patch(patches.Polygon(xy=xy, fill=True, color='yellow', alpha=0.1))
 
 
-                        node_id = val['node_ids'][j] + 1
-                        axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_id, color='black', lw=1, s=20*4**2)
+                        # node_id = val['node_ids'][j] + 1
+                        # axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_id, color='black', lw=1, s=20*4**2)
                     
+                    gt_pos = val['gt_positions']
                     num_gt = len(val['gt_positions'])
                     for j in range(num_gt):
                         pos = val['gt_positions'][j]
@@ -518,44 +560,18 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     
 
                 if mod in ['zed_camera_left', 'realsense_camera_img', 'realsense_camera_depth']:
-                    # node_num = int(node[-1])
-                    # A = outputs['attn_weights'][i]
-                    # A = A.permute(1,0,2) 
-                    # nO, nH, L = A.shape
-                    # A = A.reshape(nO, nH, 4, 35)
-                    # head_dists = A.sum(dim=-1)[..., node_num-1]
-                    # head_dists = F.interpolate(head_dists.unsqueeze(0).unsqueeze(0), scale_factor=60)[0][0]
-                    
-                    # z = torch.zeros_like(head_dists)
-                    # head_dists = torch.stack([head_dists,z,z], dim=-1)
-
-                    # head_dists = (head_dists * 255).numpy()
-                    # head_dists = (head_dists - 255) * -1
-                    # head_dists = head_dists.astype(np.uint8)
-
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key) # code = data['zed_camera_left'][:]
                     code = data[key]
                     img = cv2.imdecode(code, 1)
-                    # img = data[key]['img'].data.cpu().squeeze()
-                    # mean = data[key]['img_metas'].data['img_norm_cfg']['mean']
-                    # std = data[key]['img_metas'].data['img_norm_cfg']['std']
-                    # img = img.permute(1, 2, 0).numpy()
-                    # img = (img * std) - mean
-                    # img = img.astype(np.uint8)
-                    #img = np.concatenate([img, head_dists], axis=0)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    # node_id = int(node.split('_')[-1]) - 1
-                    # weights = outputs['det_weights'][i][node_id]
-                    # weights = weights.reshape(7,5) * 255
-                    # weights = weights.numpy().astype(np.uint8).T
-                    # weights = np.flip(weights, axis=1)
-                    # weights = np.flip(weights, axis=0)
-                    # weights = np.fliplr(weights)
-                    # weights = np.stack([weights]*3, axis=-1)
-                    # weights = cv2.resize(weights, dsize=(480,270))
-                    # img = np.hstack([img, weights])
+                    node_info = self.nodes[node]
+                    poly = node_info['poly']
+                    if gt_pos is not None:
+                        isin = [points_in_polygon(poly, p) for p in gt_pos]
+                        num_viewable = np.sum(isin)
+                        cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
                     axes[key].imshow(img)
 
                 if 'r50' in mod:

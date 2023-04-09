@@ -25,6 +25,7 @@ from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 #from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker, MultiTracker
+from mmtrack.datasets.mocap.viz import get_node_info, points_in_polygon
 
 class Delist(nn.Module):
         def __init__(self):
@@ -100,6 +101,7 @@ class DetectorEnsemble(BaseMocapModel):
             self.adapters[mod + '_' + node] = build_model(cfg)
         
         self.num_queries = num_queries
+        self.nodes = get_node_info()
         # self.global_pos_encoding = nn.Embedding(self.num_queries, self.dim)
         
         # self.global_ca_layers = global_ca_layers
@@ -237,13 +239,21 @@ class DetectorEnsemble(BaseMocapModel):
             for key, embeds in output.items():
                 loss_key = '_'.join(key + ('loss',))
                 for b, embed in enumerate(embeds): 
-                    gt_pos = gt_positions[t, b]
                     dist = self.output_head(embed.unsqueeze(0))['dist']
-                    nll = -dist.log_prob(gt_pos)
-                    losses[loss_key].append(nll.mean()) 
+                    gt_pos = gt_positions[t, b]
+                    poly = self.nodes[key[1]]['poly']
+                    isin = torch.tensor([points_in_polygon(poly, gp) for gp in gt_pos])
+                    gt_pos = gt_pos[isin]
+                    
+                    if len(gt_pos) != 0:
+                        nll = -dist.log_prob(gt_pos)
+                        losses[loss_key].append(nll.mean()) 
                     if self.entropy_loss_weight > 0:
                         num_objs = len(gt_pos)
-                        entropy_target = np.log(num_objs)
+                        if num_objs == 0:
+                            entropy_target = np.log2(28*20)
+                        else:
+                            entropy_target = np.log2(num_objs)
                         loss_key = '_'.join(key + ('entropy_los',))
                         dist_entropy = dist.mixture_distribution.entropy()
                         

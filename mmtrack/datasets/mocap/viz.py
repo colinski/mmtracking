@@ -23,12 +23,70 @@ import torch.distributions as D
 from scipy.spatial import distance
 from trackeval.metrics import CLEAR
 import matplotlib
+import matplotlib.patches as patches
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
         'size'   : 22}
 
 matplotlib.rc('font', **font)
+
+def get_node_info(fill=False, alpha=1): 
+    node_pos = torch.tensor([
+        [608.2496, 197.5388],
+        [231.8911,  12.0564],
+        [ 12.2432, 117.5110],
+        [419.3237, 391.6695]
+    ])
+
+    nodes = {}
+    for j in range(len(node_pos)):
+        pos = node_pos[j]
+        name = 'node_{}'.format(j+1)
+        if j == 0:
+            xy = [(pos[0] - 30, pos[1]), (500,0), (0,0), (0,500), (350,500)]
+            poly = patches.Polygon(xy=xy, fill=fill, color='red', alpha=alpha)
+            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+        if j == 1:
+            xy = [(pos[0], pos[1] + 60), (0,250), (0,500), (700,500)]
+            poly = patches.Polygon(xy=xy, fill=fill, color='blue', alpha=alpha)
+            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+        if j == 2:
+            xy = [(50, pos[1]), (150,500), (700,500), (700,0), (250,0)]
+            poly = patches.Polygon(xy=xy, fill=fill, color='green', alpha=alpha)
+            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+        if j == 3:
+            xy = [(pos[0]-25, pos[1]-25), (0,300), (0,0),(500,0)]
+            poly = patches.Polygon(xy=xy, fill=fill, color='black', alpha=alpha)
+            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+    return nodes
+
+
+#chatGPT4 
+def points_in_polygon(polygon, point):
+    """
+    Determines if a point (x, y) falls inside a given polygon.
+
+    Args:
+        polygon (matplotlib.patches.Polygon): A Polygon object from matplotlib.
+        point (tuple): A tuple containing the (x, y) coordinates of the point to be checked.
+
+    Returns:
+        bool: True if the point is inside the polygon, False otherwise.
+    """
+    # Get the polygon vertices as a NumPy array
+    polygon_vertices = np.array(polygon.get_xy())
+
+    # Create a Path object from the polygon vertices
+    path = matplotlib.path.Path(polygon_vertices)
+
+    # Check if the point is inside the path
+    return path.contains_point(point)
+
+# Example usage:
+# polygon = matplotlib.patches.Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+# point = (0.5, 0.5)
+# print(is_point_inside_polygon(polygon, point))  # Should print True
 
 #https://gamedev.stackexchange.com/questions/86755/how-to-calculate-corner-positions-marks-of-a-rotated-tilted-rectangle
 def is_on_right_side(points, v1, v2):
