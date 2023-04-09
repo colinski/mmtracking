@@ -55,6 +55,7 @@ class AnchorOutputHead(BaseModule):
                  mlp_dropout_rate=0.0,
                  cov_only_train=False,
                  binary_prob=False,
+                 scale_binary_prob=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -68,6 +69,10 @@ class AnchorOutputHead(BaseModule):
         self.return_raw = False
         self.cov_only_train = cov_only_train
         self.binary_prob = binary_prob
+        self.scale_binary_prob = scale_binary_prob
+        if self.binary_prob and self.scale_binary_prob:
+            self.alpha = nn.Parameter(torch.ones(1))
+            self.beta = nn.Parameter(torch.zeros(1))
 
         x_intervals = generate_intervals(room_size[0], interval_sizes[0])
         y_intervals = generate_intervals(room_size[1], interval_sizes[1])
@@ -179,7 +184,10 @@ class AnchorOutputHead(BaseModule):
         cov = cov.reshape(B, H, W, 2, 2)
 
         if self.binary_prob:
-            binary_probs = mix_logits.sigmoid()
+            if self.scale_binary_prob:
+                binary_probs = self.alpha * mix_logits + self.beta
+            result['binary_probs'] = binary_probs.detach().cpu()
+            binary_probs = binary_probs.sigmoid()
             binary_probs = binary_probs.reshape(B, H, W, 1, 1)
             cov = binary_probs * cov + (1 - binary_probs) * self.cov_add
         else: 

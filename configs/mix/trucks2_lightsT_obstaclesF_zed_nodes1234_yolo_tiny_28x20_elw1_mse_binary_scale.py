@@ -20,22 +20,16 @@ pipelines = {
 }
 
 #data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/train'
-data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/train'
-data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/train'
+data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/train'
 trainset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_train/',
         hdf5_fnames=[
-            f'{data_root1}/mocap.hdf5',
-            f'{data_root1}/node_1/zed.hdf5',
-            f'{data_root1}/node_2/zed.hdf5',
-            f'{data_root1}/node_3/zed.hdf5',
-            f'{data_root1}/node_4/zed.hdf5',
-            f'{data_root2}/mocap.hdf5',
-            f'{data_root2}/node_1/zed.hdf5',
-            f'{data_root2}/node_2/zed.hdf5',
-            f'{data_root2}/node_3/zed.hdf5',
-            f'{data_root2}/node_4/zed.hdf5',
+            f'{data_root}/mocap.hdf5',
+            f'{data_root}/node_1/zed.hdf5',
+            f'{data_root}/node_2/zed.hdf5',
+            f'{data_root}/node_3/zed.hdf5',
+            f'{data_root}/node_4/zed.hdf5',
         ],
         valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left'],
@@ -46,22 +40,17 @@ trainset=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
-data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/val'
-data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
+#data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/val'
+data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
 valset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val/',
         hdf5_fnames=[
-            f'{data_root1}/mocap.hdf5',
-            f'{data_root1}/node_1/zed.hdf5',
-            f'{data_root1}/node_2/zed.hdf5',
-            f'{data_root1}/node_3/zed.hdf5',
-            f'{data_root1}/node_4/zed.hdf5',
-            f'{data_root2}/mocap.hdf5',
-            f'{data_root2}/node_1/zed.hdf5',
-            f'{data_root2}/node_2/zed.hdf5',
-            f'{data_root2}/node_3/zed.hdf5',
-            f'{data_root2}/node_4/zed.hdf5',
+            f'{data_root}/mocap.hdf5',
+            f'{data_root}/node_1/zed.hdf5',
+            f'{data_root}/node_2/zed.hdf5',
+            f'{data_root}/node_3/zed.hdf5',
+            f'{data_root}/node_4/zed.hdf5',
         ],
         valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left'],
@@ -72,22 +61,17 @@ valset=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
-data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
-data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
+#data_root = 'data/mmm/2022-09-01_1080p/trucks1_lightsT_obstaclesF/test'
+data_root = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
 testset=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_test/',
         hdf5_fnames=[
-            f'{data_root1}/mocap.hdf5',
-            f'{data_root1}/node_1/zed.hdf5',
-            f'{data_root1}/node_2/zed.hdf5',
-            f'{data_root1}/node_3/zed.hdf5',
-            f'{data_root1}/node_4/zed.hdf5',
-            f'{data_root2}/mocap.hdf5',
-            f'{data_root2}/node_1/zed.hdf5',
-            f'{data_root2}/node_2/zed.hdf5',
-            f'{data_root2}/node_3/zed.hdf5',
-            f'{data_root2}/node_4/zed.hdf5',
+            f'{data_root}/mocap.hdf5',
+            f'{data_root}/node_1/zed.hdf5',
+            f'{data_root}/node_2/zed.hdf5',
+            f'{data_root}/node_3/zed.hdf5',
+            f'{data_root}/node_4/zed.hdf5',
         ],
         valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left'],
@@ -137,8 +121,10 @@ model = dict(type='DetectorEnsemble',
         predict_velocity=False,
         num_sa_layers=0,
         to_cm=True,
-        mlp_dropout_rate=0.0,
         interval_sizes=[25,25],
+        binary_prob=True,
+        scale_binary_prob=True,
+        mlp_dropout_rate=0.5
     ),
     entropy_loss_weight=1,
     entropy_loss_type='mse',
@@ -146,9 +132,7 @@ model = dict(type='DetectorEnsemble',
     pos_loss_weight=1,
     num_queries=1,
     mod_dropout_rate=0.0,
-    loss_type='nll',
-    binary_prob=False,
-    scale_binary_prob=False
+    loss_type='nll'
 )
 
 
