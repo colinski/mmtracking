@@ -417,11 +417,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             self.write_video(vid_outputs, **eval_kwargs)
         return grid_res
 
-    def write_video(self, outputs=None, **eval_kwargs): 
+    def write_video(self, outputs=None, start_idx=0, end_idx=-1, **eval_kwargs): 
         logdir = eval_kwargs['logdir']
         video_length = len(self)
-        if 'video_length' in eval_kwargs.keys():
-            video_length = eval_kwargs['video_length']
+        # if 'video_length' in eval_kwargs.keys():
+            # video_length = eval_kwargs['video_length']
         fname = f'{logdir}/latest_vid.mp4'
         fig, axes = init_fig(self.active_keys)
         size = (fig.get_figwidth()*50, fig.get_figheight()*50)
@@ -437,7 +437,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         frame_count = 0
         
         id2dist = defaultdict(list)
-        for i in trange(video_length):
+        for i in trange(start_idx, end_idx):
             data = self[i][-1] #get last frame, eval shouldnt have future
             data = self.__getitem__(i, apply_pipelines=False)[-1]
             save_frame = False
@@ -457,7 +457,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].set_aspect('equal')
 
                     for node_name, node_info in self.nodes.items():
-                        axes[key].add_patch(node_info['poly'])
+                        #axes[key].add_patch(node_info['poly'])
                         pos = node_info['pos']
                         axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_info['id'], color='black', lw=1, s=20*4**2)
 

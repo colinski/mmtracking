@@ -78,7 +78,7 @@ class DataCacher(object):
         self.include_z = include_z
         self.hdf5_fnames = hdf5_fnames
         self.fps = fps
-        self.class2idx = {'truck': 1, 'node': 0}
+        self.class2idx = {'tunnel': 5, 'drone':4, 'car': 3, 'bus': 2, 'truck': 1, 'node': 0}
         # self.max_len = max_len
 
     def cache(self):
