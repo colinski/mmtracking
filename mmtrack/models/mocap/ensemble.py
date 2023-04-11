@@ -170,7 +170,7 @@ class DetectorEnsemble(BaseMocapModel):
                     # comp_dist = dist.componet_distribution
                     comp_dist = dist.component_distribution
                     mean, cov = comp_dist.loc, comp_dist.covariance_matrix
-                    weights = dist.mixture_distribution.probs
+                    weights = dist.mixture_distribution.logits
                     preds[loss_key] = {
                         'mean': mean.reshape(H,W,2).cpu(),
                         'cov': cov.reshape(H,W,2,2).cpu(),
@@ -248,12 +248,14 @@ class DetectorEnsemble(BaseMocapModel):
                     if len(gt_pos) != 0:
                         nll = -dist.log_prob(gt_pos)
                         losses[loss_key].append(nll.mean()) 
+                    else:
+                        losses[loss_key].append(torch.zeros(1).mean().cuda()) 
                     if self.entropy_loss_weight > 0:
                         num_objs = len(gt_pos)
                         if num_objs == 0:
-                            entropy_target = np.log2(28*20)
+                            entropy_target = np.log(28*20)
                         else:
-                            entropy_target = np.log2(num_objs)
+                            entropy_target = np.log(num_objs)
                         loss_key = '_'.join(key + ('entropy_los',))
                         dist_entropy = dist.mixture_distribution.entropy()
                         

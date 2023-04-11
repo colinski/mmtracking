@@ -139,8 +139,8 @@ model = dict(type='DetectorEnsemble',
         to_cm=True,
         mlp_dropout_rate=0.0,
         interval_sizes=[25,25],
-        binary_prob=False,
-        scale_binary_prob=False
+        binary_prob=True,
+        scale_binary_prob=True
     ),
     entropy_loss_weight=1,
     entropy_loss_type='mse',
