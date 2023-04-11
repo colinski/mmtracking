@@ -31,6 +31,32 @@ font = {#'family' : 'normal',
 
 matplotlib.rc('font', **font)
 
+def get_node_info_raw(fill=False, alpha=1): 
+    node_pos = torch.tensor([
+        [ 3919.8430,   337.2432,   369.0333],
+        [  155.9429, -1517.3743,   767.7822],
+        [-2040.2272,  -464.5895,   901.6157],
+        [ 2031.9064,  2279.1736,   724.6130],
+    ])
+
+    node_rot = torch.tensor([
+        [-9.9990e-01,  1.4300e-02, -6.0000e-04, -1.4300e-02, -9.9990e-01,
+          1.3000e-03, -5.8000e-04,  1.3100e-03,  1.0000e+00],
+        [ 1.6939e-01,  9.7809e-01, -1.2103e-01, -9.8551e-01,  1.6917e-01,
+         -1.2150e-02,  8.6000e-03,  1.2134e-01,  9.9257e-01],
+        [ 9.6419e-01,  2.4893e-01, -9.1470e-02, -2.4892e-01,  9.6845e-01,
+          1.1750e-02,  9.1500e-02,  1.1440e-02,  9.9574e-01],
+        [-6.3167e-01, -7.6565e-01, -1.2154e-01,  7.6975e-01, -6.3807e-01,
+          1.8980e-02, -9.2080e-02, -8.1570e-02,  9.9240e-01]
+    ])
+
+    nodes = {}
+    for j in range(len(node_pos)):
+        pos = node_pos[j]
+        name = 'node_{}'.format(j+1)
+        nodes[name] = {'pos': node_pos[j], 'rot': node_rot[j]}
+    return nodes
+
 def get_node_info(fill=False, alpha=1): 
     node_pos = torch.tensor([
         [608.2496, 197.5388],
@@ -46,19 +72,23 @@ def get_node_info(fill=False, alpha=1):
         if j == 0:
             xy = [(pos[0] - 30, pos[1]), (500,0), (0,0), (0,500), (350,500)]
             poly = patches.Polygon(xy=xy, fill=fill, color='red', alpha=alpha)
-            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            #nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            nodes[name] = {'points': xy, 'pos': pos, 'id': j+1, 'color': 'red'}
         if j == 1:
             xy = [(pos[0], pos[1] + 60), (0,250), (0,500), (700,500)]
             poly = patches.Polygon(xy=xy, fill=fill, color='blue', alpha=alpha)
-            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            #nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            nodes[name] = {'points': xy, 'pos': pos, 'id': j+1, 'color': 'blue'}
         if j == 2:
             xy = [(50, pos[1]), (150,500), (700,500), (700,0), (250,0)]
             poly = patches.Polygon(xy=xy, fill=fill, color='green', alpha=alpha)
-            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            #nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            nodes[name] = {'points': xy, 'pos': pos, 'id': j+1, 'color': 'green'}
         if j == 3:
             xy = [(pos[0]-25, pos[1]-25), (0,300), (0,0),(500,0)]
-            poly = patches.Polygon(xy=xy, fill=fill, color='black', alpha=alpha)
-            nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
+            #poly = patches.Polygon(xy=xy, fill=fill, color='black', alpha=alpha)
+            nodes[name] = {'points': xy, 'pos': pos, 'id': j+1, 'color': 'black'}
+            #nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
     return nodes
 
 
