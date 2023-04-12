@@ -176,6 +176,8 @@ class DetectorEnsemble(BaseMocapModel):
                         'cov': cov.reshape(H,W,2,2).cpu(),
                         'weights': weights.reshape(H,W).cpu()
                     }
+                    if 'binary_probs' in output_dict.keys():
+                        preds[loss_key]['binary_probs'] = output_dict['binary_probs']
         return preds
     
     def forward_export(self, datas, path, return_unscaled=False, **kwargs):

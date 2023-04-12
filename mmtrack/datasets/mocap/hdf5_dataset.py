@@ -420,11 +420,11 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         return grid_res
 
     def write_video(self, outputs=None, start_idx=0, end_idx=-1, **eval_kwargs): 
-        logdir = eval_kwargs['logdir']
+        fname = eval_kwargs['fname']
         video_length = len(self)
         # if 'video_length' in eval_kwargs.keys():
             # video_length = eval_kwargs['video_length']
-        fname = f'{logdir}/latest_vid.mp4'
+        #fname = f'{logdir}/latest_vid.mp4'
         fig, axes = init_fig(self.active_keys)
         size = (fig.get_figwidth()*50, fig.get_figheight()*50)
         size = tuple([int(s) for s in size])
@@ -461,7 +461,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     for node_name, node_info in self.nodes.items():
                         poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
                         #axes[key].add_patch(node_info['poly'])
-                        #axes[key].add_patch(poly)
+                        axes[key].add_patch(poly)
                         pos = node_info['pos']
                         axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_info['id'], color='black', lw=1, s=20*4**2)
 
@@ -584,7 +584,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     
                     isin = [points_in_polygon(poly, p) for p in gt_pos]
                     num_viewable = np.sum(isin)
-                    #cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
                     axes[key].imshow(img)
 
                 if 'r50' in mod:
