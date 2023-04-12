@@ -31,7 +31,7 @@ font = {#'family' : 'normal',
 
 matplotlib.rc('font', **font)
 
-def get_node_info_raw(fill=False, alpha=1): 
+def get_node_info(fill=False, alpha=1): 
     node_pos = torch.tensor([
         [ 3919.8430,   337.2432,   369.0333],
         [  155.9429, -1517.3743,   767.7822],
@@ -57,7 +57,7 @@ def get_node_info_raw(fill=False, alpha=1):
         nodes[name] = {'pos': node_pos[j], 'rot': node_rot[j]}
     return nodes
 
-def get_node_info(fill=False, alpha=1): 
+def get_node_info_hand(fill=False, alpha=1): 
     node_pos = torch.tensor([
         [608.2496, 197.5388],
         [231.8911,  12.0564],

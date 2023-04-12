@@ -459,11 +459,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].set_aspect('equal')
 
                     for node_name, node_info in self.nodes.items():
-                        poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
+                        pass
+                        #poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
                         #axes[key].add_patch(node_info['poly'])
-                        axes[key].add_patch(poly)
-                        pos = node_info['pos']
-                        axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_info['id'], color='black', lw=1, s=20*4**2)
+                        #axes[key].add_patch(poly)
+                        #pos = node_info['pos']
+                        #axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_info['id'], color='black', lw=1, s=20*4**2)
 
                     # num_nodes = len(val['node_pos'])
                     # for j in range(num_nodes):
@@ -573,18 +574,19 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     img = cv2.imdecode(code, 1)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     node_info = self.nodes[node]
-                    poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
                     
-                    # score = 0 
-                    # for j in range(len(gt_rot)):
-                        # rot = gt_rot[j]
-                        # raw_pos = gt_pos_raw[j]
-                        # score += self.FOV.validate_field_of_view_raw(node_info['pos'], node_info['rot'], raw_pos, rot, 'zed')
-                    #cv2.putText(img, f'Viewable: {score}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    # poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
+                    # isin = [points_in_polygon(poly, p) for p in gt_pos]
+                    # num_viewable = np.sum(isin)
+                    # cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
                     
-                    isin = [points_in_polygon(poly, p) for p in gt_pos]
-                    num_viewable = np.sum(isin)
-                    cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    score = 0 
+                    for j in range(len(gt_rot)):
+                        rot = gt_rot[j]
+                        raw_pos = gt_pos_raw[j]
+                        score += self.FOV.validate_field_of_view_raw(node_info['pos'], node_info['rot'], raw_pos, rot, 'zed')
+                    cv2.putText(img, f'Viewable: {score}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    
                     axes[key].imshow(img)
 
                 if 'r50' in mod:

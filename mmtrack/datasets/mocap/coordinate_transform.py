@@ -24,8 +24,8 @@ import numpy as np
 from numpy.linalg import inv
 import math
 
-fov_db = {"zed": {"horizontal": 110, "vertical": 50, "horizontal_err": 3, "vertical_err": 3, "offset_x": 30, "offset_y": 205, "offset_z": -155},
-          "mmwave": {"horizontal": 120, "vertical": 30, "horizontal_err": 3, "vertical_err": 3, "offset_x": -15, "offset_y": 55, "offset_z": -55}}
+fov_db = {"zed": {"horizontal": 94, "vertical": 58, "horizontal_err": 6, "vertical_err": 6, "offset_x": -30, "offset_y": -205, "offset_z": 155},
+          "mmwave": {"horizontal": 120, "vertical": 30, "horizontal_err": 3, "vertical_err": 3, "offset_x": 15, "offset_y": -55, "offset_z": 55}}
 
 class CoordinateTransform():
 
@@ -132,6 +132,6 @@ class FieldOfViewCheck():
 
         temp_sphe = CoordinateTransform.cartesian_to_spherical(temp_pos)
 
-        fov_val = FieldOfViewCheck.validate_field_of_view(temp_sphe, sensor_name)
+        fov_val = self.validate_field_of_view(temp_sphe, sensor_name)
 
         return fov_val

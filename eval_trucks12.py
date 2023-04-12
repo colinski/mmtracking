@@ -89,7 +89,6 @@ valset=dict(type='HDF5Dataset',
 )
 valset = build_dataset(valset)
 print(len(valset))
-import ipdb; ipdb.set_trace() # noqa
 
 data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
 data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
@@ -138,7 +137,7 @@ def get_hist_vals(all_weights):
 
 
 expdir = 'logs/trucks12_lightsT_obstaclesF_zed_nodes1234_yolo_tiny_28x20_binary_scale'
-preds = torch.load(f'{expdir}/val/outputs.pt')
+preds = torch.load(f'{expdir}/test/outputs.pt')
 all_weights = get_weights(preds)
 hist_vals = get_hist_vals(all_weights)
 
@@ -150,9 +149,9 @@ from data_utils import point
 
 dt = 0.05
 dt = 1
-initiator  = distance_initiator(dist_threshold=0.5) # 1 5
+initiator  = distance_initiator(dist_threshold=0.5) # 1 0.2 0.5 1 5
 associator = matching_associator(distance_threshold=0.2) #2.5
-tracker = MultiObjectKalmanTracker(dt=dt,std_acc=1,initiator=initiator,associator=associator)
+tracker = MultiObjectKalmanTracker(dt=dt,std_acc=.1,initiator=initiator,associator=associator)
 
 track_results, det_results = [], []
 for i in trange(num_frames):
@@ -166,7 +165,7 @@ for i in trange(num_frames):
             continue
         logits = d['binary_probs']
         weights = logits.sigmoid()
-        mask = weights >= 0.3
+        mask = weights >= 0.6
         means = d['mean'].reshape(-1, 2)[mask] / 100
         covs = d['cov'].reshape(-1, 2, 2)[mask] / 100
         for j in range(len(means)):
@@ -205,8 +204,9 @@ for i, tr in enumerate(track_results):
     outputs['track_covs'].append(frame_covs)
 
 
-valset.write_video(outputs, fname='vids/trucks12_track_sigmoid_val.mp4', start_idx=0, end_idx=1100);
+#valset.write_video(outputs, fname='vids/trucks12_track_sigmoid_val.mp4', start_idx=0, end_idx=1100)
 #valset.write_video(outputs, fname='vids/trucks2_track_sigmoid_val.mp4', start_idx=1500, end_idx=2000)
 
-# testset.write_video(outputs, fname='vids/trucks1_track_sigmoid.mp4', start_idx=0, end_idx=500);
-# testset.write_video(outputs, fname='vids/trucks2_track_sigmoid.mp4', start_idx=4000, end_idx=4500);
+#testset.write_video(outputs, fname='vids/debug_trucks1.mp4', start_idx=0, end_idx=500);
+testset.write_video(outputs, fname='vids/debug_trucks2.mp4', start_idx=4000, end_idx=4500);
+#testset.write_video(outputs, fname='vids/trucks2_track_sigmoid_test_crossval.mp4', start_idx=4000, end_idx=4500);
