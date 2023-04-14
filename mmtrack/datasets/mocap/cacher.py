@@ -175,6 +175,8 @@ class DataCacher(object):
                     
                     node_pos = gt_pos[is_node] * 100
                     node_pos = node_pos[..., 0:2]
+                    node_pos_raw = gt_pos_raw[is_node]
+                    node_rot = gt_rot[is_node]
                     node_ids = gt_ids[is_node]
                     
                     final_mask = ~is_node 
@@ -210,7 +212,9 @@ class DataCacher(object):
                         'gt_rot': gt_rot,
                         'gt_grids': gt_grid,
                         'node_pos': node_pos,
-                        'node_ids': node_ids
+                        'node_pos_raw': node_pos_raw,
+                        'node_ids': node_ids,
+                        'node_rot': node_rot
                     }
                     num_frames += 1
                     save_frame = True
