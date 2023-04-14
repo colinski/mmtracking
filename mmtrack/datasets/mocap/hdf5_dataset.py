@@ -27,7 +27,8 @@ from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec, 
 from mmtrack.datasets import build_dataset
 import torch.nn.functional as F
 import matplotlib.patches as patches
-from mmtrack.datasets.mocap.coordinate_transform import FieldOfViewCheck
+#from mmtrack.datasets.mocap.coordinate_transform import FieldOfViewCheck
+from coordinate_transform.Utils import FieldOfViewCheck
 #from tracker import TorchMultiObsKalmanFilter
 
 font = {#'family' : 'normal',
