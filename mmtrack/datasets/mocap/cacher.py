@@ -41,6 +41,11 @@ def load_chunk(fname, valid_mods, valid_nodes):
         data = convert2dict(f, keys, fname, valid_mods, valid_nodes)
     return data
 
+def split_list(lst, n):
+    # Calculate the size of each chunk, rounding up
+    chunk_size = (len(lst) + n - 1) // n
+    # Split list into n-sized chunks
+    return [lst[i:i+chunk_size] for i in range(0, len(lst), chunk_size)]
 
 @DATASETS.register_module()
 class DataCacher(object):
@@ -58,6 +63,7 @@ class DataCacher(object):
                  # max_len=None,
                  truck_w=30/100,
                  truck_h=15/100,
+                 fifths=None,
                  include_z=True,
                  **kwargs):
         self.valid_mods = valid_mods
@@ -79,6 +85,7 @@ class DataCacher(object):
         self.hdf5_fnames = hdf5_fnames
         self.fps = fps
         self.class2idx = {'truck': 1, 'node': 0}
+        self.fifths = fifths
         # self.max_len = max_len
 
     def cache(self):
@@ -112,6 +119,12 @@ class DataCacher(object):
                 else:
                     break
             buffers = buffers[count:]
+            if self.fifths is not None:
+                chunks = split_list(buffers, 5)
+                chunks = [chunks[i] for i in self.fifths]
+                buffers = sum(chunks, [])
+
+            
 
             # if self.max_len is not None:
                 # buffers = buffers[0:self.max_len]
