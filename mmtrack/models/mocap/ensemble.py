@@ -26,6 +26,7 @@ from mmcv import build_from_cfg
 #from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 from mmtrack.datasets.mocap.viz import get_node_info, points_in_polygon
+import matplotlib.patches as patches
 
 class Delist(nn.Module):
         def __init__(self):
@@ -241,39 +242,47 @@ class DetectorEnsemble(BaseMocapModel):
             for key, embeds in output.items():
                 loss_key = '_'.join(key + ('loss',))
                 for b, embed in enumerate(embeds): 
-                    dist = self.output_head(embed.unsqueeze(0))['dist']
+                    output = self.output_head(embed.unsqueeze(0))
+                    dist = output['dist']
                     gt_pos = gt_positions[t, b]
-                    poly = self.nodes[key[1]]['poly']
+                    node_info = self.nodes[key[1]]
+                    poly = patches.Polygon(xy=node_info['points'])
+                    #poly = self.nodes[key[1]]['poly']
                     isin = torch.tensor([points_in_polygon(poly, gp) for gp in gt_pos])
                     gt_pos = gt_pos[isin]
                     
                     if len(gt_pos) != 0:
                         nll = -dist.log_prob(gt_pos)
                         losses[loss_key].append(nll.mean()) 
+                        if self.entropy_loss_weight > 0:
+                            num_objs = len(gt_pos)
+                            if num_objs == 0:
+                                entropy_target = np.log(28*20)
+                            else:
+                                entropy_target = np.log(num_objs)
+                            loss_key = '_'.join(key + ('entropy_loss',))
+                            dist_entropy = dist.mixture_distribution.entropy()
+                            
+                            if self.entropy_loss_type == 'abs':
+                                entropy_loss = (dist_entropy - entropy_target).abs()
+                            elif self.entropy_loss_type == 'mse':
+                                entropy_loss = (dist_entropy - entropy_target)**2
+                            elif self.entropy_loss_type == 'hinge':
+                                entropy_loss = torch.max(dist_entropy, torch.tensor(entropy_target))
+                            else:
+                                assert 1==2
+
+                            losses[loss_key].append(entropy_loss * self.entropy_loss_weight)
+                            loss_key = '_'.join(key + ('dist_entropy',))
+                            losses[loss_key].append(dist_entropy.detach())
                     else:
                         losses[loss_key].append(torch.zeros(1).mean().cuda()) 
-                    if self.entropy_loss_weight > 0:
-                        num_objs = len(gt_pos)
-                        if num_objs == 0:
-                            entropy_target = np.log(28*20)
-                        else:
-                            entropy_target = np.log(num_objs)
-                        loss_key = '_'.join(key + ('entropy_los',))
-                        dist_entropy = dist.mixture_distribution.entropy()
-                        
-                        if self.entropy_loss_type == 'abs':
-                            entropy_loss = (dist_entropy - entropy_target).abs()
-                        elif self.entropy_loss_type == 'mse':
-                            entropy_loss = (dist_entropy - entropy_target)**2
-                        elif self.entropy_loss_type == 'hinge':
-                            entropy_loss = torch.max(dist_entropy, torch.tensor(entropy_target))
-                        else:
-                            assert 1==2
-
-                        losses[loss_key].append(entropy_loss * self.entropy_loss_weight)
-                        loss_key = '_'.join(key + ('dist_entropy',))
-                        losses[loss_key].append(dist_entropy.detach())
-
+                        if self.entropy_loss_weight > 0:
+                            binary_logits = output['binary_logits']
+                            targets = torch.zeros_like(binary_logits)
+                            loss = F.binary_cross_entropy_with_logits(binary_logits, targets)
+                            loss_key = '_'.join(key + ('entropy_loss',))
+                            losses[loss_key].append(loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses

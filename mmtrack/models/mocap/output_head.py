@@ -185,9 +185,9 @@ class AnchorOutputHead(BaseModule):
 
         if self.binary_prob:
             if self.scale_binary_prob:
-                binary_probs = self.alpha * mix_logits + self.beta
-            result['binary_probs'] = binary_probs.detach().cpu()
-            binary_probs = binary_probs.sigmoid()
+                binary_logits = self.alpha * mix_logits + self.beta
+            result['binary_logits'] = binary_logits
+            binary_probs = binary_logits.sigmoid()
             binary_probs = binary_probs.reshape(B, H, W, 1, 1)
             cov = binary_probs * cov + (1 - binary_probs) * self.cov_add
         else: 
