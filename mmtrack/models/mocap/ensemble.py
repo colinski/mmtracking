@@ -26,6 +26,7 @@ from mmcv import build_from_cfg
 #from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 from mmtrack.datasets.mocap.viz import get_node_info, points_in_polygon
+import matplotlib.patches as patches
 
 class Delist(nn.Module):
         def __init__(self):
@@ -241,9 +242,12 @@ class DetectorEnsemble(BaseMocapModel):
             for key, embeds in output.items():
                 loss_key = '_'.join(key + ('loss',))
                 for b, embed in enumerate(embeds): 
-                    dist = self.output_head(embed.unsqueeze(0))['dist']
+                    node_info = self.nodes[key[1]]
+                    output = self.output_head(embed.unsqueeze(0), node_info['pos'], node_info['rot'])
+                    dist = output['dist']
                     gt_pos = gt_positions[t, b]
-                    poly = self.nodes[key[1]]['poly']
+                    #poly = self.nodes[key[1]]['poly']
+                    poly = patches.Polygon(node_info['points'])
                     isin = torch.tensor([points_in_polygon(poly, gp) for gp in gt_pos])
                     gt_pos = gt_pos[isin]
                     

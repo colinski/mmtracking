@@ -206,13 +206,13 @@ class DataCacher(object):
                         
                     buff[('mocap', 'mocap')] = {
                         'gt_positions': gt_pos,
-                        'gt_positions_raw': gt_pos_raw,
+                        #'gt_positions_raw': gt_pos_raw,
                         #'gt_labels': gt_labels[final_mask].long(),
                         'gt_ids': gt_ids.long(),
-                        'gt_rot': gt_rot,
+                        #'gt_rot': gt_rot,
                         'gt_grids': gt_grid,
                         'node_pos': node_pos,
-                        'node_pos_raw': node_pos_raw,
+                        #'node_pos_raw': node_pos_raw,
                         'node_ids': node_ids,
                         'node_rot': node_rot
                     }

@@ -48,7 +48,7 @@ class AnchorOutputHead(BaseModule):
                  predict_obj_prob=False,
                  num_sa_layers=0,
                  input_dim=256,
-                 room_size=[700,500],
+                 room_size=[700,500,100],
                  interval_sizes=[700,500],
                  to_cm=False,
                  cov_add=1,
@@ -78,6 +78,8 @@ class AnchorOutputHead(BaseModule):
         y_intervals = generate_intervals(room_size[1], interval_sizes[1])
         self.register_buffer('x_intervals', x_intervals)
         self.register_buffer('y_intervals', y_intervals)
+        
+        self.room_size = room_size
 
         
         if include_z:
@@ -99,11 +101,11 @@ class AnchorOutputHead(BaseModule):
         self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=1)
         self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=1)
         self.mix_head = nn.Conv2d(input_dim, 1, kernel_size=1)
+        self.z_head = nn.Conv2d(input_dim, 1, kernel_size=1)
 
         if self.predict_obj_prob:
             self.obj_prob_head = nn.Linear(input_dim, 1)
             self.num_outputs += 1
-        
         
         if self.predict_rotation:
             self.rot_head = nn.Linear(input_dim, 2)
@@ -132,11 +134,13 @@ class AnchorOutputHead(BaseModule):
     
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
-    def forward(self, x):
+    def forward(self, x, node_pos, node_rot):
         with torch.set_grad_enabled(not self.cov_only_train):
             x = self.mlp(x)
             means = self.mean_head(x)
             mix_logits = self.mix_head(x)
+            z_vals = self.z_head(x)[0]
+            z_vals = z_vals.sigmoid() * self.room_size[-1]
 
             means = means.permute(0, 2, 3, 1)
                     
@@ -152,8 +156,17 @@ class AnchorOutputHead(BaseModule):
 
             x_vals = torch.stack(x_vals, dim=1)
             y_vals = torch.stack(y_vals, dim=-1)
+            
+            means = torch.stack([x_vals, y_vals, z_vals], dim=-1)
+            _, H, W, _ = means.shape
+            means = means.reshape(H*W, 3)
 
-            means = torch.stack([x_vals, y_vals], dim=-1)
+            node_rot = node_rot.reshape(3,3).t().cuda()
+            node_pos = node_pos.unsqueeze(-1).cuda()
+
+            means = torch.matmul(node_rot, means.t()) + node_pos
+            means = means.t().reshape(1, H, W, 3)
+            means = means[..., 0:2]
 
             mix_logits = mix_logits.flatten()
 
