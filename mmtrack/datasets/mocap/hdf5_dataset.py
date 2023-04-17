@@ -185,7 +185,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         res = {}
         res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
         res['num_gt_ids'] = len(torch.unique(all_gt_ids))
-        res['num_tracker_ids'] = len(torch.unique(all_gt_ids))
+
+
+        flat_ids = torch.cat([x.flatten() for x in outputs['track_ids']])
+        res['num_tracker_ids'] = len(torch.unique(flat_ids))
         res['num_timesteps'] = len(all_gt_ids)
         res['tracker_ids'] = []
         res['gt_ids'] = all_gt_ids.numpy().astype(int)
@@ -216,7 +219,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             for j in range(len(pred_means)):
                 # dist = torch.norm(pred_mean[j][0:2] - gt_pos[:,0:2], dim=1)
                 # dists.append(dist)
-
+                
                 dist = D.MultivariateNormal(pred_means[j], pred_covs[j])
                 # dist = D.Independent(dist, 1) #Nq independent Gaussians
                 # samples = dist.sample([10000])
@@ -225,6 +228,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 for k in range(num_gt):
                     grid = gt_grid[k]
                     pos = gt_pos[k]
+                    # if pos[0] == -1 or pos[1] == -1:
+                        # continue
 
 
                     # log_probs = dist.log_prob(grid) #*1.5
@@ -233,7 +238,10 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     
                     nll.append(dist.log_prob(pos))
                     samples = dist.sample([1000])
-                    angle = rot2angle(gt_rot[k], return_rads=False)
+                    try:
+                        angle = rot2angle(gt_rot[k], return_rads=False)
+                    except:
+                        import ipdb; ipdb.set_trace() # noqa
                     rec, _ = gen_rectange(gt_pos[k], angle, w=30, h=15)
                     mask = points_in_rec(samples, rec)
                     scores.append(mask.mean())
@@ -255,27 +263,31 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 # dists = 1 - (dists / self.max_len)
             # else:
                 # dists = torch.empty(len(gt_pos), 0).numpy()
+            #if len(scores.shape) > 2:
+            #    scores = scores[0]
             res['similarity_scores'].append(scores)
             res['grid_scores'].append(grid_scores)
             res['nll'].append(nll)
             # all_dists.append(dists)
             # all_probs.append(probs)
         
-        scores = np.stack(res['similarity_scores']).squeeze()
+        #scores = np.stack(res['similarity_scores']).squeeze()
         # grid_scores = np.stack(res['grid_scores']).squeeze()
-        nll = np.stack(res['nll']).squeeze()
+        #nll = np.stack(res['nll']).squeeze()
         #logdir = eval_kwargs['logdir']
         #fname = f'{logdir}/res.json'
         #met=CLEAR({'THRESHOLD': 1-(0.3/self.max_len)}) 
         met = CLEAR({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
         out = met.eval_sequence(res)
         out = {k : float(v) for k,v in out.items()}
+
         
         hmet = HOTA()
         hout = hmet.eval_sequence(res)
-        means = {k + '_mean' : v.mean() for k, v in hout.items()}
-        hout = {k: v.tolist() for k,v in hout.items()}
-        out.update(hout)
+        #means = {k + '_mean' : v.mean() for k, v in hout.items()}
+        means = {k: v.mean() for k, v in hout.items()}
+        #hout = {k: v.tolist() for k,v in hout.items()}
+        #out.update(hout)
         out.update(means)
 
         imet = Identity({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
@@ -283,8 +295,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         iout = {k : float(v) for k,v in iout.items()}
         out.update(iout)
 
-        out['nll_vals'] = nll.tolist()
-        out['grid_scores'] = scores.tolist()
+        #out['nll_vals'] = nll.tolist()
+        #out['grid_scores'] = scores.tolist()
 
         # with open(fname, 'w') as f:
             # json.dump(out, f)
@@ -498,8 +510,8 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         # axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_id, color='black', lw=1, s=20*4**2)
                     
                     gt_pos = val['gt_positions']
-                    gt_pos_raw = val['gt_positions_raw']
-                    gt_rot = val['gt_rot']
+                    #gt_pos_raw = val['gt_positions_raw']
+                    #gt_rot = val['gt_rot']
                     num_gt = len(val['gt_positions'])
                     for j in range(num_gt):
                         pos = val['gt_positions'][j]
@@ -576,17 +588,17 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     node_info = self.nodes[node]
                     
-                    # poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
-                    # isin = [points_in_polygon(poly, p) for p in gt_pos]
-                    # num_viewable = np.sum(isin)
-                    # cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
+                    isin = [points_in_polygon(poly, p) for p in gt_pos]
+                    num_viewable = np.sum(isin)
+                    cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
                     
-                    score = 0 
-                    for j in range(len(gt_rot)):
-                        rot = gt_rot[j]
-                        raw_pos = gt_pos_raw[j]
-                        score += self.FOV.validate_field_of_view_raw(node_info['pos'], node_info['rot'], raw_pos, rot, 'zed')
-                    cv2.putText(img, f'Viewable: {score}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    # score = 0 
+                    # for j in range(len(gt_rot)):
+                        # rot = gt_rot[j]
+                        # raw_pos = gt_pos_raw[j]
+                        # score += self.FOV.validate_field_of_view_raw(node_info['pos'], node_info['rot'], raw_pos, rot, 'zed')
+                    # cv2.putText(img, f'Viewable: {score}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
                     
                     axes[key].imshow(img)
 

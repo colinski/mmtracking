@@ -189,8 +189,8 @@ class DataCacher(object):
                     gt_ids = gt_ids[final_mask] - 4
 
                     if len(gt_pos) < 2:
-                        zeros = torch.zeros(2 - len(gt_pos), gt_pos.shape[-1])
-                        gt_pos = torch.cat([gt_pos, zeros - 1])
+                        # zeros = torch.zeros(2 - len(gt_pos), gt_pos.shape[-1])
+                        # gt_pos = torch.cat([gt_pos, zeros - 1])
 
                         zeros = torch.zeros(2 - len(gt_pos_raw), gt_pos_raw.shape[-1])
                         gt_pos_raw = torch.cat([gt_pos_raw, zeros - 1])
@@ -201,15 +201,15 @@ class DataCacher(object):
                         #zeros = torch.zeros(2 - len(gt_rot), 9)
                         #gt_rot = torch.cat([gt_rot, zeros - 1])
                         
-                        zeros = torch.zeros(2 - len(gt_ids))
-                        gt_ids = torch.cat([gt_ids, zeros - 1])
+                        #zeros = torch.zeros(2 - len(gt_ids))
+                        #gt_ids = torch.cat([gt_ids, zeros - 1])
                         
                     buff[('mocap', 'mocap')] = {
                         'gt_positions': gt_pos,
                         #'gt_positions_raw': gt_pos_raw,
                         #'gt_labels': gt_labels[final_mask].long(),
                         'gt_ids': gt_ids.long(),
-                        #'gt_rot': gt_rot,
+                        'gt_rot': gt_rot,
                         'gt_grids': gt_grid,
                         'node_pos': node_pos,
                         #'node_pos_raw': node_pos_raw,

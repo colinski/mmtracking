@@ -47,16 +47,36 @@ trainset=dict(type='HDF5Dataset',
 )
 
 data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/val'
-data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
-valset=dict(type='HDF5Dataset',
+#data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
+valset1=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
-        cache_dir='/dev/shm/cache_val/',
+        cache_dir='/dev/shm/cache_val1/',
         hdf5_fnames=[
             f'{data_root1}/mocap.hdf5',
             f'{data_root1}/node_1/zed.hdf5',
             f'{data_root1}/node_2/zed.hdf5',
             f'{data_root1}/node_3/zed.hdf5',
             f'{data_root1}/node_4/zed.hdf5',
+            # f'{data_root2}/mocap.hdf5',
+            # f'{data_root2}/node_1/zed.hdf5',
+            # f'{data_root2}/node_2/zed.hdf5',
+            # f'{data_root2}/node_3/zed.hdf5',
+            # f'{data_root2}/node_4/zed.hdf5',
+        ],
+        valid_nodes=[1,2,3,4],
+        valid_mods=['mocap', 'zed_camera_left'],
+        include_z=False,
+    ),
+    num_future_frames=0,
+    num_past_frames=0,
+    pipelines=pipelines
+)
+
+data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
+valset2=dict(type='HDF5Dataset',
+    cacher_cfg=dict(type='DataCacher',
+        cache_dir='/dev/shm/cache_val2/',
+        hdf5_fnames=[
             f'{data_root2}/mocap.hdf5',
             f'{data_root2}/node_1/zed.hdf5',
             f'{data_root2}/node_2/zed.hdf5',
@@ -71,6 +91,7 @@ valset=dict(type='HDF5Dataset',
     num_past_frames=0,
     pipelines=pipelines
 )
+
 
 data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
 data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
@@ -160,8 +181,9 @@ data = dict(
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
-    val=valset,
-    test=testset
+    test=testset,
+    val1=valset1,
+    val2=valset2,
 )
 
 optimizer = dict(
