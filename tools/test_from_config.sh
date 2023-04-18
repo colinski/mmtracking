@@ -14,6 +14,11 @@ singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/di
 mkdir -p $EXPDIR/val2
 singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/dist_test.sh $CONFIG $2 --checkpoint $EXPDIR/latest.pth --eval vid --cfg-options evaluation.logdir=$EXPDIR/val2 evaluation.dataset=val2 evaluation.grid_search=False
 
+mkdir -p $EXPDIR/test1
+singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/dist_test.sh $CONFIG $2 --checkpoint $EXPDIR/latest.pth --eval vid --cfg-options evaluation.logdir=$EXPDIR/test1 evaluation.dataset=test1 evaluation.grid_search=False
+
+mkdir -p $EXPDIR/test2
+singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/dist_test.sh $CONFIG $2 --checkpoint $EXPDIR/latest.pth --eval vid --cfg-options evaluation.logdir=$EXPDIR/test2 evaluation.dataset=test2 evaluation.grid_search=False
 
 
 #mkdir -p $EXPDIR/test

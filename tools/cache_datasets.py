@@ -52,6 +52,13 @@ def main():
 
     if 'valset2' in cfg.keys():
         build_dataset(cfg.valset2)
+
+    if 'testset1' in cfg.keys():
+        build_dataset(cfg.testset1)
+
+    if 'testset2' in cfg.keys():
+        build_dataset(cfg.testset2)
+
     #build_dataset(cfg.testset)
     
 

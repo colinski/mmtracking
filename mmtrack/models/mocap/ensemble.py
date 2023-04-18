@@ -177,7 +177,7 @@ class DetectorEnsemble(BaseMocapModel):
                         'cov': cov.reshape(H,W,2,2).cpu(),
                         'weights': weights.reshape(H,W).cpu()
                     }
-                    assert 'binary_logits' in output_dict.keys()
+                    #assert 'binary_logits' in output_dict.keys()
                     if 'binary_logits' in output_dict.keys():
                         preds[loss_key]['binary_logits'] = output_dict['binary_logits']
         return preds

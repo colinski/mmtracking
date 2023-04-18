@@ -92,18 +92,31 @@ valset2=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
-
 data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
-data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
-testset=dict(type='HDF5Dataset',
+testset1=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
-        cache_dir='/dev/shm/cache_test/',
+        cache_dir='/dev/shm/cache_test1/',
         hdf5_fnames=[
             f'{data_root1}/mocap.hdf5',
             f'{data_root1}/node_1/zed.hdf5',
             f'{data_root1}/node_2/zed.hdf5',
             f'{data_root1}/node_3/zed.hdf5',
             f'{data_root1}/node_4/zed.hdf5',
+        ],
+        valid_nodes=[1,2,3,4],
+        valid_mods=['mocap', 'zed_camera_left'],
+        include_z=False,
+    ),
+    num_future_frames=0,
+    num_past_frames=0,
+    pipelines=pipelines
+)
+
+data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
+testset2=dict(type='HDF5Dataset',
+    cacher_cfg=dict(type='DataCacher',
+        cache_dir='/dev/shm/cache_test2/',
+        hdf5_fnames=[
             f'{data_root2}/mocap.hdf5',
             f'{data_root2}/node_1/zed.hdf5',
             f'{data_root2}/node_2/zed.hdf5',
@@ -118,6 +131,32 @@ testset=dict(type='HDF5Dataset',
     num_past_frames=0,
     pipelines=pipelines
 )
+
+# data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
+# data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
+# testset=dict(type='HDF5Dataset',
+    # cacher_cfg=dict(type='DataCacher',
+        # cache_dir='/dev/shm/cache_test/',
+        # hdf5_fnames=[
+            # f'{data_root1}/mocap.hdf5',
+            # f'{data_root1}/node_1/zed.hdf5',
+            # f'{data_root1}/node_2/zed.hdf5',
+            # f'{data_root1}/node_3/zed.hdf5',
+            # f'{data_root1}/node_4/zed.hdf5',
+            # f'{data_root2}/mocap.hdf5',
+            # f'{data_root2}/node_1/zed.hdf5',
+            # f'{data_root2}/node_2/zed.hdf5',
+            # f'{data_root2}/node_3/zed.hdf5',
+            # f'{data_root2}/node_4/zed.hdf5',
+        # ],
+        # valid_nodes=[1,2,3,4],
+        # valid_mods=['mocap', 'zed_camera_left'],
+        # include_z=False,
+    # ),
+    # num_future_frames=0,
+    # num_past_frames=0,
+    # pipelines=pipelines
+# )
 
 # backbone_cfg=[
     # dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt'),
@@ -181,7 +220,8 @@ data = dict(
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
-    test=testset,
+    test1=testset1,
+    test2=testset2,
     val1=valset1,
     val2=valset2,
 )
