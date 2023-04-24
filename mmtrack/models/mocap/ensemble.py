@@ -229,6 +229,7 @@ class DetectorEnsemble(BaseMocapModel):
         return losses
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
+        import ipdb; ipdb.set_trace() # noqa
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)

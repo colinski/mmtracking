@@ -31,6 +31,17 @@ font = {#'family' : 'normal',
 
 matplotlib.rc('font', **font)
 
+def get_meta():
+    meta = {
+        'node': {'size': [15, 30, 0], 'id': 0},
+        'truck': {'size': [30, 15, 0], 'id': 1},
+        'bus': {'size': [31, 8, 0], 'id': 2},
+        'car': {'size': [29, 13, 0], 'id': 3},
+        'drone': {'size': [32, 27, 8], 'id': 4},
+        'tunnel': {'size': [30, 30, 0], 'id': 5},
+    }
+    return meta
+
 def get_node_info_(fill=False, alpha=1): 
     node_pos = torch.tensor([
         [ 3919.8430,   337.2432,   369.0333],

@@ -30,6 +30,8 @@ import matplotlib.patches as patches
 #from mmtrack.datasets.mocap.coordinate_transform import FieldOfViewCheck
 from coordinate_transform.Utils import FieldOfViewCheck
 #from tracker import TorchMultiObsKalmanFilter
+import glob
+import os
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
@@ -41,23 +43,31 @@ matplotlib.rc('font', **font)
 class HDF5Dataset(Dataset, metaclass=ABCMeta):
     CLASSES = None
     def __init__(self,
+                 pickle_paths=None,
                  cacher_cfg=None,
                  pipelines={},
                  num_past_frames=0,
                  num_future_frames=0,
-                 test_mode=False,
                  limit_axis=True,
                  draw_cov=True,
-                 truck_w=30,
-                 truck_h=15,
-                 include_z=False,
                  **kwargs):
-        self.truck_w = truck_w
-        self.truck_h = truck_h
-        self.cacher = build_dataset(cacher_cfg)
-        self.fnames, self.active_keys = self.cacher.cache()
+        #self.cacher = build_dataset(cacher_cfg)
+        #self.fnames, self.active_keys = self.cacher.cache()
+        #self.fnames = glob.glob(f'{pickle_path}/*.pickle')
+        #self.fnames = sorted(self.fnames)
+        self.fnames = []
+        for pp in pickle_paths:
+            meta_fname = f'{pp}/meta.json'
+            with open(meta_fname, 'r') as f:
+                self.meta = json.load(f)
+
+            self.fnames.extend(self.meta['fnames'])
+            self.fps = self.meta['fps']
+            self.active_keys = self.meta['active_keys']
+            self.active_keys = [tuple(x) for x in self.active_keys]
+
         self.max_len = 1
-        self.fps = self.cacher.fps
+        #self.fps = self.cacher.fps
         self.limit_axis = limit_axis
         self.draw_cov = draw_cov
         self.num_future_frames = num_future_frames
@@ -71,7 +81,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         for mod, cfg in pipelines.items():
             self.pipelines[mod] = Compose(cfg)
 
-        self.test_mode = test_mode
+
         self.flag = np.zeros(len(self), dtype=np.uint8) #ones?
         
         self.nodes = get_node_info()
@@ -109,14 +119,17 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     def __len__(self):
         return len(self.fnames)
     
-    def apply_pipelines(self, buff):
+    def apply_pipelines(self, buff, switch=True):
         new_buff = {}
         for key, val in buff.items():
             mod, node = key
-            if mod == 'mocap':
-                new_buff[key] = val
-            else:
+            # if mod == 'mocap':
+                # new_buff[key] = val
+            # else:
+            if mod == 'mocap' or switch:
                 new_buff[key] = self.pipelines[mod](val)
+            else:
+                new_buff[key] = val
         return new_buff
 
     def read_buff(self, ind):
@@ -126,8 +139,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
     
     def __getitem__(self, ind, apply_pipelines=True):
         new_buff = self.read_buff(ind)
-        if apply_pipelines:
-            new_buff = self.apply_pipelines(new_buff)
+        new_buff = self.apply_pipelines(new_buff, apply_pipelines)
         
         idx_set = torch.arange(len(self))
         start_idx = max(0, ind - self.num_past_frames)
@@ -462,6 +474,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 val = data[key]
                 mod, node = key
                 if mod == 'mocap':
+                    mocap_data = val
                     save_frame = True
                     axes[key].clear()
                     axes[key].grid('on', linewidth=3)
@@ -471,44 +484,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         axes[key].set_ylim(0,500)
                         axes[key].set_aspect('equal')
 
-                    for node_name, node_info in self.nodes.items():
-                        pass
-                        #poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
-                        #axes[key].add_patch(node_info['poly'])
-                        #axes[key].add_patch(poly)
-                        #pos = node_info['pos']
-                        #axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_info['id'], color='black', lw=1, s=20*4**2)
-
-                    # num_nodes = len(val['node_pos'])
-                    # for j in range(num_nodes):
-                        # pos = val['node_pos'][j]
-                        # if j == 0:
-                            # xy = [(pos[0] - 30, pos[1]), (500,0), (0,0), (100,500)]
-                            # poly = patches.Polygon(xy=xy, fill=True, color='red', alpha=0.1)
-                            # axes[key].add_patch(poly)
-                        # if j == 1:
-                            # p1 = (pos[0], pos[1]+50)
-                            # p2 = (0,250)
-                            # p3 = (700,500)
-                            # xy = [(pos[0], pos[1] + 50), (0,250), (0,500), (700,500)]
-                            # axes[key].add_patch(patches.Polygon(xy=xy, fill=True, color='blue', alpha=0.1))
-                        # if j == 2:
-                            # p1 = (50, pos[1])
-                            # p2 = (200,0)
-                            # p3 = (225,500)
-                            # xy = [(50, pos[1]), (200,0), (700,0), (700,500)]
-                            # axes[key].add_patch(patches.Polygon(xy=xy, fill=True, alpha=0.1, color='green'))
-                        # if j == 3:
-                            # p1 = (pos[0], pos[1])
-                            # p2 = (0,300)
-                            # p3 = (500,0)
-                            # xy = [(pos[0], pos[1]), (0,300), (0,0),(500,0)]
-                            # axes[key].add_patch(patches.Polygon(xy=xy, fill=True, color='yellow', alpha=0.1))
-
-
-                        # node_id = val['node_ids'][j] + 1
-                        # axes[key].scatter(pos[0], pos[1], marker='$N%d$' % node_id, color='black', lw=1, s=20*4**2)
-                    
                     gt_pos = val['gt_positions']
                     #gt_pos_raw = val['gt_positions_raw']
                     #gt_rot = val['gt_rot']
@@ -518,22 +493,22 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                         if pos[0] == -1:
                             continue
                         rot = val['gt_rot'][j]
-                        ID = val['gt_ids'][j]
-                        grid = val['gt_grids'][j]
-                        marker = markers[ID]
+                        ID = int(val['gt_ids'][j])
+                        #grid = val['gt_grids'][j]
                         color = colors[ID]
                         
                         axes[key].scatter(pos[0], pos[1], marker=markers[ID], color=color) 
                         
                         
 
-                        
+                        w = val['widths'][j] 
+                        h = val['heights'][j] 
                         angle = rot2angle(rot, return_rads=False)
-                        rec, _ = gen_rectange(pos, angle, w=self.truck_w, h=self.truck_h, color=color)
+                        rec, _ = gen_rectange(pos, angle, w=w, h=h, color=color)
                         axes[key].text(pos[0], pos[1], '%d, %d' % (pos[0], pos[1]))
                         axes[key].add_patch(rec)
 
-                        r=self.truck_w/2
+                        r=w/2
                         axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
                             
                     if outputs is not None: 
@@ -563,8 +538,6 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                                 mean = pred_means[j]
                                 color = self.colors[j % len(self.colors)]
                                 
-                                #rec, _ = gen_rectange(mean, angle, w=self.truck_w, h=self.truck_h, color=color)
-                                #axes[key].add_patch(rec)
 
 
                                 # axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
@@ -586,11 +559,24 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     code = data[key]
                     img = cv2.imdecode(code, 1)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    node_info = self.nodes[node]
+                    node_id = int(node[-1]) - 1
+                    visible = mocap_data['visible'][:, node_id]
+                    visible = visible[4:]
+                    visible[visible == -1] = 0
+                    num_viewable = sum(visible)
+
+                    pixels = mocap_data['pixels'][:, node_id][4:]
+                    for p in pixels:
+                        if p[0] < 0 or p[1] < 0:
+                            continue
+                        p = p/4
+                        cv2.circle(img, (int(p[0]), int(p[1])), 5, (0, 255, 0), -1)
+                
+                    #node_info = self.nodes[node]
                     
-                    poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
-                    isin = [points_in_polygon(poly, p) for p in gt_pos]
-                    num_viewable = np.sum(isin)
+                    #poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
+                    #isin = [points_in_polygon(poly, p) for p in gt_pos]
+                    #num_viewable = np.sum(isin)
                     cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
                     
                     # score = 0 

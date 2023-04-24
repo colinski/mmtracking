@@ -11,6 +11,15 @@ import torchaudio
 from tqdm import trange, tqdm
 import copy
 from .viz import *
+from coordinate_transform.Utils import FieldOfViewCheck
+from coordinate_transform.Utils import CoordinateTransform
+
+def get_calib():
+    calib = {'node_1': np.array([[ 0.9999583 ,  0.00693817,  0.00579411, -0.00704172,  0.99981569, 0.01773981, -0.0056658 , -0.01777992,  0.99982172]]), 
+     'node_2': np.array([[ 0.99726239,  0.0655922 ,  0.03401795, -0.06646787,  0.99747923, 0.0250374 , -0.03229125, -0.02723256,  0.99910498]]), 
+     'node_3': np.array([[ 0.99926651, -0.03825218,  0.00313152,  0.03821827,  0.99922463, 0.00969683, -0.0034986 , -0.00957323,  0.99994614]]), 
+     'node_4': np.array([[ 9.98273147e-01,  3.84921217e-02,  4.42961899e-02, -3.84972003e-02,  9.99256841e-01, -6.86471766e-04, -4.42930857e-02, -1.02671252e-03,  9.99016248e-01]])}
+    return calib
 
 def convert2dict(f, keys, fname, valid_mods, valid_nodes):
     data = {}
@@ -79,6 +88,7 @@ class DataCacher(object):
         self.hdf5_fnames = hdf5_fnames
         self.fps = fps
         self.class2idx = {'tunnel': 5, 'drone':4, 'car': 3, 'bus': 2, 'truck': 1, 'node': 0}
+        self.fov = FieldOfViewCheck()
         # self.max_len = max_len
 
     def cache(self):
@@ -118,7 +128,7 @@ class DataCacher(object):
         
             for i in trange(len(buffers)):
                 buff = buffers[i]
-                fname = '%s/tmp_%09d.pickle' % (self.cache_dir, i)
+                fname = '%s/frame_%09d.pickle' % (self.cache_dir, i)
                 with open(fname, 'wb') as f:
                     pickle.dump(buff, f)
         
@@ -136,85 +146,62 @@ class DataCacher(object):
         num_frames = 0
         keys = sorted(list(all_data.keys()))
         prev_num_objs = None
+        meta = get_meta()
+        calib = get_calib()
         for time in tqdm(keys, desc='filling buffers'):
             save_frame = False
             data = all_data[time]
             for key in data.keys():
                 if key == 'mocap':
                     mocap_data = json.loads(data['mocap'])
-                    if self.normalized_position:
-                        gt_pos = torch.tensor([d['normalized_position'] for d in mocap_data])
-                    else:
-                        gt_pos = torch.tensor([d['position'] for d in mocap_data])
-                        gt_pos_raw = torch.tensor([d['position'] for d in mocap_data])
-                        gt_pos[..., 0] += np.abs(self.min_x)
-                        gt_pos[..., 1] += np.abs(self.min_y)
-                        gt_pos[..., 2] += np.abs(self.min_z)
-                        gt_pos /= 1000
+                    types = [d['type'] for d in mocap_data]
+                    widths = torch.tensor([meta[t]['size'][0] for t in types])
+                    heights = torch.tensor([meta[t]['size'][1] for t in types])
+                    gt_pos = torch.tensor([d['position'] for d in mocap_data])
                     gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
-                    
-                    corners, grids = [], []
-                    for k in range(len(gt_rot)):
-                        angle = rot2angle(gt_rot[k], return_rads=False)
-                        rec, grid = gen_rectange(gt_pos[k], angle, w=self.truck_w, h=self.truck_h)
-                        corners.append(rec.get_corners())
-                        if self.include_z:
-                            z_val = gt_pos[k][-1]
-                            z_vals = torch.ones(len(grid), 1) * z_val
-                            grid = torch.cat([grid, z_vals], dim=-1)
-                        grids.append(grid)
-
-                    grids = torch.stack(grids)
-
-                    corners = np.stack(corners)
-                    corners = torch.tensor(corners).float()
-
                     gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
                     gt_ids = torch.tensor([d['id'] for d in mocap_data])
                     is_node = gt_labels == 0
-                    
-                    node_pos = gt_pos[is_node] * 100
-                    node_pos = node_pos[..., 0:2]
-                    node_pos_raw = gt_pos_raw[is_node]
+
+                    node_pos = gt_pos[is_node]
                     node_rot = gt_rot[is_node]
-                    node_ids = gt_ids[is_node]
-                    
-                    final_mask = ~is_node 
-                    if not self.include_z:
-                        gt_pos = gt_pos[..., 0:2]
-                    gt_pos = gt_pos[final_mask] * 100
-                    gt_pos_raw = gt_pos_raw[final_mask]
-                    gt_grid = grids[final_mask] * 100
-                    gt_rot = gt_rot[final_mask] 
-                    gt_ids = gt_ids[final_mask] - 4
+                    num_nodes = len(node_pos)
+                    num_objs = len(gt_pos)
+                    visible = torch.zeros(num_objs, num_nodes)
+                    pixels = torch.zeros(num_objs, num_nodes, 2)
+                    for i in range(num_nodes):
+                        npos = node_pos[i]
+                        nrot = node_rot[i]
+                        node_name = 'node_%d' % (i+1)
+                        calib_rot = calib[node_name]
+                        calib_nrot = CoordinateTransform.local_to_global_rotation(
+                                nrot, calib_rot)
 
-                    if len(gt_pos) < 2:
-                        zeros = torch.zeros(2 - len(gt_pos), gt_pos.shape[-1])
-                        gt_pos = torch.cat([gt_pos, zeros - 1])
-
-                        zeros = torch.zeros(2 - len(gt_pos_raw), gt_pos_raw.shape[-1])
-                        gt_pos_raw = torch.cat([gt_pos_raw, zeros - 1])
-                        
-                        zeros = torch.zeros(2 - len(gt_grid), 450, 2)
-                        gt_grid = torch.cat([gt_grid, zeros - 1])
-
-                        zeros = torch.zeros(2 - len(gt_rot), 9)
-                        gt_rot = torch.cat([gt_rot, zeros - 1])
-                        
-                        zeros = torch.zeros(2 - len(gt_ids))
-                        gt_ids = torch.cat([gt_ids, zeros - 1])
-                        
+                        for j in range(num_objs):
+                            opos = gt_pos[j]
+                            orot = gt_rot[j]
+                            try: #error if npos is all zeros
+                                lpos, lrot = CoordinateTransform.global_to_local(
+                                     npos, calib_nrot, opos, orot)
+                            except:
+                                continue
+                            u, v = self.fov.local_to_pixel(lpos, node_name, 'zed')
+                            pixels[j, i] = torch.tensor([u,v])
+                            try:
+                                check = self.fov.validate_field_of_view_raw(
+                                    npos, nrot, opos, orot, calib_rot, 'zed')
+                            except:
+                                continue
+                            visible[j, i] = check
                     buff[('mocap', 'mocap')] = {
                         'gt_positions': gt_pos,
-                        #'gt_positions_raw': gt_pos_raw,
-                        #'gt_labels': gt_labels[final_mask].long(),
+                        'gt_labels': gt_labels.long(),
                         'gt_ids': gt_ids.long(),
                         'gt_rot': gt_rot,
-                        'gt_grids': gt_grid,
-                        'node_pos': node_pos,
-                        #'node_pos_raw': node_pos_raw,
-                        'node_ids': node_ids,
-                        'node_rot': node_rot
+                        'widths': widths,
+                        'heights': heights,
+                        'visible': visible,
+                        'pixels': pixels,
                     }
                     num_frames += 1
                     save_frame = True
