@@ -50,10 +50,18 @@ class ScaleMocap(object):
 
     def __call__(self, results):
         gt_pos = results['gt_positions']
+        mask = gt_pos[:, -1] != 0.0
         results['gt_positions_raw'] = gt_pos
+        # gt_pos[mask][:, 0] += np.abs(self.x_min)
+        # gt_pos[mask][:, 1] += np.abs(self.y_min)
+        # gt_pos[mask][:, 2] += np.abs(self.z_min)
+        
         gt_pos[:, 0] += np.abs(self.x_min)
         gt_pos[:, 1] += np.abs(self.y_min)
         gt_pos[:, 2] += np.abs(self.z_min)
+
+        gt_pos[~mask] = gt_pos[~mask]*0 - 1
+
         results['gt_positions'] = gt_pos
         return results
 

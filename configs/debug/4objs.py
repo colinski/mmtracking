@@ -14,7 +14,7 @@ img_pipeline = [
 ]
 
 mocap_pipeline = [
-    dict(type='PruneObjects'),
+    #dict(type='PruneObjects'),
     dict(type='ScaleMocap', x_min=-2162.78244, y_min=-1637.84491),
     dict(type='mm2cm'),
     dict(type='DropZ'),
@@ -27,27 +27,27 @@ pipelines = {
 }
 trainset=dict(type='HDF5Dataset',
     pickle_paths=[
-        '/home/csamplawski/Bus_empty_1_6D_train/', 
-        '/home/csamplawski/Car_empty_1_6D_train/', 
-        '/home/csamplawski/All_vehicle_1_6D_train/'
+        '/dev/shm/Bus_empty_1_6D_train/', 
+        '/dev/shm/Car_empty_1_6D_train/', 
+        '/dev/shm/All_vehicle_1_6D_train/'
     ],
     pipelines=pipelines
 )
 
 valset=dict(type='HDF5Dataset',
     pickle_paths=[
-        '/home/csamplawski/Bus_empty_1_6D_val/', 
-        '/home/csamplawski/Car_empty_1_6D_val/', 
-        '/home/csamplawski/All_vehicle_1_6D_val/'
+        '/dev/shm/Bus_empty_1_6D_val/', 
+        '/dev/shm/Car_empty_1_6D_val/', 
+        '/dev/shm/All_vehicle_1_6D_val/'
     ],
     pipelines=pipelines
 )
 
 testset=dict(type='HDF5Dataset',
     pickle_paths=[
-        '/home/csamplawski/Bus_empty_1_6D_test/', 
-        '/home/csamplawski/Car_empty_1_6D_test/', 
-        '/home/csamplawski/All_vehicle_1_6D_test/'
+        '/dev/shm/Bus_empty_1_6D_test/', 
+        '/dev/shm/Car_empty_1_6D_test/', 
+        '/dev/shm/All_vehicle_1_6D_test/'
     ],
     pipelines=pipelines
 )
@@ -73,7 +73,7 @@ model = dict(type='DetectorEnsemble',
     output_head_cfg=dict(type='AnchorOutputHead',
         include_z=False,
         predict_full_cov=True,
-        cov_add=30.0,
+        cov_add=50.0,
         input_dim=256,
         predict_rotation=False,
         predict_velocity=False,

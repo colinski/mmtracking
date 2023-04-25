@@ -229,13 +229,9 @@ class DetectorEnsemble(BaseMocapModel):
         return losses
 
     def forward_train(self, datas, return_unscaled=False, **kwargs):
-        import ipdb; ipdb.set_trace() # noqa
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
         mocaps = mmcv.parallel.collate(mocaps)
-        
-        # num_timesteps x batch_size x num_objects x (2 or 3)
-        gt_positions = mocaps['gt_positions']
         
         #num_timesteps x batch_size x num_views x D x H x W
         with torch.set_grad_enabled(not self.cov_only_train):
@@ -243,29 +239,35 @@ class DetectorEnsemble(BaseMocapModel):
         for t, output in enumerate(all_outputs):
             for key, embeds in output.items():
                 loss_key = '_'.join(key + ('loss',))
+                node_idx = int(key[1][-1]) - 1
                 for b, embed in enumerate(embeds): 
                     output = self.output_head(embed.unsqueeze(0))
                     dist = output['dist']
-                    gt_pos = gt_positions[t, b]
-                    node_info = self.nodes[key[1]]
-                    poly = patches.Polygon(xy=node_info['points'])
-                    #poly = self.nodes[key[1]]['poly']
-                    isin = torch.tensor([points_in_polygon(poly, gp) for gp in gt_pos])
-                    gt_pos = gt_pos[isin]
+                    gt_pos = mocaps['gt_positions'][t, b]
+                    vis_probs = mocaps['visible'][t, b]
+                    gt_labels = mocaps['gt_labels'][t, b]
+                    is_valid = gt_pos[:, -1] > 0
+                    is_node = gt_labels == 0
+                    mask = ~is_node & is_valid
+                    gt_pos = gt_pos[mask]
+                    vis_probs = vis_probs[mask][:, node_idx]
+                    gt_labels = gt_labels[mask]
                     
                     if len(gt_pos) != 0:
                         nll = -dist.log_prob(gt_pos)
+                        nll = nll * vis_probs
                         losses[loss_key].append(nll.mean()) 
                     else:
-                        losses[loss_key].append(torch.zeros(1).mean().cuda()) 
+                        losses[loss_key].append(torch.zeros(1).mean().cuda())
+                    
                     if self.entropy_loss_weight > 0:
-                        num_objs = len(gt_pos)
+                        dist_entropy = dist.mixture_distribution.entropy()
+                        num_objs = vis_probs.sum()
                         if num_objs == 0:
                             entropy_target = np.log(28*20)
                         else:
-                            entropy_target = np.log(num_objs)
+                            entropy_target = torch.log(num_objs)
                         loss_key = '_'.join(key + ('entropy_loss',))
-                        dist_entropy = dist.mixture_distribution.entropy()
                         
                         if self.entropy_loss_type == 'abs':
                             entropy_loss = (dist_entropy - entropy_target).abs()
@@ -275,18 +277,7 @@ class DetectorEnsemble(BaseMocapModel):
                             entropy_loss = torch.max(dist_entropy, torch.tensor(entropy_target))
                         else:
                             assert 1==2
-
                         losses[loss_key].append(entropy_loss * self.entropy_loss_weight)
-                        #loss_key = '_'.join(key + ('dist_entropy',))
-                        #losses[loss_key].append(dist_entropy.detach())
-                    # else:
-                        # losses[loss_key].append(torch.zeros(1).mean().cuda()) 
-                        # if self.entropy_loss_weight > 0:
-                            # binary_logits = output['binary_logits']
-                            # targets = torch.zeros_like(binary_logits)
-                            # loss = F.binary_cross_entropy_with_logits(binary_logits, targets)
-                            # loss_key = '_'.join(key + ('entropy_loss',))
-                            # losses[loss_key].append(loss)
 
         losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
