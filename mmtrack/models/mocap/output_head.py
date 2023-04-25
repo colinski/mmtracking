@@ -56,6 +56,7 @@ class AnchorOutputHead(BaseModule):
                  cov_only_train=False,
                  binary_prob=False,
                  scale_binary_prob=False,
+                 local_to_global=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -81,6 +82,10 @@ class AnchorOutputHead(BaseModule):
         
         self.room_size = room_size
 
+        self.local_to_global = local_to_global
+
+        
+
         
         if include_z:
             self.register_buffer('cov_add', torch.eye(3) * cov_add)
@@ -101,7 +106,9 @@ class AnchorOutputHead(BaseModule):
         self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=1)
         self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=1)
         self.mix_head = nn.Conv2d(input_dim, 1, kernel_size=1)
-        self.z_head = nn.Conv2d(input_dim, 1, kernel_size=1)
+
+        if local_to_global:
+            self.z_head = nn.Conv2d(input_dim, 1, kernel_size=1)
 
         if self.predict_obj_prob:
             self.obj_prob_head = nn.Linear(input_dim, 1)
@@ -134,14 +141,12 @@ class AnchorOutputHead(BaseModule):
     
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
-    def forward(self, x, node_pos, node_rot):
+    def forward(self, x, node_pos=None, node_rot=None):
         with torch.set_grad_enabled(not self.cov_only_train):
             x = self.mlp(x)
             means = self.mean_head(x)
             mix_logits = self.mix_head(x)
-            z_vals = self.z_head(x)[0]
-            z_vals = z_vals.sigmoid() * self.room_size[-1]
-
+            
             means = means.permute(0, 2, 3, 1)
                     
             means = means.sigmoid()
@@ -157,16 +162,22 @@ class AnchorOutputHead(BaseModule):
             x_vals = torch.stack(x_vals, dim=1)
             y_vals = torch.stack(y_vals, dim=-1)
             
-            means = torch.stack([x_vals, y_vals, z_vals], dim=-1)
-            _, H, W, _ = means.shape
-            means = means.reshape(H*W, 3)
+            means = torch.stack([x_vals, y_vals], dim=-1)
+            
+            if self.local_to_global:
+                z_vals = self.z_head(x)[0]
+                z_vals = z_vals.sigmoid() * self.room_size[-1]
+    
+                means = torch.cat([means, z_vals.unsqueeze(-1)], dim=-1)
+                _, H, W, _ = means.shape
+                means = means.reshape(H*W, 3)
 
-            node_rot = node_rot.reshape(3,3).t().cuda()
-            node_pos = node_pos.unsqueeze(-1).cuda()
+                node_rot = node_rot.reshape(3,3).t().cuda()
+                node_pos = node_pos.unsqueeze(-1).cuda()
 
-            means = torch.matmul(node_rot, means.t()) + node_pos
-            means = means.t().reshape(1, H, W, 3)
-            means = means[..., 0:2]
+                means = torch.matmul(node_rot, means.t()) + node_pos
+                means = means.t().reshape(1, H, W, 3)
+                means = means[..., 0:2]
 
             mix_logits = mix_logits.flatten()
 
@@ -199,7 +210,7 @@ class AnchorOutputHead(BaseModule):
         if self.binary_prob:
             if self.scale_binary_prob:
                 binary_probs = self.alpha * mix_logits + self.beta
-            result['binary_probs'] = binary_probs.detach().cpu()
+            result['binary_logits'] = binary_probs
             binary_probs = binary_probs.sigmoid()
             binary_probs = binary_probs.reshape(B, H, W, 1, 1)
             cov = binary_probs * cov + (1 - binary_probs) * self.cov_add

@@ -42,8 +42,23 @@ def main():
     #future calls (ie during training) will skip the caching step
     cfg = Config.fromfile(args.config)
     build_dataset(cfg.trainset)
-    build_dataset(cfg.valset)
     build_dataset(cfg.testset)
+    
+    if 'valset' in cfg.keys():
+        build_dataset(cfg.valset)
+
+    if 'valset1' in cfg.keys():
+        build_dataset(cfg.valset1)
+
+    if 'valset2' in cfg.keys():
+        build_dataset(cfg.valset2)
+
+    if 'testset1' in cfg.keys():
+        build_dataset(cfg.testset1)
+
+    if 'testset2' in cfg.keys():
+        build_dataset(cfg.testset2)
+
     #build_dataset(cfg.testset)
     
 

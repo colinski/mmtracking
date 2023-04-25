@@ -47,7 +47,6 @@ trainset=dict(type='HDF5Dataset',
 )
 
 data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/val'
-#data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/val'
 valset1=dict(type='HDF5Dataset',
     cacher_cfg=dict(type='DataCacher',
         cache_dir='/dev/shm/cache_val1/',
@@ -57,11 +56,6 @@ valset1=dict(type='HDF5Dataset',
             f'{data_root1}/node_2/zed.hdf5',
             f'{data_root1}/node_3/zed.hdf5',
             f'{data_root1}/node_4/zed.hdf5',
-            # f'{data_root2}/mocap.hdf5',
-            # f'{data_root2}/node_1/zed.hdf5',
-            # f'{data_root2}/node_2/zed.hdf5',
-            # f'{data_root2}/node_3/zed.hdf5',
-            # f'{data_root2}/node_4/zed.hdf5',
         ],
         valid_nodes=[1,2,3,4],
         valid_mods=['mocap', 'zed_camera_left'],
@@ -132,6 +126,8 @@ testset2=dict(type='HDF5Dataset',
     pipelines=pipelines
 )
 
+
+
 # data_root1 = 'data/mmm/2022-09-01/trucks1_lightsT_obstaclesF/test'
 # data_root2 = 'data/mmm/2022-09-01/trucks2_lightsT_obstaclesF/test'
 # testset=dict(type='HDF5Dataset',
@@ -191,7 +187,7 @@ model = dict(type='DetectorEnsemble',
     output_head_cfg=dict(type='AnchorOutputHead',
         include_z=False,
         predict_full_cov=True,
-        cov_add=30.0,
+        cov_add=50.0,
         input_dim=256,
         predict_rotation=False,
         predict_velocity=False,
@@ -199,9 +195,11 @@ model = dict(type='DetectorEnsemble',
         to_cm=True,
         mlp_dropout_rate=0.0,
         interval_sizes=[25,25],
-        binary_prob=False,
-        scale_binary_prob=False
+        binary_prob=True,
+        scale_binary_prob=True,
+        local_to_global=True
     ),
+    shared_adapter=True,
     entropy_loss_weight=1,
     entropy_loss_type='mse',
     track_eval=True,
@@ -220,10 +218,10 @@ data = dict(
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
-    test1=testset1,
-    test2=testset2,
     val1=valset1,
     val2=valset2,
+    test1=testset1,
+    test2=testset2,
 )
 
 optimizer = dict(

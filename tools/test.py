@@ -148,12 +148,13 @@ def main():
         json_file = osp.join(args.work_dir, f'eval_{timestamp}.log.json')
 
     # build the dataloader
-    if cfg.evaluation.dataset == 'val':
-        dataset = build_dataset(cfg.data.val)
-    elif cfg.evaluation.dataset == 'train':
-        dataset = build_dataset(cfg.data.train)
-    else:
-        dataset = build_dataset(cfg.data.test)
+    dataset = build_dataset(cfg.data[cfg.evaluation.dataset])
+    # if cfg.evaluation.dataset == 'val':
+        # dataset = build_dataset(cfg.data.val)
+    # elif cfg.evaluation.dataset == 'train':
+        # dataset = build_dataset(cfg.data.train)
+    # else:
+        # dataset = build_dataset(cfg.data.test)
 
 
     data_loader = build_dataloader(
@@ -184,7 +185,7 @@ def main():
 
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
-
+    
     if not distributed:
         model = MMDataParallel(model, device_ids=cfg.gpu_ids)
         outputs = single_gpu_test(

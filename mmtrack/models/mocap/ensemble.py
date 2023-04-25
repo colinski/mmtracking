@@ -65,6 +65,7 @@ class DetectorEnsemble(BaseMocapModel):
                  is_audio=False,
                  entropy_loss_weight=0.0,
                  entropy_loss_type='abs',
+                 shared_adapter=False,
                  *args,
                  **kwargs):
         super().__init__(init_cfg, *args, **kwargs)
@@ -97,10 +98,17 @@ class DetectorEnsemble(BaseMocapModel):
             self.backbones[key] = build_backbone(cfg)
         
         self.adapters = nn.ModuleDict()
-        for key, cfg in adapter_cfgs.items():
-            mod, node = key
-            self.adapters[mod + '_' + node] = build_model(cfg)
-        
+        if shared_adapter:
+            cfg = list(adapter_cfgs.values())[0]
+            adapter = build_model(cfg)
+            for key, _ in adapter_cfgs.items():
+                mod, node = key
+                self.adapters[mod + '_' + node] = adapter
+
+        else:
+            for key, cfg in adapter_cfgs.items():
+                mod, node = key
+                self.adapters[mod + '_' + node] = build_model(cfg)
         self.num_queries = num_queries
         self.nodes = get_node_info()
         # self.global_pos_encoding = nn.Embedding(self.num_queries, self.dim)
@@ -164,8 +172,11 @@ class DetectorEnsemble(BaseMocapModel):
                 assert len(embeds) == 1
                 for b, embed in enumerate(embeds): 
                     #gt_pos = gt_positions[t, b]
-                    embed = embed.unsqueeze(0)
-                    output_dict = self.output_head(embed)
+                    node_info = self.nodes[key[1]]
+
+                    #embed = embed.unsqueeze(0)
+                    #output_dict = self.output_head(embed)
+                    output_dict = self.output_head(embed.unsqueeze(0), node_info['pos'], node_info['rot'])
                     dist = output_dict['dist']
                     H, W = output_dict['grid_size']
                     # comp_dist = dist.componet_distribution
@@ -177,8 +188,8 @@ class DetectorEnsemble(BaseMocapModel):
                         'cov': cov.reshape(H,W,2,2).cpu(),
                         'weights': weights.reshape(H,W).cpu()
                     }
-                    if 'binary_probs' in output_dict.keys():
-                        preds[loss_key]['binary_probs'] = output_dict['binary_probs']
+                    if 'binary_logits' in output_dict.keys():
+                        preds[loss_key]['binary_logits'] = output_dict['binary_logits'].detach().cpu()
         return preds
     
     def forward_export(self, datas, path, return_unscaled=False, **kwargs):
@@ -303,6 +314,7 @@ class DetectorEnsemble(BaseMocapModel):
                 try:
                     feats = backbone(data[key]['img'])
                 except:
+                    import ipdb; ipdb.set_trace() # noqa
                     feats = backbone([data[key]['img']])
 
             feats = feats[0]
