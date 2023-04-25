@@ -15,7 +15,8 @@ img_pipeline = [
 
 mocap_pipeline = [
     #dict(type='PruneObjects'),
-    dict(type='ScaleMocap', x_min=-2162.78244, y_min=-1637.84491),
+    #dict(type='ScaleMocap', x_min=-2162.78244, y_min=-1637.84491),
+    dict(type='ScaleMocap', x_min=-2500, y_min=-2000),
     dict(type='mm2cm'),
     dict(type='DropZ'),
     dict(type='PadObjects')

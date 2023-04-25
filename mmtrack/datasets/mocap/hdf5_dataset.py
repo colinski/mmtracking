@@ -180,19 +180,19 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     all_gt_pos.append(val['gt_positions'])
                     all_gt_ids.append(val['gt_ids'])
                     all_gt_rot.append(val['gt_rot'])
-                    all_gt_grids.append(val['gt_grids'])
+                    #all_gt_grids.append(val['gt_grids'])
         gt = {}
         gt['all_gt_pos'] = torch.stack(all_gt_pos) #num_frames x num_objs x 3
         gt['all_gt_ids'] = torch.stack(all_gt_ids)
         gt['all_gt_rot'] = torch.stack(all_gt_rot)
-        gt['all_gt_grids'] = torch.stack(all_gt_grids)
+        #gt['all_gt_grids'] = torch.stack(all_gt_grids)
         return gt
 
     def eval_mot(self, outputs, gt):
         all_gt_pos = gt['all_gt_pos']
         all_gt_ids = gt['all_gt_ids']
         all_gt_rot = gt['all_gt_rot']
-        all_gt_grids = gt['all_gt_grids']
+        #all_gt_grids = gt['all_gt_grids']
 
         res = {}
         res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
@@ -219,7 +219,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
             res['tracker_ids'].append(pred_ids.numpy().astype(int))
             gt_pos = all_gt_pos[i]
             gt_rot = all_gt_rot[i]
-            gt_grid = all_gt_grids[i]
+            #gt_grid = all_gt_grids[i]
             
             # dist = D.MultivariateNormal(pred_means.unsqueeze(0), pred_covs.unsqueeze(0))
             # loss_vals = calc_grid_loss(dist, gt_grid)
@@ -238,7 +238,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 
                 num_gt = len(gt_pos)
                 for k in range(num_gt):
-                    grid = gt_grid[k]
+                    #grid = gt_grid[k]
                     pos = gt_pos[k]
                     # if pos[0] == -1 or pos[1] == -1:
                         # continue
@@ -561,11 +561,13 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     node_id = int(node[-1]) - 1
                     visible = mocap_data['visible'][:, node_id]
-                    visible = visible[4:]
-                    visible[visible == -1] = 0
+                    visible = visible[mocap_data['valid_mask'].bool()]
+                    #visible = visible[4:]
+                    #visible[visible == -1] = 0
                     num_viewable = sum(visible)
 
-                    pixels = mocap_data['pixels'][:, node_id][4:]
+                    pixels = mocap_data['pixels'][:, node_id]
+                    pixels = pixels[mocap_data['valid_mask'].bool()]
                     for p in pixels:
                         if p[0] < 0 or p[1] < 0:
                             continue

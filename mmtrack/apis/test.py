@@ -44,64 +44,59 @@ def single_gpu_test(model,
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
         with torch.no_grad():
-            result = model(return_loss=False, rescale=True, **data)
+            #result = model(return_loss=False, rescale=True, **data)
+            result = model(data, return_loss=False)
 
-        batch_size = data['img'][0].size(0)
-        if show or out_dir:
-            assert batch_size == 1, 'Only support batch_size=1 when testing.'
-            img_tensor = data['img'][0]
-            img_meta = data['img_metas'][0].data[0][0]
-            img = tensor2imgs(img_tensor, **img_meta['img_norm_cfg'])[0]
+        # batch_size = data['img'][0].size(0)
+        # if show or out_dir:
+            # assert batch_size == 1, 'Only support batch_size=1 when testing.'
+            # img_tensor = data['img'][0]
+            # img_meta = data['img_metas'][0].data[0][0]
+            # img = tensor2imgs(img_tensor, **img_meta['img_norm_cfg'])[0]
 
-            h, w, _ = img_meta['img_shape']
-            img_show = img[:h, :w, :]
+            # h, w, _ = img_meta['img_shape']
+            # img_show = img[:h, :w, :]
 
-            ori_h, ori_w = img_meta['ori_shape'][:-1]
-            img_show = mmcv.imresize(img_show, (ori_w, ori_h))
+            # ori_h, ori_w = img_meta['ori_shape'][:-1]
+            # img_show = mmcv.imresize(img_show, (ori_w, ori_h))
 
-            if out_dir:
-                out_file = osp.join(out_dir, img_meta['ori_filename'])
-            else:
-                out_file = None
+            # if out_dir:
+                # out_file = osp.join(out_dir, img_meta['ori_filename'])
+            # else:
+                # out_file = None
 
-            model.module.show_result(
-                img_show,
-                result,
-                show=show,
-                out_file=out_file,
-                score_thr=show_score_thr)
+            # model.module.show_result(
+                # img_show,
+                # result,
+                # show=show,
+                # out_file=out_file,
+                # score_thr=show_score_thr)
 
-            # Whether need to generate a video from images.
-            # The frame_id == 0 means the model starts processing
-            # a new video, therefore we can write the previous video.
-            # There are two corner cases.
-            # Case 1: prev_img_meta == None means there is no previous video.
-            # Case 2: i == len(dataset) means processing the last video
-            need_write_video = (
-                prev_img_meta is not None and img_meta['frame_id'] == 0
-                or i == len(dataset))
-            if out_dir and need_write_video:
-                prev_img_prefix, prev_img_name = prev_img_meta[
-                    'ori_filename'].rsplit(os.sep, 1)
-                prev_img_idx, prev_img_type = prev_img_name.split('.')
-                prev_filename_tmpl = '{:0' + str(
-                    len(prev_img_idx)) + 'd}.' + prev_img_type
-                prev_img_dirs = f'{out_dir}/{prev_img_prefix}'
-                prev_img_names = sorted(os.listdir(prev_img_dirs))
-                prev_start_frame_id = int(prev_img_names[0].split('.')[0])
-                prev_end_frame_id = int(prev_img_names[-1].split('.')[0])
+            # need_write_video = (
+                # prev_img_meta is not None and img_meta['frame_id'] == 0
+                # or i == len(dataset))
+            # if out_dir and need_write_video:
+                # prev_img_prefix, prev_img_name = prev_img_meta[
+                    # 'ori_filename'].rsplit(os.sep, 1)
+                # prev_img_idx, prev_img_type = prev_img_name.split('.')
+                # prev_filename_tmpl = '{:0' + str(
+                    # len(prev_img_idx)) + 'd}.' + prev_img_type
+                # prev_img_dirs = f'{out_dir}/{prev_img_prefix}'
+                # prev_img_names = sorted(os.listdir(prev_img_dirs))
+                # prev_start_frame_id = int(prev_img_names[0].split('.')[0])
+                # prev_end_frame_id = int(prev_img_names[-1].split('.')[0])
 
-                mmcv.frames2video(
-                    prev_img_dirs,
-                    f'{prev_img_dirs}/out_video.mp4',
-                    fps=fps,
-                    fourcc='mp4v',
-                    filename_tmpl=prev_filename_tmpl,
-                    start=prev_start_frame_id,
-                    end=prev_end_frame_id,
-                    show_progress=False)
+                # mmcv.frames2video(
+                    # prev_img_dirs,
+                    # f'{prev_img_dirs}/out_video.mp4',
+                    # fps=fps,
+                    # fourcc='mp4v',
+                    # filename_tmpl=prev_filename_tmpl,
+                    # start=prev_start_frame_id,
+                    # end=prev_end_frame_id,
+                    # show_progress=False)
 
-            prev_img_meta = img_meta
+            # prev_img_meta = img_meta
 
         for key in result:
             if 'mask' in key:
@@ -109,7 +104,8 @@ def single_gpu_test(model,
 
         for k, v in result.items():
             results[k].append(v)
-
+        
+        batch_size = 1
         for _ in range(batch_size):
             prog_bar.update()
 

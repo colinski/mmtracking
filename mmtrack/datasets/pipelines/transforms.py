@@ -72,7 +72,8 @@ class mm2cm(object):
 
     def __call__(self, results):
         gt_pos = results['gt_positions']
-        gt_pos /= 10
+        mask = gt_pos[:, -1] != -1
+        gt_pos[mask] = gt_pos[mask] / 10
         results['gt_positions'] = gt_pos
         return results
 

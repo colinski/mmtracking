@@ -163,6 +163,11 @@ class DataCacher(object):
                     gt_ids = torch.tensor([d['id'] for d in mocap_data])
                     is_node = gt_labels == 0
 
+                    missing_mask = gt_pos[:, -1] == 0
+
+                    valid_mask = ~is_node & ~missing_mask
+
+
                     node_pos = gt_pos[is_node]
                     node_rot = gt_rot[is_node]
                     num_nodes = len(node_pos)
@@ -202,6 +207,8 @@ class DataCacher(object):
                         'heights': heights,
                         'visible': visible,
                         'pixels': pixels,
+                        'valid_mask': valid_mask,
+                        'missing_mask': missing_mask
                     }
                     num_frames += 1
                     save_frame = True
