@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument('--valid_nodes', type=int, nargs='+', default=[1,2,3,4])
     parser.add_argument('--valid_mods', nargs='+', default=['mocap'])
     parser.add_argument('--overwrite', action='store_true')
+    parser.add_argument('--len', type=int, default=-1)
     args = parser.parse_args()
     return args
 
@@ -50,6 +51,8 @@ def main():
         fps=args.fps,
     )
     fnames, active_keys = cacher.cache()
+    if args.len != -1:
+        fnames = fnames[0:args.len]
     meta = {'fps': args.fps, 'active_keys': active_keys, 'fnames': fnames,
             'valid_nodes': args.valid_nodes, 'valid_mods': args.valid_mods}
     with open(f'{args.pickle_path}/meta.json', 'w') as f:

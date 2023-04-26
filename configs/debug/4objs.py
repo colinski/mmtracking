@@ -39,7 +39,7 @@ valset=dict(type='HDF5Dataset',
     pickle_paths=[
         '/dev/shm/Bus_empty_1_6D_val/', 
         '/dev/shm/Car_empty_1_6D_val/', 
-        '/dev/shm/All_vehicle_1_6D_val/'
+        #'/dev/shm/All_vehicle_1_6D_val/'
     ],
     pipelines=pipelines
 )
@@ -48,7 +48,7 @@ testset=dict(type='HDF5Dataset',
     pickle_paths=[
         '/dev/shm/Bus_empty_1_6D_test/', 
         '/dev/shm/Car_empty_1_6D_test/', 
-        '/dev/shm/All_vehicle_1_6D_test/'
+        #'/dev/shm/All_vehicle_1_6D_test/'
     ],
     pipelines=pipelines
 )
