@@ -24,7 +24,6 @@ import time
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 #from pyro.contrib.tracking.measurements import PositionMeasurement
-from mmtrack.models.mocap.tracker import Tracker, MultiTracker
 from mmtrack.datasets.mocap.viz import get_node_info, points_in_polygon
 import matplotlib.patches as patches
 
