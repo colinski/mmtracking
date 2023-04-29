@@ -50,7 +50,7 @@ testset=dict(type='HDF5Dataset',
 )
 
 
-backbone_cfg=dict(type='YOLOv7', weights='src/mmtracking/yolov7-tiny.pt', return_idx=1)
+backbone_cfg=dict(type='YOLOv7', weights='src/mmtracking/checkpoints/yolov7-tiny.pt', return_idx=1)
 
 adapter_cfg=dict(type='ConvAdapter', 
         interpolate_size=(28,20),

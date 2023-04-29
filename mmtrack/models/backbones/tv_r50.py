@@ -17,7 +17,7 @@ from mmdet.apis import init_detector, inference_detector
 class YOLOv7(BaseModule):
     def __init__(self, 
             out_channels=256,
-            weights='src/mmtracking/yolov7-tiny.pt',
+            weights='src/mmtracking/checkpoints/yolov7-tiny.pt',
             return_idx=-1,
         ):
         super().__init__()
