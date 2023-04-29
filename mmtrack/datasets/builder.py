@@ -15,8 +15,8 @@ from torch.utils.data.dataset import ConcatDataset
 from torch.utils.data.sampler import RandomSampler
 
 from mmtrack.datasets.samplers.quota_sampler import DistributedQuotaSampler
-from .base_sot_dataset import BaseSOTDataset
-from .samplers import DistributedVideoSampler, SOTVideoSampler
+#from .base_sot_dataset import BaseSOTDataset
+#from .samplers import DistributedVideoSampler, SOTVideoSampler
 
 
 def build_dataloader(dataset,
@@ -59,9 +59,10 @@ def build_dataloader(dataset,
     """
     rank, world_size = get_dist_info()
     # We set specific data sampler for SOT datasets.
-    is_sot_dataset = isinstance(dataset, BaseSOTDataset) or (
-        isinstance(dataset, ConcatDataset)
-        and isinstance(dataset.datasets[0], BaseSOTDataset))
+    # is_sot_dataset = isinstance(dataset, BaseSOTDataset) or (
+        # isinstance(dataset, ConcatDataset)
+        # and isinstance(dataset.datasets[0], BaseSOTDataset))
+    is_sot_dataset = False
     if dist:
         # ----- distributed train mode ------
         if shuffle:

@@ -7,10 +7,8 @@ import lap
 from mmdet.models import build_detector, build_head
 from collections import OrderedDict
 import torch.distributed as dist
-from mmtrack.core import outs2results, results2outs
 from mmcv.runner import BaseModule, auto_fp16
 from ..builder import MODELS, build_tracker
-from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
 
 
 @MODELS.register_module()

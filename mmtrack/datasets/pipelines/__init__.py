@@ -4,14 +4,16 @@ from mmdet.datasets.builder import PIPELINES
 from .formatting import (CheckPadMaskValidity, ConcatSameTypeFrames,
                          ConcatVideoReferences, ReIDFormatBundle,
                          SeqDefaultFormatBundle, ToList, VideoCollect)
-from .loading import (LoadDetections, LoadMultiImagesFromFile,
-                      SeqLoadAnnotations, LoadFromNumpyArray, LoadAudio)
+from .loading import *
+# (LoadDetections, LoadMultiImagesFromFile,
+                      # SeqLoadAnnotations, LoadFromNumpyArray, LoadAudio)
 from .processing import MatchInstances, TridentSampling
-from .transforms import (SeqBboxJitter, SeqBlurAug, SeqBrightnessAug,
-                         SeqColorAug, SeqCropLikeSiamFC, SeqCropLikeStark,
-                         SeqGrayAug, SeqNormalize, SeqPad,
-                         SeqPhotoMetricDistortion, SeqRandomCrop,
-                         SeqRandomFlip, SeqResize, SeqShiftScaleAug)
+from .transforms import *
+# (SeqBboxJitter, SeqBlurAug, SeqBrightnessAug,
+                         # SeqColorAug, SeqCropLikeSiamFC, SeqCropLikeStark,
+                         # SeqGrayAug, SeqNormalize, SeqPad,
+                         # SeqPhotoMetricDistortion, SeqRandomCrop,
+                         # SeqRandomFlip, SeqResize, SeqShiftScaleAug)
 
 __all__ = [
     'PIPELINES', 'LoadMultiImagesFromFile', 'SeqLoadAnnotations', 'SeqResize',

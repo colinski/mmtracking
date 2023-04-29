@@ -2,7 +2,7 @@
 from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
 
-from mmtrack.core import results2outs
+#from mmtrack.core import results2outs
 import numpy as np
 import torch
 import torchaudio
@@ -153,22 +153,22 @@ class SeqLoadAnnotations(LoadAnnotations):
         return outs
 
 
-@PIPELINES.register_module()
-class LoadDetections(object):
-    """Load public detections from MOT benchmark.
+# @PIPELINES.register_module()
+# class LoadDetections(object):
+    # """Load public detections from MOT benchmark.
 
-    Args:
-        results (dict): Result dict from :obj:`mmtrack.CocoVideoDataset`.
-    """
+    # Args:
+        # results (dict): Result dict from :obj:`mmtrack.CocoVideoDataset`.
+    # """
 
-    def __call__(self, results):
-        outs_det = results2outs(bbox_results=results['detections'])
-        bboxes = outs_det['bboxes']
-        labels = outs_det['labels']
+    # def __call__(self, results):
+        # outs_det = results2outs(bbox_results=results['detections'])
+        # bboxes = outs_det['bboxes']
+        # labels = outs_det['labels']
 
-        results['public_bboxes'] = bboxes[:, :4]
-        if bboxes.shape[1] > 4:
-            results['public_scores'] = bboxes[:, -1]
-        results['public_labels'] = labels
-        results['bbox_fields'].append('public_bboxes')
-        return results
+        # results['public_bboxes'] = bboxes[:, :4]
+        # if bboxes.shape[1] > 4:
+            # results['public_scores'] = bboxes[:, -1]
+        # results['public_labels'] = labels
+        # results['bbox_fields'].append('public_bboxes')
+        # return results

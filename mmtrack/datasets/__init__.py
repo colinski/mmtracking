@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmdet.datasets.builder import DATASETS, build_dataset
 
-from .base_sot_dataset import BaseSOTDataset
+#from .base_sot_dataset import BaseSOTDataset
 from .builder import build_dataloader
 # from .coco_video_dataset import CocoVideoDataset
 # from .dataset_wrappers import RandomSampleConcatDataset
