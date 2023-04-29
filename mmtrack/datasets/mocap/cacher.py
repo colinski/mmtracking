@@ -146,7 +146,7 @@ class DataCacher(object):
         num_frames = 0
         keys = sorted(list(all_data.keys()))
         prev_num_objs = None
-        meta = get_meta()
+        self.class_info = ClassInfo()
         calib = get_calib()
         for time in tqdm(keys, desc='filling buffers'):
             save_frame = False
@@ -155,11 +155,14 @@ class DataCacher(object):
                 if key == 'mocap':
                     mocap_data = json.loads(data['mocap'])
                     types = [d['type'] for d in mocap_data]
-                    widths = torch.tensor([meta[t]['size'][0] for t in types])
-                    heights = torch.tensor([meta[t]['size'][1] for t in types])
+                    #widths = torch.tensor([meta[t]['size'][0] for t in types])
+                    #heights = torch.tensor([meta[t]['size'][1] for t in types])
+                    widths = torch.tensor([self.class_info.name2width(t) for t in types])
+                    heights = torch.tensor([self.class_info.name2height(t) for t in types])
                     gt_pos = torch.tensor([d['position'] for d in mocap_data])
                     gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
-                    gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
+                    #gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
+                    gt_labels = torch.tensor([self.class_info.name2id(d['type']) for d in mocap_data])
                     gt_ids = torch.tensor([d['id'] for d in mocap_data])
                     is_node = gt_labels == 0
 

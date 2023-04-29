@@ -1,4 +1,3 @@
-from abc import ABCMeta, abstractmethod
 import os
 import glob
 import pickle
@@ -23,7 +22,7 @@ import torch.distributions as D
 from scipy.spatial import distance
 from trackeval.metrics import CLEAR, HOTA, Identity
 import matplotlib
-from .viz import init_fig, gen_rectange, gen_ellipse, rot2angle, points_in_rec, points_in_polygon, get_node_info
+from .viz import *
 from mmtrack.datasets import build_dataset
 import torch.nn.functional as F
 import matplotlib.patches as patches
@@ -40,7 +39,7 @@ font = {#'family' : 'normal',
 matplotlib.rc('font', **font)
 
 @DATASETS.register_module()
-class HDF5Dataset(Dataset, metaclass=ABCMeta):
+class HDF5Dataset(Dataset):
     CLASSES = None
     def __init__(self,
                  pickle_paths=None,
@@ -75,6 +74,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
         self.node_pos = None
         self.node_ids = None
         self.colors = ['red', 'green', 'orange', 'black', 'yellow', 'blue']
+        self.class_info = ClassInfo()
         self.FOV = FieldOfViewCheck()
         
         self.pipelines = {}
@@ -494,13 +494,12 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                             continue
                         rot = val['gt_rot'][j]
                         ID = int(val['gt_ids'][j])
+                        class_id = int(val['gt_labels'][j])
                         #grid = val['gt_grids'][j]
-                        color = colors[ID]
+                        color = self.class_info.id2color(class_id)
                         
                         axes[key].scatter(pos[0], pos[1], marker=markers[ID], color=color) 
                         
-                        
-
                         w = val['widths'][j] 
                         h = val['heights'][j] 
                         angle = rot2angle(rot, return_rads=False)

@@ -24,6 +24,7 @@ from scipy.spatial import distance
 from trackeval.metrics import CLEAR
 import matplotlib
 import matplotlib.patches as patches
+import pandas as pd
 
 font = {#'family' : 'normal',
         'weight' : 'bold',
@@ -31,7 +32,33 @@ font = {#'family' : 'normal',
 
 matplotlib.rc('font', **font)
 
-def get_meta():
+class ClassInfo:
+    def __init__(self, info={
+        'node': {'size': [15, 30, 0], 'id': 0, 'color': 'black'},
+        'truck': {'size': [30, 15, 0], 'id': 1, 'color': 'orange'},
+        'bus': {'size': [31, 8, 0], 'id': 2, 'color': 'red'},
+        'car': {'size': [29, 13, 0], 'id': 3, 'color': 'blue'},
+        'drone': {'size': [32, 27, 8], 'id': 4, 'color': 'gray'},
+        'tunnel': {'size': [30, 30, 0], 'id': 5, 'color': 'brown'}
+    }):
+        self.info = pd.DataFrame.from_dict(info).T
+
+    def name2id(self, name):
+        return self.info.loc[name]['id']
+
+    def id2name(self, id):
+        return self.info[self.info['id'] == id].index[0]
+
+    def id2color(self, id):
+        return self.info.loc[self.id2name(id)]['color']
+    
+    def name2width(self, name):
+        return self.info.loc[name]['size'][0]
+
+    def name2height(self, name):
+        return self.info.loc[name]['size'][1]
+
+def get_meta_():
     meta = {
         'node': {'size': [15, 30, 0], 'id': 0},
         'truck': {'size': [30, 15, 0], 'id': 1},
