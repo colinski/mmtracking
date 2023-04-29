@@ -1,0 +1,2 @@
+singularity run --nv sif/python.sif python src/mmtracking/tools/pickle_datasets.py ~/eight/data_901/scenarios/trucks1_lightsT_obstaclesF/ /dev/shm/trucks1_lightsT_obstaclesF --valid_mods mocap zed_camera_left --overwrite
+singularity run --nv sif/python.sif python src/mmtracking/tools/pickle_datasets.py ~/eight/data_901/scenarios/trucks2_lightsT_obstaclesF/ /dev/shm/trucks2_lightsT_obstaclesF --valid_mods mocap zed_camera_left --overwrite

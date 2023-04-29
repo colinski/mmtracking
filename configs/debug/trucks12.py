@@ -28,6 +28,7 @@ pipelines = {
 trainset=dict(type='HDF5Dataset',
     pickle_paths=[
         '/dev/shm/trucks1_lightsT_obstaclesF/train',
+        '/dev/shm/trucks2_lightsT_obstaclesF/train',
     ],
     pipelines=pipelines
 )
@@ -35,6 +36,7 @@ trainset=dict(type='HDF5Dataset',
 valset=dict(type='HDF5Dataset',
     pickle_paths=[
         '/dev/shm/trucks1_lightsT_obstaclesF/val',
+        '/dev/shm/trucks2_lightsT_obstaclesF/val',
     ],
     pipelines=pipelines
 )
@@ -42,6 +44,7 @@ valset=dict(type='HDF5Dataset',
 testset=dict(type='HDF5Dataset',
     pickle_paths=[
         '/dev/shm/trucks1_lightsT_obstaclesF/test'
+        '/dev/shm/trucks2_lightsT_obstaclesF/test',
     ],
     pipelines=pipelines
 )
@@ -66,13 +69,8 @@ model = dict(type='DetectorEnsemble',
     adapter_cfgs=adapter_cfgs,
     output_head_cfg=dict(type='AnchorOutputHead',
         include_z=False,
-        predict_full_cov=True,
         cov_add=50.0,
         input_dim=256,
-        predict_rotation=False,
-        predict_velocity=False,
-        num_sa_layers=0,
-        to_cm=True,
         mlp_dropout_rate=0.0,
         interval_sizes=[25,25],
         binary_prob=True,
@@ -80,11 +78,7 @@ model = dict(type='DetectorEnsemble',
     ),
     entropy_loss_weight=1,
     entropy_loss_type='mse',
-    track_eval=True,
     pos_loss_weight=1,
-    num_queries=1,
-    mod_dropout_rate=0.0,
-    loss_type='nll',
 )
 
 

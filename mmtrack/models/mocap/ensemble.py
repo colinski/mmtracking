@@ -4,26 +4,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as D
-import lap 
-from mmdet.models import build_detector, build_head, build_backbone, build_neck
-from collections import OrderedDict
 import torch.distributed as dist
-#from mmtrack.core import outs2results, results2outs
-from mmcv.runner import BaseModule, auto_fp16
+import lap 
+from collections import OrderedDict
 from ..builder import MODELS, build_tracker, build_model
-#from mmdet.core import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy, reduce_mean
+from mmdet.models import build_backbone
 import copy
 from .base import BaseMocapModel
 from mmdet.models import build_loss
-# from cad.pos import AnchorEncoding
-# from cad.attn import ResCrossAttn, ResSelfAttn
-# from cad.models.detr import DETRDecoder
 from collections import defaultdict
-#from mmtrack.models.mot.kalman_track import MocapTrack
 import time
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
-#from pyro.contrib.tracking.measurements import PositionMeasurement
 from mmtrack.datasets.mocap.viz import get_node_info, points_in_polygon
 import matplotlib.patches as patches
 
@@ -49,44 +41,23 @@ class DetectorEnsemble(BaseMocapModel):
                  backbone_cfgs=None,
                  adapter_cfgs=None,
                  output_head_cfg=None,
-                 dim=256,
-                 track_eval=False,
                  pos_loss_weight=0.1,
                  num_queries=1,
                  match_by_id=False,
                  global_ca_layers=1,
-                 mod_dropout_rate=0.0,
-                 loss_type='nll',
                  freeze_backbone=False,
                  kf_train=False,
                  cov_only_train=False,
                  init_cfg={},
-                 is_audio=False,
                  entropy_loss_weight=0.0,
                  entropy_loss_type='abs',
                  *args,
                  **kwargs):
         super().__init__(init_cfg, *args, **kwargs)
-        # config_file = '/home/csamplawski/src/mmdetection/configs/detr/detr_r50_8x2_150e_coco.py'
-        # checkpoint_file = '/home/csamplawski/src/mmtracking/detr_r50_8x2_150e_coco_20201130_194835-2c4b8974.pth'
-        # self.detr = init_detector(config_file, checkpoint_file, device='cuda')  # or device='cuda:0'
-        # self.detr = self.detr.eval()
-        self.num_classes = 2
-        self.tracks = None
-        self.frame_count = 0 
-        self.track_eval = track_eval
         self.pos_loss_weight = pos_loss_weight
-        self.prev_frame = None
-        self.dim = dim
-        self.match_by_id = match_by_id
-        self.is_audio = is_audio
         self.entropy_loss_weight = entropy_loss_weight
         self.entropy_loss_type = entropy_loss_type
-        #self.mod_dropout = nn.Dropout2d(mod_dropout_rate)
-        #self.tracker = MultiTracker(mode='kf')
-        self.loss_type = loss_type
         self.cov_only_train = cov_only_train
-        
         output_head_cfg['cov_only_train'] = cov_only_train
         self.output_head = build_model(output_head_cfg)
         self.times = []
@@ -102,26 +73,12 @@ class DetectorEnsemble(BaseMocapModel):
         
         self.num_queries = num_queries
         self.nodes = get_node_info()
-        # self.global_pos_encoding = nn.Embedding(self.num_queries, self.dim)
-        
-        # self.global_ca_layers = global_ca_layers
-        # if global_ca_layers > 1:
-            # self.global_cross_attn = nn.ModuleList([ResCrossAttn(cross_attn_cfg)]*global_ca_layers)
-        # else:
-            # self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
-        
-        # if 'init_cfg' in kwargs:
-            # self.init_weights()
         self.freeze_backbone = freeze_backbone
         self.kf_train = kf_train
         self.sessions = None
         # if init_cfg != {}:
             # self.init_weights()
 
-        self.audio_network = nn.Sequential(
-            nn.Linear(5,5),
-            nn.ReLU()
-        )
         
     def forward(self, data, return_loss=True, **kwargs):
         """Calls either :func:`forward_train` or :func:`forward_test` depending
@@ -133,9 +90,6 @@ class DetectorEnsemble(BaseMocapModel):
         should be double nested (i.e.  List[Tensor], List[List[dict]]), with
         the outer list indicating test time augmentations.
         """
-        if self.is_audio:
-            return self.forward_train_audio(data, **kwargs)
-
         if return_loss:
             if self.kf_train:
                 return self.forward_train_track(data, **kwargs)
@@ -211,22 +165,6 @@ class DetectorEnsemble(BaseMocapModel):
             print(outputs)
         return None
     
-    def forward_train_audio(self, datas, return_unscaled=False, **kwargs):
-        losses = defaultdict(list)
-        mocaps = [d[('mocap', 'mocap')] for d in datas]
-        mocaps = mmcv.parallel.collate(mocaps)
-        
-        # num_timesteps x batch_size x num_objects x (2 or 3)
-        gt_positions = mocaps['gt_positions']
-
-        #concat and compute RMS on datas
-        #apply network
-        #compute loss
-        #return {'mse_loss': loss}
-        
-        losses['mse_loss'] = 5
-        return losses
-
     def forward_train(self, datas, return_unscaled=False, **kwargs):
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
@@ -314,8 +252,6 @@ class DetectorEnsemble(BaseMocapModel):
         
         inter_embeds = torch.stack(inter_embeds, dim=1)
         return outputs
-   
-
 
     #REMAINING FUNCTIONS JUST TO COMPLY WITH MMCV API
     def simple_test(self, img, img_metas, rescale=False):
