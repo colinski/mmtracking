@@ -55,30 +55,33 @@ def main():
     fnames, active_keys = cacher.cache()
     
     num_fnames = len(fnames)
-    train_fnames = fnames[0:int(args.train_region[1]*num_fnames)]
+    #train_fnames = fnames[0:int(args.train_region[1]*num_fnames)]
+    train_fnames = fnames[int(args.train_region[0]*num_fnames):int(args.train_region[1]*num_fnames)]
     os.makedirs(f'{args.pickle_path}/train', exist_ok=True)
     for fname in train_fnames:
-        shutil.copy(fname, f'{args.pickle_path}/train')
+        shutil.move(fname, f'{args.pickle_path}/train')
     train_fnames = sorted(glob.glob(f'{args.pickle_path}/train/*.pickle'))
     meta = {'fps': args.fps, 'active_keys': active_keys, 'fnames': train_fnames,
             'valid_nodes': args.valid_nodes, 'valid_mods': args.valid_mods}
     with open(f'{args.pickle_path}/train/meta.json', 'w') as f:
         json.dump(meta, f)
 
-    val_fnames = fnames[int(args.train_region[1]*num_fnames):int(args.val_region[1]*num_fnames)]
+    #val_fnames = fnames[int(args.train_region[1]*num_fnames):int(args.val_region[1]*num_fnames)]
+    val_fnames = fnames[int(args.val_region[0]*num_fnames):int(args.val_region[1]*num_fnames)]
     os.makedirs(f'{args.pickle_path}/val', exist_ok=True)
     for fname in val_fnames:
-        shutil.copy(fname, f'{args.pickle_path}/val')
+        shutil.move(fname, f'{args.pickle_path}/val')
     val_fnames = sorted(glob.glob(f'{args.pickle_path}/val/*.pickle'))
     meta = {'fps': args.fps, 'active_keys': active_keys, 'fnames': val_fnames,
             'valid_nodes': args.valid_nodes, 'valid_mods': args.valid_mods}
     with open(f'{args.pickle_path}/val/meta.json', 'w') as f:
         json.dump(meta, f)
 
-    test_fnames = fnames[int(args.val_region[1]*num_fnames):]
+    #test_fnames = fnames[int(args.val_region[1]*num_fnames):]
+    test_fnames = fnames[int(args.test_region[0]*num_fnames):int(args.test_region[1]*num_fnames)]
     os.makedirs(f'{args.pickle_path}/test', exist_ok=True)
     for fname in test_fnames:
-        shutil.copy(fname, f'{args.pickle_path}/test')
+        shutil.move(fname, f'{args.pickle_path}/test')
     test_fnames = sorted(glob.glob(f'{args.pickle_path}/test/*.pickle'))
     meta = {'fps': args.fps, 'active_keys': active_keys, 'fnames': test_fnames,
             'valid_nodes': args.valid_nodes, 'valid_mods': args.valid_mods}

@@ -95,12 +95,9 @@ class DetectorEnsemble(BaseMocapModel):
                 return self.forward_train_track(data, **kwargs)
             return self.forward_train(data, **kwargs)
         else:
-            if self.track_eval:
-                return self.forward_track(data, **kwargs)
-            else:
-                return self.forward_test(data, **kwargs)
+            return self.forward_test(data, **kwargs)
 
-    def forward_track(self, datas, return_unscaled=False, **kwargs):
+    def forward_test(self, datas, return_unscaled=False, **kwargs):
         preds = {}
         # mocaps = [d[('mocap', 'mocap')] for d in datas]
         # mocaps = mmcv.parallel.collate(mocaps)

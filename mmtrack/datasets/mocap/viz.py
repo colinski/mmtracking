@@ -51,6 +51,12 @@ class ClassInfo:
 
     def id2color(self, id):
         return self.info.loc[self.id2name(id)]['color']
+
+    def id2width(self, id):
+        return self.info.loc[self.id2name(id)]['size'][0]
+
+    def id2height(self, id):
+        return self.info.loc[self.id2name(id)]['size'][1]
     
     def name2width(self, name):
         return self.info.loc[name]['size'][0]

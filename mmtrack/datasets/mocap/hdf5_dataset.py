@@ -170,21 +170,31 @@ class HDF5Dataset(Dataset):
         return buffs
 
     
-    def collect_gt(self):
+    def collect_gt(self, valid_only=True, normalize_ids=True):
         all_gt_pos, all_gt_labels, all_gt_ids, all_gt_rot, all_gt_grids = [], [], [], [], []
         for i in trange(len(self)):
             data = self[i][-1] #get last frame, eval shouldnt have future
             for key, val in data.items():
                 mod, node = key
                 if mod == 'mocap':
-                    all_gt_pos.append(val['gt_positions'])
-                    all_gt_ids.append(val['gt_ids'])
-                    all_gt_rot.append(val['gt_rot'])
+                    valid_mask = val['valid_mask'].bool()
+                    all_gt_pos.append(val['gt_positions'][valid_mask])
+                    all_gt_ids.append(val['gt_ids'][valid_mask])
+                    all_gt_rot.append(val['gt_rot'][valid_mask])
+                    all_gt_labels.append(val['gt_labels'][valid_mask])
                     #all_gt_grids.append(val['gt_grids'])
         gt = {}
         gt['all_gt_pos'] = torch.stack(all_gt_pos) #num_frames x num_objs x 3
         gt['all_gt_ids'] = torch.stack(all_gt_ids)
         gt['all_gt_rot'] = torch.stack(all_gt_rot)
+        gt['all_gt_labels'] = torch.stack(all_gt_labels)
+
+        if normalize_ids:
+            all_gt_ids = gt['all_gt_ids']
+            uniq_vals = torch.unique(all_gt_ids, sorted=True)
+            for i, val in enumerate(uniq_vals):
+                all_gt_ids[all_gt_ids == val] = i
+            gt['all_gt_ids'] = all_gt_ids
         #gt['all_gt_grids'] = torch.stack(all_gt_grids)
         return gt
 
@@ -209,7 +219,7 @@ class HDF5Dataset(Dataset):
         res['nll'] = []
         res['num_tracker_dets'] = 0
 
-        from mmtrack.models.mocap.decoderv3 import calc_grid_loss 
+        #from mmtrack.models.mocap.decoderv3 import calc_grid_loss 
         all_probs, all_dists = [], []
         for i in range(res['num_timesteps']):
             pred_means = outputs['track_means'][i]
@@ -232,7 +242,12 @@ class HDF5Dataset(Dataset):
                 # dist = torch.norm(pred_mean[j][0:2] - gt_pos[:,0:2], dim=1)
                 # dists.append(dist)
                 
-                dist = D.MultivariateNormal(pred_means[j], pred_covs[j])
+                try:
+                    dist = D.MultivariateNormal(pred_means[j], pred_covs[j])
+                except ValueError:
+                    cov = pred_covs[j]
+                    cov[0,1] = cov[1,0]
+
                 # dist = D.Independent(dist, 1) #Nq independent Gaussians
                 # samples = dist.sample([10000])
                 
@@ -250,10 +265,7 @@ class HDF5Dataset(Dataset):
                     
                     nll.append(dist.log_prob(pos))
                     samples = dist.sample([1000])
-                    try:
-                        angle = rot2angle(gt_rot[k], return_rads=False)
-                    except:
-                        import ipdb; ipdb.set_trace() # noqa
+                    angle = rot2angle(gt_rot[k], return_rads=False)
                     rec, _ = gen_rectange(gt_pos[k], angle, w=30, h=15)
                     mask = points_in_rec(samples, rec)
                     scores.append(mask.mean())

@@ -43,8 +43,8 @@ valset=dict(type='HDF5Dataset',
 
 testset=dict(type='HDF5Dataset',
     pickle_paths=[
-        '/dev/shm/trucks1_lightsT_obstaclesF/test'
-        '/dev/shm/trucks2_lightsT_obstaclesF/test',
+        '/dev/shm/trucks1_lightsT_obstaclesF/test',
+        '/dev/shm/trucks2_lightsT_obstaclesF/test'
     ],
     pipelines=pipelines
 )
