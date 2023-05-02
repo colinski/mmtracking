@@ -86,10 +86,11 @@ def run_tracker(preds, initiator_thres=0.5, associator_thres=0.2,
 
 parser = argparse.ArgumentParser()
 parser.add_argument('expdir', type=str)
+parser.add_argument('--mode', type=str, default='test')
 args = parser.parse_args()
 
-os.makedirs(f'{args.expdir}/test', exist_ok=True)
-test_dir = f'{args.expdir}/test'
+test_dir = f'{args.expdir}/{args.mode}'
+os.makedirs(test_dir, exist_ok=True)
 
 cfg = Config.fromfile(f'{args.expdir}/config.py')
 model = build_model(cfg.model)
@@ -98,19 +99,24 @@ checkpoint = load_checkpoint(model, f'{args.expdir}/log/latest.pth', map_locatio
 model = MMDataParallel(model, device_ids=[0])
 evaluator = TrackingEvaluator()
 
-test_cfgs = cfg.data.val
+if args.mode == 'val':
+    test_cfgs = cfg.data.val
+elif args.mode == 'test':
+    test_cfgs = cfg.data.test
+else:
+    raise ValueError('mode must be val or test')
 for i, test_cfg in enumerate(test_cfgs):
     testset = build_dataset(test_cfg)
     gt = testset.collect_gt()
     testloader = build_dataloader(testset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
     outputs = single_gpu_test(model, testloader, show=False, out_dir=None)
-    track_outputs = run_tracker(outputs, weights_mode='binary', weights_thres=0.1)
+    track_outputs = run_tracker(outputs, weights_mode='binary')
     res = evaluator.evaluate(track_outputs, gt)
     res['cfg'] = test_cfg
     with open(f'{test_dir}/results{i}.json', 'w') as f:
         json.dump(res, f)
 
-    testset.write_video(track_outputs, fname=f'{test_dir}/video{i}.mp4', start_idx=0, end_idx=500)
+    testset.write_video(track_outputs, fname=f'{test_dir}/video{i}.mp4')
 
 
 

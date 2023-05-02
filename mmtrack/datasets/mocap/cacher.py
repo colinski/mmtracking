@@ -50,6 +50,13 @@ def load_chunk(fname, valid_mods, valid_nodes):
         data = convert2dict(f, keys, fname, valid_mods, valid_nodes)
     return data
 
+def interp_seq(seq):
+    if np.isnan(seq).all():
+        return np.zeros_like(seq)
+    nan_indices = np.isnan(seq)
+    x = np.arange(len(seq))
+    seq[nan_indices] = np.interp(x[nan_indices], x[~nan_indices], seq[~nan_indices])
+    return seq
 
 @DATASETS.register_module()
 class DataCacher(object):
@@ -89,6 +96,7 @@ class DataCacher(object):
         self.fps = fps
         self.class2idx = {'tunnel': 5, 'drone':4, 'car': 3, 'bus': 2, 'truck': 1, 'node': 0}
         self.fov = FieldOfViewCheck()
+        self.class_info = ClassInfo()
         # self.max_len = max_len
 
     def cache(self):
@@ -139,37 +147,96 @@ class DataCacher(object):
         # self.fnames = self.fnames[0:self.max_len]
         return self.fnames, self.active_keys
 
+    def interp_mocap(self, all_data):
+        keys = sorted(list(all_data.keys()))
+        times, all_gt_pos, all_gt_rot, all_gt_labels, all_gt_ids = [], [], [], [], []
+        all_widths, all_heights = [], []
+        for time in keys:
+            data = all_data[time]
+            for key in data.keys():
+                if key == 'mocap':
+                    mocap_data = json.loads(data['mocap'])
+                    types = [d['type'] for d in mocap_data]
+                    widths = torch.tensor([self.class_info.name2width(t) for t in types])
+                    heights = torch.tensor([self.class_info.name2height(t) for t in types])
+                    gt_pos = torch.tensor([d['position'] for d in mocap_data])
+                    gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
+                    gt_labels = torch.tensor([self.class_info.name2id(d['type']) for d in mocap_data])
+                    gt_ids = torch.tensor([d['id'] for d in mocap_data])
+                    all_gt_pos.append(gt_pos)
+                    all_gt_rot.append(gt_rot)
+                    all_gt_labels.append(gt_labels)
+                    all_gt_ids.append(gt_ids)
+                    all_widths.append(widths)
+                    all_heights.append(heights)
+                    times.append(time)
+        all_gt_pos = torch.stack(all_gt_pos, dim=0).numpy()
+        sums = all_gt_pos.sum(axis=-1)
+        missing_mask = sums == 0
+        all_gt_pos[missing_mask] = np.nan
+        seq_len, num_objs, num_coor = all_gt_pos.shape
+        for i in range(num_objs):
+            for j in range(num_coor):
+                seq = all_gt_pos[:, i, j]
+                seq = interp_seq(seq)
+                all_gt_pos[:, i, j] = seq
+
+        all_gt_rot = torch.stack(all_gt_rot, dim=0).numpy()
+        seq_len, num_objs, num_coor = all_gt_rot.shape
+        for i in range(num_objs):
+            for j in range(num_coor):
+                seq = all_gt_rot[:, i, j]
+                seq = interp_seq(seq)
+                all_gt_rot[:, i, j] = seq
+        
+        mocap_data = {}
+        for i, t in enumerate(times):
+            mocap_data[t] = {}
+            mocap_data[t]['gt_pos'] = all_gt_pos[i]
+            mocap_data[t]['gt_rot'] = all_gt_rot[i]
+            mocap_data[t]['gt_labels'] = all_gt_labels[i]
+            mocap_data[t]['gt_ids'] = all_gt_ids[i]
+            mocap_data[t]['widths'] = all_widths[i]
+            mocap_data[t]['heights'] = all_heights[i]
+
+        return mocap_data
+
     def fill_buffers(self, all_data):
+        interp_mocap_data = self.interp_mocap(all_data)
         buffers = []
         buff = {}
         factor = 100 // self.fps
         num_frames = 0
         keys = sorted(list(all_data.keys()))
         prev_num_objs = None
-        self.class_info = ClassInfo()
         calib = get_calib()
         for time in tqdm(keys, desc='filling buffers'):
             save_frame = False
             data = all_data[time]
             for key in data.keys():
                 if key == 'mocap':
-                    mocap_data = json.loads(data['mocap'])
-                    types = [d['type'] for d in mocap_data]
-                    #widths = torch.tensor([meta[t]['size'][0] for t in types])
-                    #heights = torch.tensor([meta[t]['size'][1] for t in types])
-                    widths = torch.tensor([self.class_info.name2width(t) for t in types])
-                    heights = torch.tensor([self.class_info.name2height(t) for t in types])
-                    gt_pos = torch.tensor([d['position'] for d in mocap_data])
-                    gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
-                    #gt_labels = torch.tensor([self.class2idx[d['type']] for d in mocap_data])
-                    gt_labels = torch.tensor([self.class_info.name2id(d['type']) for d in mocap_data])
-                    gt_ids = torch.tensor([d['id'] for d in mocap_data])
+                    #mocap_data = json.loads(data['mocap'])
+                    mocap_data = interp_mocap_data[time]
+                    
+                    # types = [d['type'] for d in mocap_data]
+                    # widths = torch.tensor([self.class_info.name2width(t) for t in types])
+                    # heights = torch.tensor([self.class_info.name2height(t) for t in types])
+                    # gt_pos = torch.tensor([d['position'] for d in mocap_data])
+                    # gt_rot = torch.tensor([d['rotation'] for d in mocap_data])
+                    # gt_labels = torch.tensor([self.class_info.name2id(d['type']) for d in mocap_data])
+                    # gt_ids = torch.tensor([d['id'] for d in mocap_data])
+                    widths = mocap_data['widths']
+                    heights = mocap_data['heights']
+                    gt_pos = torch.from_numpy(mocap_data['gt_pos'])
+                    gt_rot = torch.from_numpy(mocap_data['gt_rot'])
+                    gt_labels = mocap_data['gt_labels']
+                    gt_ids = mocap_data['gt_ids']
+
                     is_node = gt_labels == 0
 
                     missing_mask = gt_pos[:, -1] == 0
 
                     valid_mask = ~is_node & ~missing_mask
-
 
                     node_pos = gt_pos[is_node]
                     node_rot = gt_rot[is_node]

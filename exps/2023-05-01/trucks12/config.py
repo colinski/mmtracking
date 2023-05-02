@@ -63,7 +63,7 @@ testset=[
 import os
 work_dir = os.environ['WORK']
 backbone_cfg=dict(type='YOLOv7', 
-    weights=f'{work_dir}src/mmtracking/checkpoints/yolov7-tiny.pt', 
+    weights=f'{work_dir}/src/mmtracking/checkpoints/yolov7-tiny.pt', 
     return_idx=1
 )
 

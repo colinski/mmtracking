@@ -6,4 +6,5 @@ EXPDIR=$DIR/log
 if [ -d $EXPDIR ]; then
     rm -rf $EXPDIR/*
 fi
-singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/dist_train.sh $DIR/config $1--work-dir $EXPDIR --seed 5
+singularity run --nv -H $WORK $WORK/sif/python.sif $WORK/src/mmtracking/tools/dist_train.sh $DIR/config.py $1 --work-dir $EXPDIR --seed 5
+rm $EXPDIR/log/config.py

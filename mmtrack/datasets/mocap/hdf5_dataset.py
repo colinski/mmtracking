@@ -458,10 +458,8 @@ class HDF5Dataset(Dataset):
 
     def write_video(self, outputs=None, start_idx=0, end_idx=-1, **eval_kwargs): 
         fname = eval_kwargs['fname']
-        video_length = len(self)
-        # if 'video_length' in eval_kwargs.keys():
-            # video_length = eval_kwargs['video_length']
-        #fname = f'{logdir}/latest_vid.mp4'
+        if end_idx == -1:
+            end_idx = len(self)
         fig, axes = init_fig(self.active_keys)
         size = (fig.get_figwidth()*50, fig.get_figheight()*50)
         size = tuple([int(s) for s in size])

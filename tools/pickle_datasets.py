@@ -24,7 +24,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='mmtrack test model')
     parser.add_argument('hdf5_path', help='path to input hdf5 files')
     parser.add_argument('pickle_path', help='path to save pickle files') 
-    parser.add_argument('--fps', type=int, default=20)
+    parser.add_argument('--fps', type=int, default=15)
     parser.add_argument('--valid_nodes', type=int, nargs='+', default=[1,2,3,4])
     parser.add_argument('--valid_mods', nargs='+', default=['mocap'])
     parser.add_argument('--overwrite', action='store_true')
