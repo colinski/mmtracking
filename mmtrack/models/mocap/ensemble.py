@@ -189,14 +189,18 @@ class DetectorEnsemble(BaseMocapModel):
                     
                     if len(gt_pos) != 0:
                         nll = -dist.log_prob(gt_pos)
-                        nll = nll * vis_probs
+                        if key[0] == 'zed_camera_left':
+                            nll = nll * vis_probs
                         losses[loss_key].append(nll.mean()) 
                     else:
                         losses[loss_key].append(torch.zeros(1).mean().cuda())
                     
                     if self.entropy_loss_weight > 0:
                         dist_entropy = dist.mixture_distribution.entropy()
-                        num_objs = vis_probs.sum()
+                        if key[0] == 'zed_camera_left':
+                            num_objs = vis_probs.sum()
+                        else:
+                            num_objs = len(gt_pos) * torch.ones_like(vis_probs.sum())
                         if num_objs == 0:
                             entropy_target = np.log(28*20)
                         else:
@@ -213,7 +217,7 @@ class DetectorEnsemble(BaseMocapModel):
                             assert 1==2
                         losses[loss_key].append(entropy_loss * self.entropy_loss_weight)
 
-        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+                losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
       
     def _forward_single(self, data, return_unscaled=False, **kwargs):

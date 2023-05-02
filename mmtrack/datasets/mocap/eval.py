@@ -103,8 +103,8 @@ class TrackingEvaluator(Dataset):
         iout = {k : float(v) for k,v in iout.items()}
         out.update(iout)
 
-        out['nll_vals'] = nll.tolist()
-        out['grid_scores'] = scores.tolist()
+        #out['nll_vals'] = nll.tolist()
+        #out['grid_scores'] = scores.tolist()
 
         # with open(fname, 'w') as f:
             # json.dump(out, f)

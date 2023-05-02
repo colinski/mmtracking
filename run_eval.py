@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
-get_ipython().run_line_magic('matplotlib', 'inline')
 from mmtrack.datasets import build_dataset, build_dataloader
 from mmtrack.models import build_model
 from mmcv import Config
@@ -23,32 +16,9 @@ from multi_object_tracker import MultiObjectKalmanTracker
 from collections import defaultdict
 from data_utils import point
 import cv2
-
-
-# In[ ]:
-
-
-exp_dir = '/home/csamplawski/logs/trucks12/'
-cfg = Config.fromfile('/home/csamplawski/src/mmtracking/configs/debug/trucks12.py')
-val_cfg = cfg.data.val
-val_cfg['pickle_paths'] = [val_cfg['pickle_paths'][0]]
-valset = build_dataset(val_cfg)
-valloader = build_dataloader(valset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
-gt = valset.collect_gt()
-
-
-# In[ ]:
-
-
-model = build_model(cfg.model)
-model.init_weights()
-checkpoint = load_checkpoint(model, f'{exp_dir}/latest.pth', map_location='cpu')
-model = MMDataParallel(model, device_ids=[0])
-outputs = single_gpu_test(model, valloader, show=False, out_dir=None)
-
-
-# In[ ]:
-
+import argparse
+from mmtrack.datasets.mocap.eval import TrackingEvaluator
+import json
 
 def run_tracker(preds, initiator_thres=0.5, associator_thres=0.2, 
                 dt=1, std_acc=0.1, weights_thres=0.6, weights_mode='softmax'):
@@ -114,57 +84,56 @@ def run_tracker(preds, initiator_thres=0.5, associator_thres=0.2,
     return outputs
 
 
-# In[ ]:
+parser = argparse.ArgumentParser()
+parser.add_argument('expdir', type=str)
+args = parser.parse_args()
 
+os.makedirs(f'{args.expdir}/test', exist_ok=True)
+test_dir = f'{args.expdir}/test'
 
-track_outputs = run_tracker(outputs, weights_mode='binary')
-
-
-# In[ ]:
-
-
-from mmtrack.datasets.mocap.eval import TrackingEvaluator
+cfg = Config.fromfile(f'{args.expdir}/config.py')
+model = build_model(cfg.model)
+model.init_weights()
+checkpoint = load_checkpoint(model, f'{args.expdir}/log/latest.pth', map_location='cpu')
+model = MMDataParallel(model, device_ids=[0])
 evaluator = TrackingEvaluator()
-res = evaluator.evaluate(track_outputs, gt)
-res
+
+test_cfgs = cfg.data.val
+for i, test_cfg in enumerate(test_cfgs):
+    testset = build_dataset(test_cfg)
+    gt = testset.collect_gt()
+    testloader = build_dataloader(testset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
+    outputs = single_gpu_test(model, testloader, show=False, out_dir=None)
+    track_outputs = run_tracker(outputs, weights_mode='binary', weights_thres=0.1)
+    res = evaluator.evaluate(track_outputs, gt)
+    res['cfg'] = test_cfg
+    with open(f'{test_dir}/results{i}.json', 'w') as f:
+        json.dump(res, f)
+
+    testset.write_video(track_outputs, fname=f'{test_dir}/video{i}.mp4', start_idx=0, end_idx=500)
 
 
-# In[ ]:
 
+# def run_search(preds, dataset, gt, weights_mode='softmax', num_trials=100,
+               # weight_thres_dist=torch.distributions.Uniform(0.5,1),
+               # initiator_thres_dist=torch.distributions.Uniform(0,1),
+               # associator_thres_dist = torch.distributions.Uniform(0,1)):
+    # all_results = []
+    # for k in trange(num_trials):
+        # params = {}
+        # params['weights_thres'] = weight_thres_dist.sample([1]).item()
+        # params['initiator_thres'] = initiator_thres_dist.sample([1]).item()
+        # params['associator_thres'] = associator_thres_dist.sample([1]).item()
+        # params['weights_mode'] = weights_mode
 
-valset.write_video(track_outputs, fname='/tmp/trackval.mp4', start_idx=0, end_idx=600)
-
-
-# In[ ]:
-
-
-len(valset)
-
-
-# In[ ]:
-
-
-def run_search(preds, dataset, gt, weights_mode='softmax', num_trials=100,
-               weight_thres_dist=torch.distributions.Uniform(0.5,1),
-               initiator_thres_dist=torch.distributions.Uniform(0,1),
-               associator_thres_dist = torch.distributions.Uniform(0,1)):
-    all_results = []
-    for k in trange(num_trials):
-        params = {}
-        params['weights_thres'] = weight_thres_dist.sample([1]).item()
-        params['initiator_thres'] = initiator_thres_dist.sample([1]).item()
-        params['associator_thres'] = associator_thres_dist.sample([1]).item()
-        params['weights_mode'] = weights_mode
-
-        outputs = run_tracker(preds, **params)
-        try:
-            out = dataset.eval_mot(outputs, gt)
-        except:
-            continue
-        out.update(params)
-        all_results.append(out)
-    df = pd.DataFrame(all_results)
-    df = df.set_index(['weights_mode', 'weights_thres', 'initiator_thres', 'associator_thres'])
-    #df = df[['MOTA', 'HOTA', 'DetA', 'AssA', 'LocA', 'IDF1', 'IDSW',  'Frag', 'MT', 'ML']]
-    return df
+        # outputs = run_tracker(preds, **params)
+        # try:
+            # out = dataset.eval_mot(outputs, gt)
+        # except:
+            # continue
+        # out.update(params)
+        # all_results.append(out)
+    # df = pd.DataFrame(all_results)
+    # df = df.set_index(['weights_mode', 'weights_thres', 'initiator_thres', 'associator_thres'])
+    # return df
 

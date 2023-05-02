@@ -201,18 +201,23 @@ class DataCacher(object):
                             except:
                                 continue
                             visible[j, i] = check
-                    buff[('mocap', 'mocap')] = {
-                        'gt_positions': gt_pos,
-                        'gt_labels': gt_labels.long(),
-                        'gt_ids': gt_ids.long(),
-                        'gt_rot': gt_rot,
-                        'widths': widths,
-                        'heights': heights,
-                        'visible': visible,
-                        'pixels': pixels,
-                        'valid_mask': valid_mask,
-                        'missing_mask': missing_mask
-                    }
+
+                    if valid_mask.sum() == 0:
+                        buff[('mocap', 'mocap')] = buffers[-1][('mocap', 'mocap')]
+                        print('all objects missing')
+                    else:
+                        buff[('mocap', 'mocap')] = {
+                            'gt_positions': gt_pos,
+                            'gt_labels': gt_labels.long(),
+                            'gt_ids': gt_ids.long(),
+                            'gt_rot': gt_rot,
+                            'widths': widths,
+                            'heights': heights,
+                            'visible': visible,
+                            'pixels': pixels,
+                            'valid_mask': valid_mask,
+                            'missing_mask': missing_mask
+                        }
                     num_frames += 1
                     save_frame = True
 
