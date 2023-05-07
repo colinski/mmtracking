@@ -73,13 +73,14 @@ testset=[
 import os
 work_dir = os.environ['WORK']
 backbone_cfg=dict(type='YOLOv7', 
-    weights=f'{work_dir}/src/mmtracking/checkpoints/yolov7-tiny.pt', 
+    weights=f'{work_dir}/src/mmtracking/checkpoints/yolov7.pt', 
     return_idx=1
 )
 
 adapter_cfg=dict(type='ConvAdapter', 
         interpolate_size=(28,20),
-        interpolate_fn='avgpool'
+        interpolate_fn='avgpool',
+        dim=512
 )
 
 adapter_cfgs = {('azimuth_static', 'node_1'): adapter_cfg,
@@ -95,7 +96,7 @@ model = dict(type='DetectorEnsemble',
     output_head_cfg=dict(type='AnchorOutputHead',
         include_z=False,
         cov_add=50.0,
-        input_dim=256,
+        input_dim=512,
         mlp_dropout_rate=0.0,
         interval_sizes=[25,25],
         binary_prob=True,

@@ -13,15 +13,6 @@ img_pipeline = [
     dict(type='Collect', keys=['img']),
 ]
 
-azimuth_pipeline = [
-    dict(type='LoadFromNumpyArray', force_float32=True, force_rgb=True),
-    dict(type='Resize', img_scale=(416, 416), keep_ratio=False),
-    dict(type='RandomFlip', flip_ratio=0.0),
-    dict(type='Normalize', mean=[0,0,0], std=[6000,6000,6000], to_rgb=True),
-    dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img']),
-]
-
 mocap_pipeline = [
     #dict(type='PruneObjects'),
     dict(type='ScaleMocap', x_min=-2162.78244, y_min=-1637.84491),
@@ -32,7 +23,6 @@ mocap_pipeline = [
 
 pipelines = {
     'zed_camera_left': img_pipeline,
-    'azimuth_static': azimuth_pipeline,
     'mocap': mocap_pipeline
 }
 trainset=dict(type='HDF5Dataset',
@@ -82,12 +72,12 @@ adapter_cfg=dict(type='ConvAdapter',
         interpolate_fn='avgpool'
 )
 
-adapter_cfgs = {('azimuth_static', 'node_1'): adapter_cfg,
-              ('azimuth_static', 'node_2'): adapter_cfg,
-              ('azimuth_static', 'node_3'): adapter_cfg,
-              ('azimuth_static', 'node_4'): adapter_cfg}
+adapter_cfgs = {('zed_camera_left', 'node_1'): adapter_cfg,
+              ('zed_camera_left', 'node_2'): adapter_cfg,
+              ('zed_camera_left', 'node_3'): adapter_cfg,
+              ('zed_camera_left', 'node_4'): adapter_cfg}
 
-backbone_cfgs = {'azimuth_static': backbone_cfg}
+backbone_cfgs = {'zed_camera_left': backbone_cfg}
 
 model = dict(type='DetectorEnsemble',
     backbone_cfgs=backbone_cfgs,
