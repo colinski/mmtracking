@@ -110,13 +110,13 @@ for i, test_cfg in enumerate(test_cfgs):
     gt = testset.collect_gt()
     testloader = build_dataloader(testset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
     outputs = single_gpu_test(model, testloader, show=False, out_dir=None)
-    track_outputs = run_tracker(outputs, weights_mode='binary')
+    track_outputs = run_tracker(outputs, weights_mode='binary', weights_thres=0.3)
     res = evaluator.evaluate(track_outputs, gt)
     res['cfg'] = test_cfg
     with open(f'{test_dir}/results{i}.json', 'w') as f:
         json.dump(res, f)
 
-    testset.write_video(track_outputs, fname=f'{test_dir}/video{i}.mp4')
+    testset.write_video(track_outputs, fname=f'{test_dir}/video{i}.mp4', start_idx=0, end_idx=500)
 
 
 

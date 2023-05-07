@@ -94,7 +94,7 @@ class TrackingEvaluator(Dataset):
         
         hout = self.hota.eval_sequence(res)
         #means = {k + '_mean' : v.mean() for k, v in hout.items()}
-        means = {k: v.mean() for k, v in hout.items()}
+        means = {k: np.array(v).mean() for k, v in hout.items()}
         #hout = {k: v.tolist() for k,v in hout.items()}
         #out.update(hout)
         out.update(means)

@@ -217,7 +217,7 @@ class DetectorEnsemble(BaseMocapModel):
                             assert 1==2
                         losses[loss_key].append(entropy_loss * self.entropy_loss_weight)
 
-                losses = {k: torch.stack(v).mean() for k, v in losses.items()}
+        losses = {k: torch.stack(v).mean() for k, v in losses.items()}
         return losses
       
     def _forward_single(self, data, return_unscaled=False, **kwargs):
