@@ -109,7 +109,7 @@ model = dict(type='DetectorEnsemble',
 
 
 data = dict(
-    samples_per_gpu=4,
+    samples_per_gpu=1,
     workers_per_gpu=2,
     shuffle=True, #trainset shuffle only
     train=trainset,
