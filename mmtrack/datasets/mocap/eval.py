@@ -195,8 +195,26 @@ def run_tracker(preds, **params):
         det_results.append(dets)
         out = tracker.update(params['dt']*i, dets)
         track_results.append(out)
-        
-    outputs =  {'det_means': [], 'det_covs': []}
+    
+    outputs = {}
+    filtered_dets =  {k: [] for k in preds.keys()}
+    for i, dr in enumerate(det_results):
+        #for did, points in dr.items():
+        for did in preds.keys():
+            frame_means, frame_covs = [], []
+            points = dr[did]
+            for p in points:
+                mean = p.pos[0:2].squeeze().detach() * 100
+                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
+                frame_means.append(mean)
+                frame_covs.append(cov)
+            filtered_dets[did].append({'mean': frame_means, 'cov': frame_covs})
+        #outputs['det_means'].append(frame_means)
+        #outputs['det_covs'].append(frame_covs)
+    outputs['filtered_dets'] = filtered_dets
+  
+    outputs['det_means'] = []
+    outputs['det_covs'] = []
     for i, dr in enumerate(det_results):
         frame_means, frame_covs = [], []
         for did, points in dr.items():

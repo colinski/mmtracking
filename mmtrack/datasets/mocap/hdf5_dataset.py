@@ -177,7 +177,10 @@ class HDF5Dataset(Dataset):
             for key, val in data.items():
                 mod, node = key
                 if mod == 'mocap':
-                    valid_mask = val['valid_mask'].bool()
+                    if valid_only:
+                        valid_mask = val['valid_mask'].bool()
+                    else:
+                        valid_mask = torch.ones(len(val['gt_positions'])).bool()
                     all_gt_pos.append(val['gt_positions'][valid_mask])
                     all_gt_ids.append(val['gt_ids'][valid_mask])
                     all_gt_rot.append(val['gt_rot'][valid_mask])
