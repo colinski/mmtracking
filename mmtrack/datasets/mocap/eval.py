@@ -15,6 +15,7 @@ from mango.domain.distribution import loguniform
 from functools import partial
 from associator import matching_associator
 from initiator import distance_initiator
+from deleter import staleness_deleter
 from multi_object_tracker import MultiObjectKalmanTracker
 from collections import defaultdict
 from data_utils import point
@@ -29,6 +30,7 @@ class TrackingEvaluator(nn.Module):
         self.identity = Identity({'THRESHOLD': identity_thres, 'PRINT_CONFIG': False})
         self.class_info = ClassInfo()
         #self.associator_thres = self.register_buffer('associator_thres', torch.tensor(1))
+
         self.param_space = {
             'initiator_thres': uniform(0.1, 1),
             'associator_thres': uniform(0.1, 1),
@@ -38,6 +40,8 @@ class TrackingEvaluator(nn.Module):
             'weights_mode': ['softmax', 'binary'],
             'cov_scale': uniform(0.05, 10-0.05),
             'I_scale': uniform(0, 500),
+            'update_count_thres': np.arange(3,10),
+            'staleness_thres': uniform(0.1, 1),
         }
 
     def tune(self, preds, gt):
@@ -75,7 +79,11 @@ def evaluate(preds, gt):
     res['num_gt_dets'] = all_gt_ids.shape[0] * all_gt_ids.shape[1]
     res['num_gt_ids'] = len(torch.unique(all_gt_ids))
     flat_ids = torch.cat([x.flatten() for x in preds['track_ids']])
-    res['num_tracker_ids'] = len(torch.unique(flat_ids))
+    unique_ids = torch.unique(flat_ids).numpy()
+    if len(unique_ids) == 0:
+        return {'HOTA': 0}
+    max_id = int(np.max(unique_ids))
+    res['num_tracker_ids'] = max_id+1 #len(torch.unique(flat_ids))
     res['num_timesteps'] = len(all_gt_ids)
     res['tracker_ids'] = []
     res['gt_ids'] = all_gt_ids.numpy().astype(int)
@@ -106,6 +114,7 @@ def evaluate(preds, gt):
             except ValueError:
                 cov = pred_covs[j]
                 cov[0,1] = cov[1,0]
+                dist = D.MultivariateNormal(pred_means[j], cov)
 
             num_gt = len(gt_pos)
             for k in range(num_gt):
@@ -164,6 +173,86 @@ def evaluate(preds, gt):
 
 
 def run_tracker(preds, **params):
+    for key, val in preds.items():
+        num_frames = len(val)
+
+    initiator  = distance_initiator(dist_threshold=params['initiator_thres'], update_count_threshold=params['update_count_thres'])
+    associator = matching_associator(distance_threshold=params['associator_thres']) #2.5
+    deleter = staleness_deleter(staleness_threshold=params['staleness_thres'])
+    tracker = MultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter)
+
+    track_results, det_results = [], []
+    for i in range(0, num_frames):
+        t = params['dt'] * i
+        dets = defaultdict(list)
+        for key, val in preds.items():
+            d = val[i]
+            if params['weights_mode'] == 'softmax':
+                weights = d['weights'].flatten()
+                weights = torch.softmax(weights, dim=0)
+            elif params['weights_mode'] == 'binary':
+                logits = d['binary_logits']
+                weights = logits.sigmoid()
+            else:
+                raise ValueError('weights_mode must be softmax or binary')
+            mask = weights >= params['weights_thres']
+            means = d['mean'].reshape(-1, 2)[mask] / 100
+            covs = d['cov'].reshape(-1, 2, 2)[mask]
+            covs = params['cov_scale'] * covs + params['I_scale'] * torch.eye(2,2)
+            covs = covs / 100
+            for j in range(len(means)):
+                p = point(t, pos=means[j].unsqueeze(1), cov=covs[j], source=key)
+                dets[key].append(p)
+        det_results.append(dets)
+        out = tracker.update(t, dets)
+        track_results.append(out)
+
+    
+    outputs = {}
+    filtered_dets =  {k: [] for k in preds.keys()}
+    for i, dr in enumerate(det_results):
+        #for did, points in dr.items():
+        for did in preds.keys():
+            frame_means, frame_covs = [], []
+            points = dr[did]
+            for p in points:
+                mean = p.pos[0:2].squeeze().detach() * 100
+                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
+                frame_means.append(mean)
+                frame_covs.append(cov)
+            filtered_dets[did].append({'mean': frame_means, 'cov': frame_covs})
+        #outputs['det_means'].append(frame_means)
+        #outputs['det_covs'].append(frame_covs)
+    outputs['filtered_dets'] = filtered_dets
+  
+    outputs['det_means'] = []
+    outputs['det_covs'] = []
+    for i, dr in enumerate(det_results):
+        frame_means, frame_covs = [], []
+        for did, points in dr.items():
+            for p in points:
+                mean = p.pos[0:2].squeeze().detach() * 100
+                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
+                frame_means.append(mean)
+                frame_covs.append(cov)
+        outputs['det_means'].append(frame_means)
+        outputs['det_covs'].append(frame_covs)
+    
+    outputs.update({'track_means': [], 'track_covs': [], 'track_ids': []})
+    for i, tr in enumerate(track_results):
+        frame_means, frame_covs, frame_ids = [], [], []
+        for tid, p in tr.items():
+            mean = p.pos[0:2].squeeze().detach()
+            cov = p.cov[0:2, 0:2].squeeze().detach()
+            frame_means.append(mean * 100)
+            frame_covs.append(cov * 100)
+            frame_ids.append(int(tid[-1]))
+        outputs['track_means'].append(frame_means)
+        outputs['track_covs'].append(frame_covs)
+        outputs['track_ids'].append(torch.tensor(frame_ids))
+    return outputs
+
+def run_tracker_old(preds, **params):
     for key, val in preds.items():
         num_frames = len(val)
 
