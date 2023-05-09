@@ -1,0 +1,4 @@
+singularity run --nv $WORK/sif/python.sif python $WORK/src/mmtracking/tools/pickle_datasets.py $WORK/data_405/All_vehicle_1_6D/ /dev/shm/All_vehicle_1_6D --valid_mods mocap zed_camera_left --overwrite
+singularity run --nv $WORK/sif/python.sif python $WORK/src/mmtracking/tools/pickle_datasets.py $WORK/data_405/Bus_empty_1_6D /dev/shm/Bus_empty_1_6D --valid_mods mocap zed_camera_left --overwrite
+singularity run --nv $WORK/sif/python.sif python $WORK/src/mmtracking/tools/pickle_datasets.py $WORK/data_405/Car_empty_1_6D /dev/shm/Car_empty_1_6D --valid_mods mocap zed_camera_left --overwrite
+#singularity run --nv $WORK/sif/python.sif python $WORK/src/mmtracking/tools/pickle_datasets.py $WORK/data_901/trucks2_lightsT_obstaclesF/ /dev/shm/trucks2_lightsT_obstaclesF --valid_mods mocap zed_camera_left --overwrite
