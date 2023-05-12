@@ -82,7 +82,7 @@ class AnchorOutputHead(BaseModule):
 
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
-    def forward(self, x):
+    def forward(self, x, node_pos=None, node_rot=None):
         with torch.set_grad_enabled(not self.cov_only_train):
             x = self.mlp(x)
             means = self.mean_head(x)
@@ -133,14 +133,23 @@ class AnchorOutputHead(BaseModule):
             cov = binary_probs * cov + (1 - binary_probs) * self.cov_add
         else: 
             cov = cov + self.cov_add
-
+            
         means = means.reshape(B, H*W, 2)
         cov = cov.reshape(B, H*W, 2, 2)
+        mix_weights = torch.softmax(mix_logits, dim=0)
+        if node_pos is not None:
+            diffs = (means - node_pos)**2
+            dists = torch.sqrt(diffs.sum(dim=-1))
+            dists = dists.unsqueeze(-1).unsqueeze(-1)
+            binary_probs = mix_logits.sigmoid()#.view(H, W)
+            binary_probs = binary_probs.unsqueeze(-1).unsqueeze(-1)
+            cov_add = dists * eye
+            cov = cov + (1 - binary_probs) * cov_add
+
 
         if self.return_raw:
             return means, cov, mix_logits.unsqueeze(0)
 
-        mix_weights = torch.softmax(mix_logits, dim=0)
         normals = D.MultivariateNormal(means, cov)
         mix = D.Categorical(probs=mix_weights)
         dist = D.MixtureSameFamily(mix, normals)
