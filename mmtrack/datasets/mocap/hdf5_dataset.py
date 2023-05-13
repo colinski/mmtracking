@@ -326,6 +326,7 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                 if min_idx[det_idx][1] > score:
                     min_idx[det_idx] = (a_b, score)
         
+        min_idx = {k:v for k,v in min_idx.items() if v[0] is not None}
         min_idx = {k.split('_')[-1]: v[0].split('_') for k, v in min_idx.items()}
         min_idx = {int(k)-1 : (float(v[0]), float(v[1])) for k, v in min_idx.items()}
         print(min_idx)

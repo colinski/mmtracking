@@ -26,7 +26,7 @@ from collections import defaultdict
 from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from ..builder import MODELS, build_tracker, build_model
-
+from cad.pos.sine import SineEncoding2d
 
 @MODELS.register_module()
 class DETRModalityModel(BaseModule):
@@ -93,15 +93,25 @@ class LinearEncoder(BaseModule):
                  # in_dim=4,
                  # out_dim=6,
                  ffn_cfg=dict(type='SLP', in_channels=256),
+                 use_pos_encodings=False,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.lin_len = nn.Linear(in_len, out_len)
         #self.lin_dim = nn.Linear(in_dim, out_dim)
         self.ffn = build_from_cfg(ffn_cfg, FEEDFORWARD_NETWORK)
+        self.use_pos_encodings = use_pos_encodings
+        if use_pos_encodings:
+            self.pos_encodings = SineEncoding2d(dim=256)
     
     #x has shape B x in_len x D
     def forward(self, x, pos_embeds=None):
+        if self.use_pos_encodings:
+            x = x.permute(0,2,3,1)
+            encodings = self.pos_encodings.encode(x)
+            x = torch.cat([x, encodings], dim=-1)
+            x = x.permute(0,3,1,2)
+
         if len(x.shape) == 4: #cov feat map
             x = x.flatten(2)
             x = x.permute(0, 2, 1)
