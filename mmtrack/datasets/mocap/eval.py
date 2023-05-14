@@ -31,18 +31,33 @@ class TrackingEvaluator(nn.Module):
         self.class_info = ClassInfo()
         #self.associator_thres = self.register_buffer('associator_thres', torch.tensor(1))
 
+        # self.param_space = {
+            # 'initiator_thres': uniform(0.1, 1),
+            # 'associator_thres': uniform(0.1, 1),
+            # 'dt': [1],
+            # 'std_acc': uniform(0.01, 1),
+            # 'weights_thres': uniform(0.1, 1 - 0.1),
+            # 'weights_mode': ['softmax', 'binary'],
+            # 'cov_scale': uniform(0.05, 10-0.05),
+            # 'I_scale': uniform(0, 500),
+            # 'update_count_thres': np.arange(3,10),
+            # 'staleness_thres': uniform(0.1, 1),
+        # }
+
         self.param_space = {
-            'initiator_thres': uniform(0.1, 1),
-            'associator_thres': uniform(0.1, 1),
+            'initiator_thres': uniform(0.1, 30),
+            'associator_thres': uniform(0.1, 30),
             'dt': [1],
-            'std_acc': uniform(0.01, 1),
+            'std_acc': uniform(0.01, 3),
             'weights_thres': uniform(0.1, 1 - 0.1),
             'weights_mode': ['softmax', 'binary'],
             'cov_scale': uniform(0.05, 10-0.05),
             'I_scale': uniform(0, 500),
-            'update_count_thres': np.arange(3,10),
-            'staleness_thres': uniform(0.1, 1),
+            'update_count_thres': np.arange(3, 10),
+            'staleness_thres': np.arange(1,10)
         }
+        #'staleness_thres': uniform(0.1, 5)
+
 
     def tune(self, preds, gt):
         obj_fn = partial(objective, preds=preds, gt=gt, mode='tune')
@@ -196,10 +211,10 @@ def run_tracker(preds, **params):
             else:
                 raise ValueError('weights_mode must be softmax or binary')
             mask = weights >= params['weights_thres']
-            means = d['mean'].reshape(-1, 2)[mask] / 100
+            means = d['mean'].reshape(-1, 2)[mask] #/ 100
             covs = d['cov'].reshape(-1, 2, 2)[mask]
             covs = params['cov_scale'] * covs + params['I_scale'] * torch.eye(2,2)
-            covs = covs / 100
+            #covs = covs / 100
             for j in range(len(means)):
                 p = point(t, pos=means[j].unsqueeze(1), cov=covs[j], source=key)
                 dets[key].append(p)
@@ -216,8 +231,8 @@ def run_tracker(preds, **params):
             frame_means, frame_covs = [], []
             points = dr[did]
             for p in points:
-                mean = p.pos[0:2].squeeze().detach() * 100
-                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
+                mean = p.pos[0:2].squeeze().detach() #* 100
+                cov = p.cov[0:2, 0:2].squeeze().detach() #* 100
                 frame_means.append(mean)
                 frame_covs.append(cov)
             filtered_dets[did].append({'mean': frame_means, 'cov': frame_covs})
@@ -244,8 +259,8 @@ def run_tracker(preds, **params):
         for tid, p in tr.items():
             mean = p.pos[0:2].squeeze().detach()
             cov = p.cov[0:2, 0:2].squeeze().detach()
-            frame_means.append(mean * 100)
-            frame_covs.append(cov * 100)
+            frame_means.append(mean) #* 100)
+            frame_covs.append(cov) #* 100)
             frame_ids.append(int(tid[-1]))
         outputs['track_means'].append(frame_means)
         outputs['track_covs'].append(frame_covs)
