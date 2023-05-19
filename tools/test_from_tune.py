@@ -14,6 +14,7 @@ import argparse
 from mmtrack.datasets.mocap.eval import TrackingEvaluator
 import json
 import pickle
+from mmtrack.utils.heatmap import gen_heatmap
 
 parser = argparse.ArgumentParser()
 parser.add_argument('expdir', type=str)
@@ -55,12 +56,26 @@ with open(f'{val_dir}/tune_result.pickle', 'rb') as f:
 
 for i, test_cfg in enumerate(cfg.data.val):
     testset = build_dataset(test_cfg)
-    gt = testset.collect_gt()
+    gt = testset.collect_gt(valid_only=True)
     testloader = build_dataloader(testset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
     det_outputs = single_gpu_test(model, testloader, show=False, out_dir=None)
     track_outputs, track_result = evaluator.evaluate(det_outputs, gt, **tune_result['best_params'])
+    filtered_dets = track_outputs['filtered_dets']
+    heatmaps = []
+    for node_name in filtered_dets.keys():
+        heatmap = gen_heatmap(filtered_dets[node_name], gt, grid_width=700, grid_height=500, bin_size=100)
+        heatmaps.append({
+            'id': node_name,
+            'heatmap': heatmap,
+            'bin_size': 100,
+            'grid_width': 700,
+            'grid_height': 500
+        }) 
+    
+
+    outputs = {'det_outputs': det_outputs, 'track_outputs': track_outputs, 'heatmaps': heatmaps}
     if args.save_outputs:
-        torch.save(track_outputs, f'{val_dir}/outputs{i}.pth')
+        torch.save(outputs, f'{val_dir}/outputs{i}.pth')
     with open(f'{val_dir}/result{i}.json', 'w') as f:
         json.dump(track_result, f)
     if args.write_video:
@@ -69,12 +84,13 @@ for i, test_cfg in enumerate(cfg.data.val):
 
 for i, test_cfg in enumerate(cfg.data.test):
     testset = build_dataset(test_cfg)
-    gt = testset.collect_gt()
+    gt = testset.collect_gt(valid_only=True)
     testloader = build_dataloader(testset, samples_per_gpu=1, workers_per_gpu=2, dist=False, shuffle=False)
     det_outputs = single_gpu_test(model, testloader, show=False, out_dir=None)
     track_outputs, track_result = evaluator.evaluate(det_outputs, gt, **tune_result['best_params'])
+    outputs = {'det_outputs': det_outputs, 'track_outputs': track_outputs}
     if args.save_outputs:
-        torch.save(track_outputs, f'{test_dir}/outputs{i}.pth')
+        torch.save(outputs, f'{test_dir}/outputs{i}.pth')
     with open(f'{test_dir}/result{i}.json', 'w') as f:
         json.dump(track_result, f)
     if args.write_video:

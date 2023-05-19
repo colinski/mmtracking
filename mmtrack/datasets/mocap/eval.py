@@ -13,7 +13,7 @@ from mango import Tuner, scheduler
 from scipy.stats import uniform
 from mango.domain.distribution import loguniform
 from functools import partial
-from associator import matching_associator
+from associator import matching_associator, map_associator
 from initiator import distance_initiator
 from deleter import staleness_deleter
 from multi_object_tracker import MultiObjectKalmanTracker
@@ -31,19 +31,6 @@ class TrackingEvaluator(nn.Module):
         self.class_info = ClassInfo()
         #self.associator_thres = self.register_buffer('associator_thres', torch.tensor(1))
 
-        # self.param_space = {
-            # 'initiator_thres': uniform(0.1, 1),
-            # 'associator_thres': uniform(0.1, 1),
-            # 'dt': [1],
-            # 'std_acc': uniform(0.01, 1),
-            # 'weights_thres': uniform(0.1, 1 - 0.1),
-            # 'weights_mode': ['softmax', 'binary'],
-            # 'cov_scale': uniform(0.05, 10-0.05),
-            # 'I_scale': uniform(0, 500),
-            # 'update_count_thres': np.arange(3,10),
-            # 'staleness_thres': uniform(0.1, 1),
-        # }
-
         self.param_space = {
             'initiator_thres': uniform(0.1, 30),
             'associator_thres': uniform(0.1, 30),
@@ -53,9 +40,22 @@ class TrackingEvaluator(nn.Module):
             'weights_mode': ['softmax', 'binary'],
             'cov_scale': uniform(0.05, 10-0.05),
             'I_scale': uniform(0, 500),
-            'update_count_thres': np.arange(3, 10),
+            'update_count_thres': np.arange(3,10),
             'staleness_thres': np.arange(1,10)
         }
+
+        # self.param_space = {
+            # 'initiator_thres': uniform(0.1, 30),
+            # 'associator_thres': uniform(0.1, 30),
+            # 'dt': [1],
+            # 'std_acc': uniform(0.01, 3),
+            # 'weights_thres': uniform(0.1, 1 - 0.1),
+            # 'weights_mode': ['softmax', 'binary'],
+            # 'cov_scale': [1],
+            # 'I_scale': [0],
+            # 'update_count_thres': np.arange(3, 10),
+            # 'staleness_thres': np.arange(1,10)
+        # }
         #'staleness_thres': uniform(0.1, 5)
 
 
@@ -95,7 +95,7 @@ def evaluate(preds, gt):
     res['num_gt_ids'] = len(torch.unique(all_gt_ids))
     flat_ids = torch.cat([x.flatten() for x in preds['track_ids']])
     unique_ids = torch.unique(flat_ids).numpy()
-    if len(unique_ids) == 0:
+    if len(unique_ids) == 0: #should only happen during tuning with really bad params
         return {'HOTA': 0}
     max_id = int(np.max(unique_ids))
     res['num_tracker_ids'] = max_id+1 #len(torch.unique(flat_ids))
@@ -192,7 +192,8 @@ def run_tracker(preds, **params):
         num_frames = len(val)
 
     initiator  = distance_initiator(dist_threshold=params['initiator_thres'], update_count_threshold=params['update_count_thres'])
-    associator = matching_associator(distance_threshold=params['associator_thres']) #2.5
+    #associator = matching_associator(distance_threshold=params['associator_thres']) #2.5
+    associator = map_associator(distance_threshold=params['associator_thres']) #2.5
     deleter = staleness_deleter(staleness_threshold=params['staleness_thres'])
     tracker = MultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter)
 

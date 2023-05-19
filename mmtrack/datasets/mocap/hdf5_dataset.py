@@ -171,12 +171,18 @@ class HDF5Dataset(Dataset):
 
     
     def collect_gt(self, valid_only=True, normalize_ids=True):
+        gt = {}
         all_gt_pos, all_gt_labels, all_gt_ids, all_gt_rot, all_gt_grids = [], [], [], [], []
         for i in trange(len(self)):
             data = self[i][-1] #get last frame, eval shouldnt have future
             for key, val in data.items():
                 mod, node = key
                 if mod == 'mocap':
+                    node_label = self.class_info.name2id('node') 
+                    is_node = val['gt_labels'] == node_label
+                    gt['node_pos'] = val['gt_positions'][is_node]
+                    gt['node_rot'] = val['gt_rot'][is_node]
+
                     if valid_only:
                         valid_mask = val['valid_mask'].bool()
                     else:
@@ -186,7 +192,6 @@ class HDF5Dataset(Dataset):
                     all_gt_rot.append(val['gt_rot'][valid_mask])
                     all_gt_labels.append(val['gt_labels'][valid_mask])
                     #all_gt_grids.append(val['gt_grids'])
-        gt = {}
         gt['all_gt_pos'] = torch.stack(all_gt_pos) #num_frames x num_objs x 3
         gt['all_gt_ids'] = torch.stack(all_gt_ids)
         gt['all_gt_rot'] = torch.stack(all_gt_rot)
