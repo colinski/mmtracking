@@ -135,6 +135,8 @@ def evaluate(preds, gt):
             for k in range(num_gt):
                 pos = gt_pos[k]
                 label = gt_label[k].item()
+                if label < 0:
+                    import ipdb; ipdb.set_trace() # noqa
                 w = class_info.id2width(label)
                 h = class_info.id2height(label)
                 # if pos[0] == -1 or pos[1] == -1:

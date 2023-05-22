@@ -231,7 +231,7 @@ class DataCacher(object):
                     gt_rot = torch.from_numpy(mocap_data['gt_rot'])
                     gt_labels = mocap_data['gt_labels']
                     gt_ids = mocap_data['gt_ids']
-
+                    
                     is_node = gt_labels == 0
 
                     missing_mask = gt_pos[:, -1] == 0
@@ -277,7 +277,7 @@ class DataCacher(object):
                             'gt_positions': gt_pos,
                             'gt_labels': gt_labels.long(),
                             'gt_ids': gt_ids.long(),
-                            'gt_rot': gt_rot,
+                            'gt_rot': gt_rot.reshape(-1, 3, 3),
                             'widths': widths,
                             'heights': heights,
                             'visible': visible,

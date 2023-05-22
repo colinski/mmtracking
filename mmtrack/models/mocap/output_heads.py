@@ -21,6 +21,7 @@ from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from ..builder import MODELS, build_tracker, build_model
 import torch.distributions as D
+from mmtrack.datasets.mocap.viz import global2local, local2global
 
 def shift(x, a, b):
     return a + (b - a) * x
@@ -36,6 +37,7 @@ def generate_intervals(length, interval_size=100):
 class AnchorOutputHead(BaseModule):
     def __init__(self,
                  include_z=False,
+                 z_mean_scale=0.0,
                  input_dim=256,
                  room_size=[700,500],
                  interval_sizes=[700,500],
@@ -53,20 +55,24 @@ class AnchorOutputHead(BaseModule):
         self.cov_only_train = cov_only_train
         self.binary_prob = binary_prob
         self.scale_binary_prob = scale_binary_prob
+        self.z_mean_scale = z_mean_scale
         if self.binary_prob and self.scale_binary_prob:
             self.alpha = nn.Parameter(torch.ones(1))
             self.beta = nn.Parameter(torch.zeros(1))
+        
 
         x_intervals = generate_intervals(room_size[0], interval_sizes[0])
         y_intervals = generate_intervals(room_size[1], interval_sizes[1])
+        x_intervals = x_intervals - 700
+        y_intervals = y_intervals - 700
         self.register_buffer('x_intervals', x_intervals)
         self.register_buffer('y_intervals', y_intervals)
 
         
-        if include_z:
-            self.register_buffer('cov_add', torch.eye(3) * cov_add)
-        else:
-            self.register_buffer('cov_add', torch.eye(2) * cov_add)
+        # if include_z:
+            # self.register_buffer('cov_add', torch.eye(3) * cov_add)
+        # else:
+        self.register_buffer('cov_add', torch.eye(2) * cov_add)
 
         self.mlp = nn.Sequential(
             nn.Conv2d(input_dim, input_dim, kernel_size=1),
@@ -80,11 +86,18 @@ class AnchorOutputHead(BaseModule):
         self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=1)
         self.mix_head = nn.Conv2d(input_dim, 1, kernel_size=1)
 
+        if include_z:
+            self.z_mean_head = nn.Conv2d(input_dim, 1, kernel_size=1)
+            self.z_var_head = nn.Conv2d(input_dim, 1, kernel_size=1)
+            
+
+
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
     def forward(self, x, node_pos=None, node_rot=None):
         with torch.set_grad_enabled(not self.cov_only_train):
             x = self.mlp(x)
+
             means = self.mean_head(x)
             mix_logits = self.mix_head(x)
 
@@ -106,6 +119,14 @@ class AnchorOutputHead(BaseModule):
             means = torch.stack([x_vals, y_vals], dim=-1)
 
             mix_logits = mix_logits.flatten()
+
+            if self.include_z:
+                z_means = self.z_mean_head(x)
+                z_means = 2 * z_means.sigmoid() - 1
+                z_means = z_means * self.z_mean_scale
+                z_vars = self.z_var_head(x)
+                z_vars = F.softplus(z_vars)
+
 
         result = {}
         
@@ -137,18 +158,36 @@ class AnchorOutputHead(BaseModule):
         means = means.reshape(B, H*W, 2)
         cov = cov.reshape(B, H*W, 2, 2)
         mix_weights = torch.softmax(mix_logits, dim=0)
-        if node_pos is not None:
-            diffs = (means - node_pos)**2
-            dists = torch.sqrt(diffs.sum(dim=-1))
-            dists = dists.unsqueeze(-1).unsqueeze(-1)
-            binary_probs = mix_logits.sigmoid()#.view(H, W)
-            binary_probs = binary_probs.unsqueeze(-1).unsqueeze(-1)
-            cov_add = dists * eye
-            cov = cov + (1 - binary_probs) * cov_add
+        
+        # if node_pos is not None:
+            # diffs = (means - node_pos)**2
+            # dists = torch.sqrt(diffs.sum(dim=-1))
+            # dists = dists.unsqueeze(-1).unsqueeze(-1)
+            # binary_probs = binary_probs.unsqueeze(-1).unsqueeze(-1)
+            # binary_probs = mix_logits.sigmoid()#.view(H, W)
+            # cov_add = dists * eye
+            # cov = cov + (1 - binary_probs) * cov_add
+        
+        if self.include_z:
+            z_means = z_means.reshape(1,1,H*W).permute(0,2,1)
+            z_vars = z_vars.reshape(1,1,H*W).permute(0,2,1)
 
+            means = torch.cat([means, z_means], dim=-1)
+
+            zeros = cov.new_zeros(1, H*W, 3, 3)
+            zeros[..., -1, -1] = z_vars[..., -1]
+            zeros[..., 0:2, 0:2] = cov
+            cov = zeros
 
         if self.return_raw:
             return means, cov, mix_logits.unsqueeze(0)
+        
+
+        #params = [means, cov, mix_weights]
+
+        # if node_pos is not None and node_rot is not None:
+            # means = global2local(means[0], node_pos, node_rot)
+            # means = means.unsqueeze(0)
 
         normals = D.MultivariateNormal(means, cov)
         mix = D.Categorical(probs=mix_weights)

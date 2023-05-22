@@ -26,11 +26,29 @@ import matplotlib
 import matplotlib.patches as patches
 import pandas as pd
 
+
 font = {#'family' : 'normal',
         'weight' : 'bold',
         'size'   : 22}
 
 matplotlib.rc('font', **font)
+
+#obj_pos is num_object x 3
+#node_pos is (3,)
+#node_rot is (3,3)
+def local2global(obj_pos, node_pos, node_rot):
+    obj_pos = obj_pos.t()
+    obj_pos = (node_rot.t() @ obj_pos) 
+    obj_pos = obj_pos + node_pos.unsqueeze(1)
+    obj_pos = obj_pos.t()
+    return obj_pos
+
+def global2local(obj_pos, node_pos, node_rot):
+    obj_pos = obj_pos.t()
+    obj_pos = obj_pos - node_pos.unsqueeze(1)
+    obj_pos = node_rot @ obj_pos
+    obj_pos = obj_pos.t()
+    return obj_pos
 
 class ClassInfo:
     def __init__(self, info={
@@ -47,7 +65,10 @@ class ClassInfo:
         return self.info.loc[name]['id']
 
     def id2name(self, id):
-        return self.info[self.info['id'] == id].index[0]
+        try:
+            return self.info[self.info['id'] == id].index[0]
+        except:
+            import ipdb; ipdb.set_trace() # noqa
 
     def id2color(self, id):
         return self.info.loc[self.id2name(id)]['color']
@@ -206,6 +227,7 @@ def gen_ellipse(pos, cov, nstd=np.sqrt(5.991), **kwargs):
     return ellip
 
 def rot2angle(rot, return_rads=True):
+    rot = rot.flatten()
     if rot[4] <= 0:
         rads = np.arcsin(rot[3]) / (2*np.pi)
     else:

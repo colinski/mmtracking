@@ -193,6 +193,8 @@ class HDF5Dataset(Dataset):
                     all_gt_labels.append(val['gt_labels'][valid_mask])
                     #all_gt_grids.append(val['gt_grids'])
         gt['all_gt_pos'] = torch.stack(all_gt_pos) #num_frames x num_objs x 3
+        if gt['all_gt_pos'].shape[-1] == 3:
+            gt['all_gt_pos'] = gt['all_gt_pos'][...,0:2]
         gt['all_gt_ids'] = torch.stack(all_gt_ids)
         gt['all_gt_rot'] = torch.stack(all_gt_rot)
         gt['all_gt_labels'] = torch.stack(all_gt_labels)
@@ -526,6 +528,7 @@ class HDF5Dataset(Dataset):
                         axes[key].add_patch(rec)
 
                         r=w/2
+                        rot = rot.flatten()
                         axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
                             
                     if outputs is not None: 

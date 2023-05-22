@@ -18,6 +18,7 @@ from mmcv.cnn.bricks.registry import FEEDFORWARD_NETWORK
 from mmcv import build_from_cfg
 from mmtrack.datasets.mocap.viz import get_node_info, points_in_polygon
 import matplotlib.patches as patches
+from mmtrack.datasets.mocap.viz import global2local, local2global
 
 class Delist(nn.Module):
         def __init__(self):
@@ -98,6 +99,9 @@ class DetectorEnsemble(BaseMocapModel):
             return self.forward_test(data, **kwargs)
 
     def forward_test(self, datas, return_unscaled=False, **kwargs):
+        mocaps = [d[('mocap', 'mocap')] for d in datas]
+        mocaps = mmcv.parallel.collate(mocaps)
+
         preds = {}
         # mocaps = [d[('mocap', 'mocap')] for d in datas]
         # mocaps = mmcv.parallel.collate(mocaps)
@@ -110,6 +114,7 @@ class DetectorEnsemble(BaseMocapModel):
         assert len(all_outputs) == 1
         for t, output in enumerate(all_outputs):
             for key, embeds in output.items():
+                node_idx = int(key[1][-1]) - 1
                 loss_key = '_'.join(key)
                 assert len(embeds) == 1
                 for b, embed in enumerate(embeds): 
@@ -118,10 +123,29 @@ class DetectorEnsemble(BaseMocapModel):
                     output_dict = self.output_head(embed)
                     dist = output_dict['dist']
                     H, W = output_dict['grid_size']
+                    
+                    gt_pos = mocaps['gt_positions'][t, b]
+                    gt_rot = mocaps['gt_rot'][t, b]
+                    vis_probs = mocaps['visible'][t, b]
+                    gt_labels = mocaps['gt_labels'][t, b]
+                    is_valid = gt_pos[:, -1] > 0
+                    is_node = gt_labels == 0
+                    node_pos = gt_pos[is_node][node_idx]
+                    node_rot = gt_rot[is_node][node_idx]
+
                     # comp_dist = dist.componet_distribution
                     comp_dist = dist.component_distribution
                     mean, cov = comp_dist.loc, comp_dist.covariance_matrix
                     weights = dist.mixture_distribution.logits
+
+
+                    
+                    if mean.shape[-1]== 3:
+                        mean = local2global(mean[0], node_pos, node_rot)
+                        mean = mean.unsqueeze(0)
+                        cov = node_rot @ cov @ node_rot.t()
+                        mean = mean[..., 0:2]
+                        cov = cov[..., 0:2, 0:2]
                     preds[loss_key] = {
                         'mean': mean.reshape(H,W,2).cpu(),
                         'cov': cov.reshape(H,W,2,2).cpu(),
@@ -175,6 +199,8 @@ class DetectorEnsemble(BaseMocapModel):
                 loss_key = '_'.join(key + ('loss',))
                 node_idx = int(key[1][-1]) - 1
                 for b, embed in enumerate(embeds): 
+
+                    loss_key = '_'.join(key + ('loss',))
                     gt_pos = mocaps['gt_positions'][t, b]
                     gt_rot = mocaps['gt_rot'][t, b]
                     vis_probs = mocaps['visible'][t, b]
@@ -188,8 +214,11 @@ class DetectorEnsemble(BaseMocapModel):
                     vis_probs = vis_probs[mask][:, node_idx]
                     gt_labels = gt_labels[mask]
 
-                    output = self.output_head(embed.unsqueeze(0), node_pos, node_rot)
+                    output = self.output_head(embed.unsqueeze(0))#)node_pos, node_rot)
                     dist = output['dist']
+
+                    gt_pos = global2local(gt_pos, node_pos, node_rot)
+                    #gt_pos = local2global(gt_pos, node_pos, node_rot)
 
                     
                     if len(gt_pos) != 0:
