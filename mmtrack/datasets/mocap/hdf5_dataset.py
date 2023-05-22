@@ -506,6 +506,12 @@ class HDF5Dataset(Dataset):
                     #gt_pos_raw = val['gt_positions_raw']
                     #gt_rot = val['gt_rot']
                     num_gt = len(val['gt_positions'])
+                    if 'selected_nodes' in outputs.keys():
+                        selected_nodes = outputs['selected_nodes'][i]
+                        selected_nodes = [int(s[-1]) - 1 for s in selected_nodes]
+                    else:
+                        selected_nodes = [0,1,2,3]
+
                     for j in range(num_gt):
                         pos = val['gt_positions'][j]
                         if pos[0] == -1:
@@ -513,8 +519,15 @@ class HDF5Dataset(Dataset):
                         rot = val['gt_rot'][j]
                         ID = int(val['gt_ids'][j])
                         class_id = int(val['gt_labels'][j])
-                        #grid = val['gt_grids'][j]
+
+                        
                         color = self.class_info.id2color(class_id)
+                        if class_id == 0:
+                            if ID in selected_nodes:
+                                color = 'red'
+                            else:
+                                color = 'gray'
+                        #grid = val['gt_grids'][j]
                         
                         axes[key].scatter(pos[0], pos[1], marker=markers[ID], color=color) 
                         
