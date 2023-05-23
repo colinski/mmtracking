@@ -137,14 +137,14 @@ class AnchorOutputHead(BaseModule):
         means = means.reshape(B, H*W, 2)
         cov = cov.reshape(B, H*W, 2, 2)
         mix_weights = torch.softmax(mix_logits, dim=0)
-        if node_pos is not None:
-            diffs = (means - node_pos)**2
-            dists = torch.sqrt(diffs.sum(dim=-1))
-            dists = dists.unsqueeze(-1).unsqueeze(-1)
-            binary_probs = mix_logits.sigmoid()#.view(H, W)
-            binary_probs = binary_probs.unsqueeze(-1).unsqueeze(-1)
-            cov_add = dists * eye
-            cov = cov + (1 - binary_probs) * cov_add
+        # if node_pos is not None:
+            # diffs = (means - node_pos)**2
+            # dists = torch.sqrt(diffs.sum(dim=-1))
+            # dists = dists.unsqueeze(-1).unsqueeze(-1)
+            # binary_probs = mix_logits.sigmoid()#.view(H, W)
+            # binary_probs = binary_probs.unsqueeze(-1).unsqueeze(-1)
+            # cov_add = dists * eye
+            # cov = cov + (1 - binary_probs) * cov_add
 
 
         if self.return_raw:

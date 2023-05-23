@@ -175,6 +175,7 @@ class DetectorEnsemble(BaseMocapModel):
                 loss_key = '_'.join(key + ('loss',))
                 node_idx = int(key[1][-1]) - 1
                 for b, embed in enumerate(embeds): 
+                    loss_key = '_'.join(key + ('loss',))
                     gt_pos = mocaps['gt_positions'][t, b]
                     gt_rot = mocaps['gt_rot'][t, b]
                     vis_probs = mocaps['visible'][t, b]
@@ -188,7 +189,7 @@ class DetectorEnsemble(BaseMocapModel):
                     vis_probs = vis_probs[mask][:, node_idx]
                     gt_labels = gt_labels[mask]
 
-                    output = self.output_head(embed.unsqueeze(0), node_pos, node_rot)
+                    output = self.output_head(embed.unsqueeze(0))
                     dist = output['dist']
 
                     
