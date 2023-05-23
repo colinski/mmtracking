@@ -40,7 +40,7 @@ class TrackingEvaluator(nn.Module):
             'weights_mode': ['softmax', 'binary'],
             'cov_scale': uniform(0.05, 10-0.05),
             'I_scale': uniform(0, 500),
-            'update_count_thres': np.arange(3,10),
+            'update_count_thres': np.arange(3, 10),
             'staleness_thres': np.arange(1,10)
         }
 
@@ -60,10 +60,13 @@ class TrackingEvaluator(nn.Module):
 
 
     def tune(self, preds, gt):
-        obj_fn = partial(objective, preds=preds, gt=gt, mode='tune')
+        obj_fn = partial(objective, preds=preds, gt=gt, num_samples=100)
+        
         obj_fn = scheduler.serial(obj_fn)
+        
         #parallel_dec = scheduler.parallel(8)
         #obj_fn = parallel_dec(obj_fn)
+        
         conf_dict = dict(num_iteration=500)
         tuner = Tuner(self.param_space, obj_fn, conf_dict)
         result = tuner.maximize()
@@ -74,16 +77,17 @@ class TrackingEvaluator(nn.Module):
         eval_res = evaluate(tracker_outputs, gt)
         return tracker_outputs, eval_res
 
-def objective(preds, gt, **params):
+#preds, gt are lists, one element per valset
+def objective(preds, gt, num_samples=1000, **params):
     hota = 0
     for i in range(len(preds)):
         tracker_outputs = run_tracker(preds[i], **params)
-        eval_res = evaluate(tracker_outputs, gt[i])
+        eval_res = evaluate(tracker_outputs, gt[i], num_samples=num_samples)
         hota += eval_res['HOTA']
     hota /= len(preds)
     return hota
 
-def evaluate(preds, gt):
+def evaluate(preds, gt, num_samples=1000):
     class_info = ClassInfo()
     all_gt_pos = gt['all_gt_pos']
     all_gt_ids = gt['all_gt_ids']
@@ -125,11 +129,11 @@ def evaluate(preds, gt):
         nll = []
         for j in range(len(pred_means)):
             try:
-                dist = D.MultivariateNormal(pred_means[j], pred_covs[j])
+                dist = D.MultivariateNormal(pred_means[j].cuda(), pred_covs[j].cuda())
             except ValueError:
                 cov = pred_covs[j]
                 cov[0,1] = cov[1,0]
-                dist = D.MultivariateNormal(pred_means[j], cov)
+                dist = D.MultivariateNormal(pred_means[j].cuda(), cov.cuda())
 
             num_gt = len(gt_pos)
             for k in range(num_gt):
@@ -139,9 +143,9 @@ def evaluate(preds, gt):
                 h = class_info.id2height(label)
                 # if pos[0] == -1 or pos[1] == -1:
                     # continue
-
-                nll.append(dist.log_prob(pos))
-                samples = dist.sample([1000])
+                
+                nll.append(dist.log_prob(pos.cuda()))
+                samples = dist.sample([num_samples]).cpu()
                 angle = rot2angle(gt_rot[k], return_rads=False)
                 rec, _ = gen_rectange(gt_pos[k], angle, w=w, h=h)
                 mask = points_in_rec(samples, rec)
@@ -159,10 +163,12 @@ def evaluate(preds, gt):
         res['similarity_scores'].append(scores)
         res['grid_scores'].append(grid_scores)
         res['nll'].append(nll)
-   
+    
+    out = {}
     clear = CLEAR({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
     hota = HOTA()
     identity = Identity({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
+    
 
     out = clear.eval_sequence(res)
     out = {k : float(v) for k,v in out.items()}
@@ -247,8 +253,8 @@ def run_tracker(preds, **params):
         frame_means, frame_covs = [], []
         for did, points in dr.items():
             for p in points:
-                mean = p.pos[0:2].squeeze().detach() * 100
-                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
+                mean = p.pos[0:2].squeeze().detach() #* 100
+                cov = p.cov[0:2, 0:2].squeeze().detach() #* 100
                 frame_means.append(mean)
                 frame_covs.append(cov)
         outputs['det_means'].append(frame_means)
@@ -262,7 +268,8 @@ def run_tracker(preds, **params):
             cov = p.cov[0:2, 0:2].squeeze().detach()
             frame_means.append(mean) #* 100)
             frame_covs.append(cov) #* 100)
-            frame_ids.append(int(tid[-1]))
+            #frame_ids.append(int(tid[-1]))
+            frame_ids.append(int(tid))
         outputs['track_means'].append(frame_means)
         outputs['track_covs'].append(frame_covs)
         outputs['track_ids'].append(torch.tensor(frame_ids))
