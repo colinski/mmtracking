@@ -199,20 +199,21 @@ class DetectorEnsemble(BaseMocapModel):
                 loss_key = '_'.join(key + ('loss',))
                 node_idx = int(key[1][-1]) - 1
                 for b, embed in enumerate(embeds): 
-
                     loss_key = '_'.join(key + ('loss',))
                     gt_pos = mocaps['gt_positions'][t, b]
                     gt_rot = mocaps['gt_rot'][t, b]
                     vis_probs = mocaps['visible'][t, b]
                     gt_labels = mocaps['gt_labels'][t, b]
-                    is_valid = gt_pos[:, -1] > 0
+                    valid_mask = mocaps['valid_mask'][t, b].bool()
+                    #is_valid = gt_pos[:, -1] > 0
                     is_node = gt_labels == 0
                     node_pos = gt_pos[is_node][node_idx]
                     node_rot = gt_rot[is_node][node_idx]
-                    mask = ~is_node & is_valid
-                    gt_pos = gt_pos[mask]
-                    vis_probs = vis_probs[mask][:, node_idx]
-                    gt_labels = gt_labels[mask]
+                    
+                    #mask = ~is_node & is_valid
+                    gt_pos = gt_pos[valid_mask]
+                    vis_probs = vis_probs[valid_mask][:, node_idx]
+                    #gt_labels = gt_labels[valid_mask]
 
                     output = self.output_head(embed.unsqueeze(0))#)node_pos, node_rot)
                     dist = output['dist']
