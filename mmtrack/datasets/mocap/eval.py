@@ -83,7 +83,7 @@ def objective(preds, gt, num_samples=1000, **params):
     for i in range(len(preds)):
         tracker_outputs = run_tracker(preds[i], **params)
         eval_res = evaluate(tracker_outputs, gt[i], num_samples=num_samples)
-        hota += eval_res['HOTA']
+        hota += np.mean(eval_res['HOTA'])
     hota /= len(preds)
     return hota
 
@@ -176,10 +176,12 @@ def evaluate(preds, gt, num_samples=1000):
     
     hout = hota.eval_sequence(res)
     #means = {k + '_mean' : v.mean() for k, v in hout.items()}
-    means = {k: np.array(v).mean() for k, v in hout.items()}
-    #hout = {k: v.tolist() for k,v in hout.items()}
-    #out.update(hout)
-    out.update(means)
+    
+    # means = {k: np.array(v).mean() for k, v in hout.items()}
+    # out.update(means)
+    
+    hout = {k: v.tolist() for k,v in hout.items()}
+    out.update(hout)
 
     iout = identity.eval_sequence(res)
     iout = {k : float(v) for k,v in iout.items()}
