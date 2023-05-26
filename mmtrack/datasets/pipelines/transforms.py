@@ -14,15 +14,27 @@ class PadObjects(object):
     def __init__(self, pad_size=10, pad_value=-1.0):
         self.pad_size = pad_size
         self.pad_value = pad_value
-
-    def __call__(self, results):
-        new_results = {}
-        for key, val in results.items():
+    
+    def _pad(self, d):
+        for key, val in d.items():
+            if type(val) == dict:
+                d[key] = self._pad(val)
+                return d
             pad = torch.zeros_like(val) + self.pad_value
             val = torch.cat([val, pad], dim=0)
             val = val[0:self.pad_size]
-            new_results[key] = val
-        return new_results
+            d[key] = val
+        return d
+
+    def __call__(self, results):
+        return self._pad(results)
+        # new_results = {}
+        # for key, val in results.items():
+            # pad = torch.zeros_like(val) + self.pad_value
+            # val = torch.cat([val, pad], dim=0)
+            # val = val[0:self.pad_size]
+            # new_results[key] = val
+        # return new_results
 
 @PIPELINES.register_module()
 class PruneObjects(object):

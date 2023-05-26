@@ -242,49 +242,51 @@ class DataCacher(object):
                     node_rot = gt_rot[is_node]
                     num_nodes = len(node_pos)
                     num_objs = len(gt_pos)
-                    visible = torch.zeros(num_objs, num_nodes)
-                    pixels = torch.zeros(num_objs, num_nodes, 2)
-                    for i in range(num_nodes):
-                        npos = node_pos[i]
-                        nrot = node_rot[i]
-                        node_name = 'node_%d' % (i+1)
-                        calib_rot = calib[node_name]
-                        calib_nrot = CoordinateTransform.local_to_global_rotation(
-                                nrot, calib_rot)
-
-                        for j in range(num_objs):
-                            opos = gt_pos[j]
-                            orot = gt_rot[j]
-                            try: #error if npos is all zeros
-                                lpos, lrot = CoordinateTransform.global_to_local(
-                                     npos, calib_nrot, opos, orot)
-                            except:
-                                continue
-                            u, v = self.fov.local_to_pixel(lpos, node_name, 'zed')
-                            pixels[j, i] = torch.tensor([u,v])
-                            try:
-                                check = self.fov.validate_field_of_view_raw(
-                                    npos, nrot, opos, orot, calib_rot, 'zed')
-                            except:
-                                continue
-                            visible[j, i] = check
-
+                    fov_results = {}
+                    for mod_name in ['zed_camera_left', 'zed_camera_right', 'realsense_camera_img', 'realsense_camera_depth']:
+                        visible = torch.zeros(num_objs, num_nodes)
+                        pixels = torch.zeros(num_objs, num_nodes, 2)
+                        for i in range(num_nodes):
+                            npos = node_pos[i]
+                            nrot = node_rot[i]
+                            node_name = 'node_%d' % (i+1)
+                            calib_rot = calib[node_name]
+                            calib_nrot = CoordinateTransform.local_to_global_rotation(nrot, calib_rot)
+                            
+                            for j in range(num_objs):
+                                opos = gt_pos[j]
+                                orot = gt_rot[j]
+                                try: #error if npos is all zeros
+                                    lpos, lrot = CoordinateTransform.global_to_local(
+                                         npos, calib_nrot, opos, orot)
+                                except:
+                                    continue
+                                u, v = self.fov.local_to_pixel(lpos, node_name, mod_name)
+                                pixels[j, i] = torch.tensor([u,v])
+                                try:
+                                    check = self.fov.validate_field_of_view_raw(
+                                        npos, nrot, opos, orot, calib_rot, mod_name)
+                                except:
+                                    continue
+                                visible[j, i] = check
+                        fov_results[mod_name] = [visible, pixels]
                     if valid_mask.sum() == 0:
-                        buff[('mocap', 'mocap')] = buffers[-1][('mocap', 'mocap')]
-                        print('all objects missing')
-                    else:
-                        buff[('mocap', 'mocap')] = {
-                            'gt_positions': gt_pos,
-                            'gt_labels': gt_labels.long(),
-                            'gt_ids': gt_ids.long(),
-                            'gt_rot': gt_rot,
-                            'widths': widths,
-                            'heights': heights,
-                            'visible': visible,
-                            'pixels': pixels,
-                            'valid_mask': valid_mask,
-                            'missing_mask': missing_mask
-                        }
+                        assert 1==2
+                        # buff[('mocap', 'mocap')] = buffers[-1][('mocap', 'mocap')]
+                        # print('all objects missing')
+                    buff[('mocap', 'mocap')] = {
+                        'gt_positions': gt_pos,
+                        'gt_labels': gt_labels.long(),
+                        'gt_ids': gt_ids.long(),
+                        'gt_rot': gt_rot,
+                        'widths': widths,
+                        'heights': heights,
+                        'visible': {k: v[0] for k,v in fov_results.items()},
+                        'pixels':  {k: v[1] for k,v in fov_results.items()},
+                        # 'pixels': pixels,
+                        'valid_mask': valid_mask,
+                        'missing_mask': missing_mask
+                    }
                     num_frames += 1
                     save_frame = True
 

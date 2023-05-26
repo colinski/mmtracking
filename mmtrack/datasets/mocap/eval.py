@@ -79,13 +79,13 @@ class TrackingEvaluator(nn.Module):
 
 #preds, gt are lists, one element per valset
 def objective(preds, gt, num_samples=1000, **params):
-    hota = 0
+    hota = []
     for i in range(len(preds)):
         tracker_outputs = run_tracker(preds[i], **params)
         eval_res = evaluate(tracker_outputs, gt[i], num_samples=num_samples)
-        hota += np.mean(eval_res['HOTA'])
-    hota /= len(preds)
-    return hota
+        hota.append(np.mean(eval_res['HOTA']))
+    min_val = np.min(hota)
+    return min_val
 
 def evaluate(preds, gt, num_samples=1000):
     class_info = ClassInfo()

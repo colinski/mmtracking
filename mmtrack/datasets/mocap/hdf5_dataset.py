@@ -506,7 +506,7 @@ class HDF5Dataset(Dataset):
                     #gt_pos_raw = val['gt_positions_raw']
                     #gt_rot = val['gt_rot']
                     num_gt = len(val['gt_positions'])
-                    if 'selected_nodes' in outputs.keys():
+                    if outputs is not None and 'selected_nodes' in outputs.keys():
                         selected_nodes = outputs['selected_nodes'][i]
                         selected_nodes = [int(s[-1]) - 1 for s in selected_nodes]
                     else:
@@ -582,7 +582,7 @@ class HDF5Dataset(Dataset):
                     
                     
 
-                if mod in ['zed_camera_left', 'realsense_camera_img', 'realsense_camera_depth']:
+                if mod in ['zed_camera_left', 'zed_camera_right', 'realsense_camera_img', 'realsense_camera_depth']:
                     axes[key].clear()
                     axes[key].axis('off')
                     axes[key].set_title(key) # code = data['zed_camera_left'][:]
@@ -590,13 +590,13 @@ class HDF5Dataset(Dataset):
                     img = cv2.imdecode(code, 1)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     node_id = int(node[-1]) - 1
-                    visible = mocap_data['visible'][:, node_id]
+                    visible = mocap_data['visible'][mod][:, node_id]
                     visible = visible[mocap_data['valid_mask'].bool()]
                     #visible = visible[4:]
                     #visible[visible == -1] = 0
                     num_viewable = sum(visible)
 
-                    pixels = mocap_data['pixels'][:, node_id]
+                    pixels = mocap_data['pixels'][mod][:, node_id]
                     pixels = pixels[mocap_data['valid_mask'].bool()]
                     for p in pixels:
                         if p[0] < 0 or p[1] < 0:
@@ -609,7 +609,7 @@ class HDF5Dataset(Dataset):
                     #poly = patches.Polygon(xy=node_info['points'], fill=False, color=node_info['color'])
                     #isin = [points_in_polygon(poly, p) for p in gt_pos]
                     #num_viewable = np.sum(isin)
-                    cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    cv2.putText(img, f'Viewable: {num_viewable}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1/2, (255, 0, 0), 2)
                     
                     # score = 0 
                     # for j in range(len(gt_rot)):
