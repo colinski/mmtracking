@@ -538,9 +538,9 @@ class HDF5Dataset(Dataset, metaclass=ABCMeta):
                     axes[key].clear()
                     axes[key].set_title(key)
                     axes[key].set_ylim(-1,1)
-                    img = data[key]['img'].data[0].cpu().squeeze().numpy()
-                    max_val = img[0].max()
-                    min_val = img[0].min()
+                    img = data[key]#['img'].data[0].cpu().squeeze().numpy()
+                    # max_val = img[0].max()
+                    # min_val = img[0].min()
                     axes[key].plot(img[0], color='black')
 
             if save_frame:
