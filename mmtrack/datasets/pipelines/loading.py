@@ -19,16 +19,30 @@ class DecodeJPEG(object):
 
 @PIPELINES.register_module()
 class LoadAudio(object):
-    def __init__(self):
-        self.spectro = torchaudio.transforms.Spectrogram()
+    def __init__(self, n_fft=400):
+        self.spectro = torchaudio.transforms.Spectrogram(n_fft=n_fft)
 
     def __call__(self, array):
+        array = array[:, 1:5]
         array = torch.from_numpy(array)
         array = array.unsqueeze(0)
+        array = array.permute(0, 2, 1)
         sgram = self.spectro(array)
-        sgram = sgram.squeeze()
-        sgram = sgram.permute(1, 2, 0)
-        return sgram.numpy()
+        sgram = sgram.permute(0, 2, 3, 1).squeeze()
+        sgram = sgram.numpy()
+        results = {
+            'img': sgram, 
+            'img_shape': sgram.shape,
+            'ori_shape': sgram.shape, 
+            'img_fields': ['img'],
+            'filename': 'placeholder.jpg',
+            'ori_filename': 'placeholder.jpg'
+        }
+        return results
+
+        # sgram = sgram.squeeze()
+        # sgram = sgram.permute(1, 2, 0)
+        # return sgram.numpy()
 
 @PIPELINES.register_module()
 class LoadFromNumpyArray(object):

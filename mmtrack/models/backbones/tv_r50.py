@@ -140,15 +140,15 @@ class TVResNet50CrossAttn(BaseModule):
         return (global_pos_embeds, )
 
 @BACKBONES.register_module()
-class TVResNet50(BaseModule):
+class AudioBackbone(BaseModule):
     def __init__(self, 
+                 input_dim=4,
                  out_channels=256,
                  norm_cfg=dict(type='BN')
         ):
         super().__init__()
-        self.stem = ResNet50Stem(frozen=True)
         self.layers = nn.Sequential(
-            nn.Conv2d(64, out_channels, kernel_size=7, stride=2, padding=3),
+            nn.Conv2d(input_dim, out_channels, kernel_size=7, stride=2, padding=3),
             build_norm_layer(norm_cfg, out_channels)[1],
 
             ConvNeXtBlock(out_channels, layer_scale_init_value=0.0),
@@ -163,6 +163,45 @@ class TVResNet50(BaseModule):
         )
                
     def forward(self, x):
-        x = self.stem(x)
         x = self.layers(x)
+        return (x, )
+
+@BACKBONES.register_module()
+class mmWaveBackbone(BaseModule):
+    def __init__(self, 
+                 input_dim=256,
+                 out_channels=256,
+                 norm_cfg=dict(type='BN')
+        ):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, input_dim),
+            #nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
+            nn.GELU(),
+            nn.Linear(input_dim, input_dim),
+            #nn.Conv2d(input_dim, input_dim, kernel_size=7, padding=3, stride=2),
+            nn.GELU(),
+        )
+
+        # self.stem = ResNet50Stem(frozen=True)
+        # self.layers = nn.Sequential(
+            # nn.Conv2d(64, out_channels, kernel_size=7, stride=1, padding=3),
+            # build_norm_layer(norm_cfg, out_channels)[1],
+
+            # ConvNeXtBlock(out_channels, layer_scale_init_value=0.0),
+            
+            # nn.Conv2d(out_channels, out_channels, kernel_size=7, stride=1, padding=3),
+            # build_norm_layer(norm_cfg, out_channels)[1],
+            
+            # ConvNeXtBlock(out_channels, layer_scale_init_value=0.0),
+            
+            # nn.Conv2d(out_channels, out_channels, kernel_size=7, stride=1, padding=3),
+            # build_norm_layer(norm_cfg, out_channels)[1]
+        # )
+               
+    def forward(self, x):
+        x = self.mlp(x)
+        x = x.permute(0,3, 1,2)
+        #x = self.stem(x)
+        #x = self.layers(x)
         return (x, )

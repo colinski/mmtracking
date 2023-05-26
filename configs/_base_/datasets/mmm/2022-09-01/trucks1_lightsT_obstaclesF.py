@@ -37,16 +37,18 @@ azimuth_pipeline = [
 ]
 
 range_pipeline = [
-    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
+    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True, force_rgb=False),
     dict(type='Resize', img_scale=(256, 16), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
-    dict(type='Normalize', mean=[4353], std=[705], to_rgb=False),
+    dict(type='Normalize', mean=[4353], std=[705], to_rgb=True),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),
 ]
 
 audio_pipeline = [
-    dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
+    #dict(type='LoadFromNumpyArray', force_float32=True, transpose=True),
+    dict(type='LoadAudio', n_fft=75),
+    dict(type='Resize', img_scale=(32, 32), keep_ratio=False),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img']),

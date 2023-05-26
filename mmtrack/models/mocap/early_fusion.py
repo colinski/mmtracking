@@ -62,13 +62,13 @@ class EarlyFusion(BaseMocapModel):
                      num_heads=8, 
                      in_proj=True, 
                      out_proj=True,
-                     attn_drop=0.0, 
-                     seq_drop=0.0,
+                     attn_drop=0.1, 
+                     seq_drop=0.1,
                      v_dim=None
                  ),
                  dim=512,
                  track_eval=False,
-                 pos_loss_weight=0.1,
+                 pos_loss_weight=1.0,
                  num_queries=1,
                  match_by_id=False,
                  global_ca_layers=1,
@@ -111,10 +111,10 @@ class EarlyFusion(BaseMocapModel):
         self.global_pos_encoding = nn.Embedding(self.num_queries, self.dim)
         
         self.global_ca_layers = global_ca_layers
-        if global_ca_layers > 1:
-            self.global_cross_attn = nn.ModuleList([ResCrossAttn(cross_attn_cfg)]*global_ca_layers)
-        else:
-            self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
+        #if global_ca_layers > 1:
+        self.global_cross_attn = nn.ModuleList([ResCrossAttn(cross_attn_cfg)]*global_ca_layers)
+        #else:
+        #    self.global_cross_attn = ResCrossAttn(cross_attn_cfg)
 
         #self.pixel_pos_encoding = SineEncoding2d()
         
@@ -151,11 +151,17 @@ class EarlyFusion(BaseMocapModel):
         start.record()
         with torch.no_grad():
             det_embeds = [self._forward_single(data) for data in datas]
-            det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
-            B, num_views, L, D = det_embeds.shape
-            det_embeds = det_embeds.view(B, num_views*L, D)
+            det_embeds = [torch.cat(L, dim=1) for L in det_embeds]
+            det_embeds = torch.stack(det_embeds, dim=0)[-1]
 
-            final_embed = self.global_cross_attn(self.global_pos_encoding.weight, det_embeds)
+            #det_embeds = torch.stack(det_embeds, dim=0)[-1] # B x Nv x No x D
+            # B, num_views, L, D = det_embeds.shape
+            # det_embeds = det_embeds.view(B, num_views*L, D)
+            B, L, D = det_embeds.shape
+            
+            final_embed = self.global_pos_encoding.weight
+            for layer in self.global_cross_attn:
+                final_embed = layer(final_embed, det_embeds)
             
             output = self.output_head(final_embed.unsqueeze(0))
             dist = output['dist']
@@ -205,6 +211,7 @@ class EarlyFusion(BaseMocapModel):
         return result
     
     def forward_train_track(self, datas, return_unscaled=False, **kwargs):
+        assert 1 == 2 #this hasnt been updated for early fusion
 
         losses = defaultdict(list)
         mocaps = [d[('mocap', 'mocap')] for d in datas]
@@ -225,6 +232,8 @@ class EarlyFusion(BaseMocapModel):
         all_embeds = [self._forward_single(data) for data in datas]
         all_embeds = torch.stack(all_embeds, dim=0) 
         all_embeds = all_embeds.transpose(0, 1) #B T L D
+
+
         num_views = all_embeds.shape[2]
         
         for i in range(B):
@@ -264,16 +273,22 @@ class EarlyFusion(BaseMocapModel):
         gt_grids = gt_grids.transpose(0,1)
         
         all_embeds = [self._forward_single(data) for data in datas]
+        all_embeds = [torch.cat(L, dim=1) for L in all_embeds]
         all_embeds = torch.stack(all_embeds, dim=0) 
         all_embeds = all_embeds.transpose(0, 1) #B T L D
-        B, T, num_views, L, D = all_embeds.shape
-        all_embeds = all_embeds.reshape(B, T, num_views*L, D)
+        #B, T, num_views, L, D = all_embeds.shape
+        #all_embeds = all_embeds.reshape(B, T, num_views*L, D)
+        B, T, L, D = all_embeds.shape
         
         all_outputs = []
         #for q in range(num_views):
         for i in range(B):
             for j in range(T):
-                det_embed = self.global_cross_attn(self.global_pos_encoding.weight, all_embeds[i,j].unsqueeze(0))
+                det_embed = self.global_pos_encoding.weight
+                for layer in self.global_cross_attn:
+                    det_embed = layer(det_embed, all_embeds[i,j].unsqueeze(0))
+
+                #det_embed = self.global_cross_attn(self.global_pos_encoding.weight, all_embeds[i,j].unsqueeze(0))
                 #output = self.output_head(all_embeds[i,j,q].unsqueeze(0))
                 output = self.output_head(det_embed.unsqueeze(0))
                 dist = output['dist']
@@ -355,7 +370,7 @@ class EarlyFusion(BaseMocapModel):
         if len(inter_embeds) == 0:
             import ipdb; ipdb.set_trace() # noqa
         
-        inter_embeds = torch.stack(inter_embeds, dim=1)
+        #inter_embeds = torch.stack(inter_embeds, dim=1)
         #inter_embeds = inter_embeds.mean(dim=1)
         return inter_embeds
         # inter_embeds = self.mod_dropout(inter_embeds)
