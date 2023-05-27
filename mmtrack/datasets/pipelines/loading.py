@@ -1,12 +1,65 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
-
+from mmcv.parallel import DataContainer
 #from mmtrack.core import results2outs
 import numpy as np
 import torch
 import torchaudio
 import cv2
+
+
+@PIPELINES.register_module()
+class MergeMMWave(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, buff):
+        nodes = [k[-1] for k,v in buff.items() if k[0] != 'mocap']
+        nodes = sorted(list(set(nodes)))
+        for node in nodes:
+            rdoppler = buff[('range_doppler', node)]
+            astatic = buff[('azimuth_static_raw', node)]
+
+            if type(rdoppler) != dict: #viz mode
+                _, num_channels = astatic.shape
+                rdoppler = rdoppler[:, np.newaxis, :]
+                rdoppler = np.repeat(rdoppler, num_channels, axis=1)
+                astatic = astatic[:, :, np.newaxis]
+                mmwave = np.concatenate([astatic, rdoppler], axis=-1)
+
+                #mmwave = np.hstack([astatic, rdoppler])
+                mmwave = mmwave.transpose((1,0,2))
+                buff[('mmwave', node)] = mmwave
+                del buff[('range_doppler', node)]
+                del buff[('azimuth_static_raw', node)]
+            else: #train mode
+                rdoppler = rdoppler['img'].data[0]
+                astatic = astatic['img'].data[0]
+
+                _, num_channels = astatic.shape
+
+                rdoppler = rdoppler.unsqueeze(1)
+                rdoppler = torch.cat([rdoppler]*num_channels, dim=1)
+                
+                mmwave = torch.cat([astatic.t().unsqueeze(0), rdoppler], dim=0)
+                img_metas = {
+                    'filename': 'placeholder.jpg',
+                    'ori_filename': 'placeholder.jpg',
+                    'ori_shape': mmwave.shape,
+                    'img_shape': mmwave.shape,
+                    'pad_shape': mmwave.shape,
+                    'scale_factor': 1.0,
+                    'flip': False,
+                    'flip_direction': None,
+                    'img_norm_cfg': None
+                }
+
+                buff[('mmwave', node)] = {'img': DataContainer(mmwave)}#'img_metas': DataContainer(img_metas)}
+                del buff[('range_doppler', node)]
+                del buff[('azimuth_static_raw', node)]
+        return buff
+            
 
 @PIPELINES.register_module()
 class DecodeJPEG(object):

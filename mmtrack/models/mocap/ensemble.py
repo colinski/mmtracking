@@ -178,7 +178,6 @@ class DetectorEnsemble(BaseMocapModel):
                     loss_key = '_'.join(key + ('loss',))
                     gt_pos = mocaps['gt_positions'][t, b]
                     gt_rot = mocaps['gt_rot'][t, b]
-                    vis_probs = mocaps['visible'][t, b]
                     gt_labels = mocaps['gt_labels'][t, b]
                     is_valid = gt_pos[:, -1] > 0
                     is_node = gt_labels == 0
@@ -186,8 +185,16 @@ class DetectorEnsemble(BaseMocapModel):
                     node_rot = gt_rot[is_node][node_idx]
                     mask = ~is_node & is_valid
                     gt_pos = gt_pos[mask]
-                    vis_probs = vis_probs[mask][:, node_idx]
                     gt_labels = gt_labels[mask]
+
+                    if key[0] in mocaps['visible'].keys():
+                        vis_probs = mocaps['visible'][key[0]][t, b]
+                        vis_probs = vis_probs[mask][:, node_idx]
+                        num_objs = vis_probs.sum()
+                    else:
+                        vis_probs = 1
+                        num_objs = gt_pos.new_ones(len(gt_pos)).sum()
+                    
 
                     output = self.output_head(embed.unsqueeze(0))
                     dist = output['dist']
@@ -195,18 +202,18 @@ class DetectorEnsemble(BaseMocapModel):
                     
                     if len(gt_pos) != 0:
                         nll = -dist.log_prob(gt_pos)
-                        if key[0] == 'zed_camera_left':
-                            nll = nll * vis_probs
+                        #if key[0] == 'zed_camera_left':
+                        nll = nll * vis_probs
                         losses[loss_key].append(nll.mean()) 
                     else:
                         losses[loss_key].append(torch.zeros(1).mean().cuda())
                     
                     if self.entropy_loss_weight > 0:
                         dist_entropy = dist.mixture_distribution.entropy()
-                        if key[0] == 'zed_camera_left':
-                            num_objs = vis_probs.sum()
-                        else:
-                            num_objs = len(gt_pos) * torch.ones_like(vis_probs.sum())
+                        # if key[0] == 'zed_camera_left':
+                            # num_objs = vis_probs.sum()
+                        # else:
+                            # num_objs = len(gt_pos) * torch.ones_like(vis_probs.sum())
                         if num_objs == 0:
                             entropy_target = np.log(28*20)
                         else:

@@ -45,6 +45,7 @@ class HDF5Dataset(Dataset):
                  pickle_paths=None,
                  cacher_cfg=None,
                  pipelines={},
+                 merge_pipeline=None,
                  num_past_frames=0,
                  num_future_frames=0,
                  limit_axis=True,
@@ -80,7 +81,10 @@ class HDF5Dataset(Dataset):
         self.pipelines = {}
         for mod, cfg in pipelines.items():
             self.pipelines[mod] = Compose(cfg)
-
+        
+        self.merge_pipeline = merge_pipeline
+        if merge_pipeline is not None:
+            self.merge_pipeline = Compose(merge_pipeline)
 
         self.flag = np.zeros(len(self), dtype=np.uint8) #ones?
         
@@ -139,6 +143,8 @@ class HDF5Dataset(Dataset):
     
     def __getitem__(self, ind, apply_pipelines=True):
         new_buff = self.read_buff(ind)
+        if self.merge_pipeline is not None:
+            new_buff = self.merge_pipeline(new_buff)
         new_buff = self.apply_pipelines(new_buff, apply_pipelines)
         
         idx_set = torch.arange(len(self))
@@ -468,7 +474,9 @@ class HDF5Dataset(Dataset):
         fname = eval_kwargs['fname']
         if end_idx == -1:
             end_idx = len(self)
-        fig, axes = init_fig(self.active_keys)
+        tmp_data = self[0][-1] #get last frame, eval shouldnt have future
+        active_keys = sorted(list(tmp_data.keys()))
+        fig, axes = init_fig(active_keys)
         size = (fig.get_figwidth()*50, fig.get_figheight()*50)
         size = tuple([int(s) for s in size])
         vid = cv2.VideoWriter(fname, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, size)
@@ -663,6 +671,12 @@ class HDF5Dataset(Dataset):
                     max_val = img[0].max()
                     min_val = img[0].min()
                     axes[key].plot(img[0], color='black')
+
+                if mod == 'mmwave':
+                    axes[key].clear()
+                    axes[key].set_title(key)
+                    img = data[key]
+                    axes[key].imshow(img, cmap='turbo', aspect='auto')
 
             if save_frame:
                 fig.canvas.draw()
