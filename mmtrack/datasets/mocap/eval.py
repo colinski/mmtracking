@@ -19,19 +19,11 @@ from deleter import staleness_deleter
 from multi_object_tracker import MultiObjectKalmanTracker
 from collections import defaultdict
 from data_utils import point
+from multiprocessing import Pool
 
 
-class TrackingEvaluator(nn.Module):
-    def __init__(self, num_samples=1000, clear_thres=0.5, identity_thres=0.5, **kwargs):
-        super().__init__()
-        self.num_samples = num_samples
-        self.clear = CLEAR({'THRESHOLD': clear_thres, 'PRINT_CONFIG': False})
-        self.hota = HOTA()
-        self.identity = Identity({'THRESHOLD': identity_thres, 'PRINT_CONFIG': False})
-        self.class_info = ClassInfo()
-        #self.associator_thres = self.register_buffer('associator_thres', torch.tensor(1))
-
-        self.param_space = {
+class TrackingTuner(nn.Module):
+    def __init__(self, param_space={
             'initiator_thres': uniform(0.1, 30),
             'associator_thres': uniform(0.1, 30),
             'dt': [1],
@@ -42,32 +34,18 @@ class TrackingEvaluator(nn.Module):
             'I_scale': uniform(0, 500),
             'update_count_thres': np.arange(3, 10),
             'staleness_thres': np.arange(1,10)
-        }
+            }):
+        super().__init__()
+        self.param_space = param_space
 
-        # self.param_space = {
-            # 'initiator_thres': uniform(0.1, 30),
-            # 'associator_thres': uniform(0.1, 30),
-            # 'dt': [1],
-            # 'std_acc': uniform(0.01, 3),
-            # 'weights_thres': uniform(0.1, 1 - 0.1),
-            # 'weights_mode': ['softmax', 'binary'],
-            # 'cov_scale': [1],
-            # 'I_scale': [0],
-            # 'update_count_thres': np.arange(3, 10),
-            # 'staleness_thres': np.arange(1,10)
-        # }
-        #'staleness_thres': uniform(0.1, 5)
-
-
-    def tune(self, preds, gt):
+    def tune(self, preds, gt, num_iteration=500):
         obj_fn = partial(objective, preds=preds, gt=gt, num_samples=100)
-        
         obj_fn = scheduler.serial(obj_fn)
         
         #parallel_dec = scheduler.parallel(8)
         #obj_fn = parallel_dec(obj_fn)
         
-        conf_dict = dict(num_iteration=500)
+        conf_dict = dict(num_iteration=num_iteration)
         tuner = Tuner(self.param_space, obj_fn, conf_dict)
         result = tuner.maximize()
         return result

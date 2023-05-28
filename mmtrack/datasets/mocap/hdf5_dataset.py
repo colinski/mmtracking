@@ -60,8 +60,10 @@ class HDF5Dataset(Dataset):
             meta_fname = f'{pp}/meta.json'
             with open(meta_fname, 'r') as f:
                 self.meta = json.load(f)
-
-            self.fnames.extend(self.meta['fnames'])
+            
+            fnames = sorted(glob.glob(f'{pp}/*.pickle'))
+            self.fnames.extend(fnames)
+            #self.fnames.extend(self.meta['fnames'])
             self.fps = self.meta['fps']
             self.active_keys = self.meta['active_keys']
             self.active_keys = [tuple(x) for x in self.active_keys]
