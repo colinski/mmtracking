@@ -17,6 +17,7 @@ from associator import matching_associator, map_associator
 from initiator import distance_initiator
 from deleter import staleness_deleter
 from multi_object_tracker import MultiObjectKalmanTracker
+from sleep_multi_object_tracker import SleepingMultiObjectKalmanTracker
 from collections import defaultdict
 from data_utils import point
 from multiprocessing import Pool
@@ -33,10 +34,27 @@ class TrackingTuner(nn.Module):
             'cov_scale': uniform(0.05, 10-0.05),
             'I_scale': uniform(0, 500),
             'update_count_thres': np.arange(3, 10),
-            'staleness_thres': np.arange(1,10)
+            'staleness_thres': np.arange(1,10),
+            'sleep_staleness_thres': np.arange(1,100),
+            'sleep_associator_thres': uniform(0.1, 200),
             }):
         super().__init__()
         self.param_space = param_space
+
+        self.init_params = {
+            'I_scale': 60,
+            'associator_thres': 25,
+            'cov_scale': 5,
+            'dt': 1,
+            'initiator_thres': 80,
+            'staleness_thres': 3,
+            'std_acc': 1.2,
+            'update_count_thres': 3,
+            'weights_mode': 'binary',
+            'weights_thres': 0.6,
+            'sleep_associator_thres': 80,
+            'sleep_staleness_thres': 100
+        }
 
     def tune(self, preds, gt, num_iteration=500):
         obj_fn = partial(objective, preds=preds, gt=gt, num_samples=100)
@@ -45,7 +63,7 @@ class TrackingTuner(nn.Module):
         #parallel_dec = scheduler.parallel(8)
         #obj_fn = parallel_dec(obj_fn)
         
-        conf_dict = dict(num_iteration=num_iteration)
+        conf_dict = dict(num_iteration=num_iteration)#@, initial_custom=self.init_params)
         tuner = Tuner(self.param_space, obj_fn, conf_dict)
         result = tuner.maximize()
         return result
@@ -146,7 +164,7 @@ def evaluate(preds, gt, num_samples=1000):
     clear = CLEAR({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
     hota = HOTA()
     identity = Identity({'THRESHOLD': 0.5, 'PRINT_CONFIG': False})
-    
+
 
     out = clear.eval_sequence(res)
     out = {k : float(v) for k,v in out.items()}
@@ -180,8 +198,11 @@ def run_tracker(preds, **params):
     initiator  = distance_initiator(dist_threshold=params['initiator_thres'], update_count_threshold=params['update_count_thres'])
     #associator = matching_associator(distance_threshold=params['associator_thres']) #2.5
     associator = map_associator(distance_threshold=params['associator_thres']) #2.5
+    sleep_associator = map_associator(distance_threshold=params['sleep_associator_thres']) #2.5
     deleter = staleness_deleter(staleness_threshold=params['staleness_thres'])
-    tracker = MultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter)
+    sleep_deleter = staleness_deleter(staleness_threshold=params['sleep_staleness_thres'])
+    #tracker = MultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter)
+    tracker = SleepingMultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter, sleep_associator=sleep_associator, sleep_deleter=sleep_deleter)
 
     track_results, det_results = [], []
     for i in range(0, num_frames):

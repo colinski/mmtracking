@@ -16,6 +16,32 @@ class Interpolate(nn.Module):
         return F.interpolate(x, size=self.size)
 
 @MODELS.register_module()
+class UpsamplingAdapter(BaseModule):
+    def __init__(self,
+                 dim=256,
+                 upsample_size=(28,20),
+                 transpose=True,
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dim = dim
+        upsample_layer = nn.Upsample(size=upsample_size, mode='bicubic')
+        self.layers = [
+            nn.Conv2d(dim, dim, kernel_size=1, stride=(1,1), padding=(0,0)),
+            nn.GELU(),
+        ]
+        if transpose:
+            self.layers.append(Rearrange('b c h w -> b c w h')) 
+        self.layers.append(upsample_layer)
+        self.layers.append(nn.Conv2d(dim, dim, kernel_size=1, stride=(1,1), padding=(0,0)))
+        self.layers.append(nn.GELU())
+        self.layers = nn.Sequential(*self.layers)
+    
+    #x has shape B x in_len x D
+    def forward(self, x, pos_embeds=None):
+        return self.layers(x)
+
+@MODELS.register_module()
 class ConvAdapter(BaseModule):
     def __init__(self,
                  dim=256,
