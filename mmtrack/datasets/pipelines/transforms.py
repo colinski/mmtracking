@@ -10,6 +10,22 @@ from mmdet.datasets.builder import PIPELINES
 import torch
 
 @PIPELINES.register_module()
+class ReduceBrightness(object):
+    def __init__(self, brightness_percent=1):
+        self.brightness_percent = brightness_percent
+    
+    def __call__(self, results):
+        img = results['img']
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        img = img.astype(np.float32)
+        img[..., -1] = img[..., -1] * self.brightness_percent
+        img = img.astype(np.uint8)
+        img = cv2.cvtColor(img, cv2.COLOR_HSV2BGR)
+        results['img'] = img
+        return results
+
+
+@PIPELINES.register_module()
 class PadObjects(object):
     def __init__(self, pad_size=10, pad_value=-1.0):
         self.pad_size = pad_size
