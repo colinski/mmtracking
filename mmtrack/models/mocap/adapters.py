@@ -20,12 +20,13 @@ class UpsamplingAdapter(BaseModule):
     def __init__(self,
                  dim=256,
                  upsample_size=(28,20),
+                 post_kernel_size=1,
                  transpose=True,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.dim = dim
-        upsample_layer = nn.Upsample(size=upsample_size, mode='bicubic')
+        upsample_layer = nn.Upsample(size=upsample_size, mode='bilinear')
         self.layers = [
             nn.Conv2d(dim, dim, kernel_size=1, stride=(1,1), padding=(0,0)),
             nn.GELU(),
@@ -33,7 +34,8 @@ class UpsamplingAdapter(BaseModule):
         if transpose:
             self.layers.append(Rearrange('b c h w -> b c w h')) 
         self.layers.append(upsample_layer)
-        self.layers.append(nn.Conv2d(dim, dim, kernel_size=1, stride=(1,1), padding=(0,0)))
+        padding = (post_kernel_size - 1) // 2
+        self.layers.append(nn.Conv2d(dim, dim, kernel_size=post_kernel_size, stride=1, padding=padding))
         self.layers.append(nn.GELU())
         self.layers = nn.Sequential(*self.layers)
     

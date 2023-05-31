@@ -45,6 +45,7 @@ class AnchorOutputHead(BaseModule):
                  cov_only_train=False,
                  binary_prob=False,
                  scale_binary_prob=False,
+                 kernel_size=1,
                  *args,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -67,24 +68,26 @@ class AnchorOutputHead(BaseModule):
             self.register_buffer('cov_add', torch.eye(3) * cov_add)
         else:
             self.register_buffer('cov_add', torch.eye(2) * cov_add)
-
+            
+        padding = (kernel_size - 1) // 2
         self.mlp = nn.Sequential(
-            nn.Conv2d(input_dim, input_dim, kernel_size=1),
+            nn.Conv2d(input_dim, input_dim, kernel_size=kernel_size, padding=padding),
             nn.GELU(),
-            nn.Conv2d(input_dim, input_dim, kernel_size=1),
+            nn.Conv2d(input_dim, input_dim, kernel_size=kernel_size, padding=padding),
             nn.GELU(),
             nn.Dropout(mlp_dropout_rate)
         )
 
-        self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=1)
-        self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=1)
-        self.mix_head = nn.Conv2d(input_dim, 1, kernel_size=1)
+        self.mean_head = nn.Conv2d(input_dim, 2, kernel_size=kernel_size, padding=padding)
+        self.cov_head = nn.Conv2d(input_dim, 3, kernel_size=kernel_size, padding=padding)
+        self.mix_head = nn.Conv2d(input_dim, 1, kernel_size=kernel_size, padding=padding)
 
     #def forward(self, data, return_loss=True, **kwargs):
     #x has the shape B x num_object x D
     def forward(self, x, node_pos=None, node_rot=None):
         with torch.set_grad_enabled(not self.cov_only_train):
             x = self.mlp(x)
+            
             means = self.mean_head(x)
             mix_logits = self.mix_head(x)
 
