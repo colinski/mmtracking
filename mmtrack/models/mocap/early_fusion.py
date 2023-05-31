@@ -159,9 +159,12 @@ class EarlyFusion(BaseMocapModel):
             # det_embeds = det_embeds.view(B, num_views*L, D)
             B, L, D = det_embeds.shape
             
+            attn_weights = []
             final_embed = self.global_pos_encoding.weight
             for layer in self.global_cross_attn:
-                final_embed = layer(final_embed, det_embeds)
+                final_embed, A = layer(final_embed, det_embeds, return_weights=True)
+                attn_weights.append(A)
+            attn_weights = [A.detach().cpu() for A in attn_weights]
             
             output = self.output_head(final_embed.unsqueeze(0))
             dist = output['dist']
@@ -170,7 +173,8 @@ class EarlyFusion(BaseMocapModel):
             cov = cov.squeeze(0)
             result = {
                 'det_means': mean.cpu().t(),
-                'det_covs': cov.cpu()
+                'det_covs': cov.cpu(),
+                'attn_weights': attn_weights,
             }
             return result
             assert det_embeds.shape[2] == 1 #assuming 1 object for now
