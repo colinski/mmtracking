@@ -76,7 +76,14 @@ class HDF5Dataset(Dataset):
         self.num_past_frames = num_past_frames
         self.node_pos = None
         self.node_ids = None
-        self.colors = ['red', 'green', 'orange', 'black', 'yellow', 'blue']
+        #self.colors = ['red', 'green', 'orange', 'black', 'yellow', 'blue']
+        #self.colors = cv2.applyColorMap(np.arange(16, dtype=np.uint8)[np.newaxis, :], cv2.COLORMAP_HSV)[0] / 255.0
+        #shuffle = np.array([12,  8,  5,  1, 10, 15,  9,  7,  4,  0,  6, 14,  3, 13,  2, 11])
+        self.colors = cv2.applyColorMap(np.arange(256, dtype=np.uint8)[np.newaxis, :], cv2.COLORMAP_HSV)
+        #self.colors = cv2.cvtColor(self.colors, cv2.COLOR_BGR2RGB)
+        self.colors = cv2.resize(self.colors, dsize=(8,1))[0] / 255.0
+        #self.colors = self.colors[shuffle]
+
         self.class_info = ClassInfo()
         self.FOV = FieldOfViewCheck()
         
@@ -89,37 +96,6 @@ class HDF5Dataset(Dataset):
             self.merge_pipeline = Compose(merge_pipeline)
 
         self.flag = np.zeros(len(self), dtype=np.uint8) #ones?
-        
-        self.nodes = get_node_info()
-        # self.node_pos = torch.tensor([
-            # [608.2496, 197.5388],
-            # [231.8911,  12.0564],
-            # [ 12.2432, 117.5110],
-            # [419.3237, 391.6695]
-        # ])
-
-        # self.nodes = {}
-        # fill = False
-        # alpha = 1
-        # for j in range(len(self.node_pos)):
-            # pos = self.node_pos[j]
-            # name = 'node_{}'.format(j+1)
-            # if j == 0:
-                # xy = [(pos[0] - 30, pos[1]), (500,0), (0,0), (0,500), (350,500)]
-                # poly = patches.Polygon(xy=xy, fill=fill, color='red', alpha=alpha)
-                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
-            # if j == 1:
-                # xy = [(pos[0], pos[1] + 60), (0,250), (0,500), (700,500)]
-                # poly = patches.Polygon(xy=xy, fill=fill, color='blue', alpha=alpha)
-                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
-            # if j == 2:
-                # xy = [(50, pos[1]), (150,500), (700,500), (700,0), (250,0)]
-                # poly = patches.Polygon(xy=xy, fill=fill, color='green', alpha=alpha)
-                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
-            # if j == 3:
-                # xy = [(pos[0]-25, pos[1]-25), (0,300), (0,0),(500,0)]
-                # poly = patches.Polygon(xy=xy, fill=fill, color='black', alpha=alpha)
-                # self.nodes[name] = {'poly': poly, 'pos': pos, 'id': j+1}
 
     
     def __len__(self):
@@ -472,8 +448,7 @@ class HDF5Dataset(Dataset):
             self.write_video(vid_outputs, **eval_kwargs)
         return grid_res
 
-    def write_video(self, outputs=None, start_idx=0, end_idx=-1, **eval_kwargs): 
-        fname = eval_kwargs['fname']
+    def write_video(self, outputs=None, fname='/tmp/vid.mp4', start_idx=0, end_idx=-1, plot_detections=False):
         if end_idx == -1:
             end_idx = len(self)
         tmp_data = self[0][-1] #get last frame, eval shouldnt have future
@@ -545,23 +520,20 @@ class HDF5Dataset(Dataset):
                         h = val['heights'][j] 
                         angle = rot2angle(rot, return_rads=False)
                         rec, _ = gen_rectange(pos, angle, w=w, h=h, color=color)
-                        axes[key].text(pos[0], pos[1], '%d, %d' % (pos[0], pos[1]))
+                        #axes[key].text(pos[0], pos[1], '%d, %d' % (pos[0], pos[1]))
                         axes[key].add_patch(rec)
 
                         r=w/2
                         axes[key].arrow(pos[0], pos[1], r*rot[0], r*rot[1], head_width=0.05*100, head_length=0.05*100, fc=color, ec=color)
                             
                     if outputs is not None: 
-                        if len(outputs['det_means']) > 0:
+                        if len(outputs['det_means']) > 0 and plot_detections:
                             pred_means = outputs['det_means'][i]#.t()
                             pred_covs = outputs['det_covs'][i]
-                            #pred_weights = outputs['det_weights'][i]
                             for j in range(len(pred_means)):
                                 mean = pred_means[j].cpu()
                                 cov = pred_covs[j].cpu()
-                                # weight = pred_weights[j].cpu()
                                 ID = str(j+1)
-                                #axes[key].scatter(mean[0], mean[1], color='black', marker='$%s$' % ID, lw=1, s=20*4**2)
                                 axes[key].scatter(mean[0], mean[1], color='black', lw=1, s=20*4**2)
                                 ellipse = gen_ellipse(mean, cov, edgecolor='black', fc='None', lw=2, linestyle='--')
                                 axes[key].add_patch(ellipse)
@@ -569,23 +541,18 @@ class HDF5Dataset(Dataset):
                         if 'track_means' in outputs.keys() and len(outputs['track_means'][i]) > 0:
                             pred_means = outputs['track_means'][i] 
                             pred_covs = outputs['track_covs'][i]
-                            #pred_rots = outputs['track_rot'][i]
-                            #ids = outputs['track_ids'][i].to(int)
-                            # slot_ids = outputs['slot_ids'][i].to(int)
+                            pred_ids = outputs['track_ids'][i]
                             for j in range(len(pred_means)):
-                                #rot = pred_rots[j]
-                                #angle = torch.arctan(rot[0]/rot[1]) * 360
                                 mean = pred_means[j]
+                                cov = pred_covs[j]
                                 color = self.colors[j % len(self.colors)]
-                                
-
+                                id = pred_ids[j]
 
                                 # axes[key].scatter(mean[0], mean[1], color=color, marker=f'+', lw=1, s=20*4**2)
-                                cov = pred_covs[j]
                                 #ID = ids[j]
                                 # sID = slot_ids[j]
                                 #axes[key].text(mean[0], mean[1], s=f'T${ID}$S{sID}', fontdict={'color': color})
-                                axes[key].text(mean[0], mean[1], s=f'KF', fontdict={'color': color})
+                                axes[key].text(mean[0], mean[1], s=f'${id}$', fontdict={'color': color, 'size':24})
                                 if self.draw_cov:
                                     ellipse = gen_ellipse(mean, cov, edgecolor=color, fc='None', lw=2, linestyle='--')
                                     axes[key].add_patch(ellipse)
