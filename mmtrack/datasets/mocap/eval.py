@@ -22,6 +22,8 @@ from collections import defaultdict
 from data_utils import point
 from multiprocessing import Pool
 
+from motion_models import steerable_model
+
 
 class TrackingTuner(nn.Module):
     def __init__(self, param_space={
@@ -198,11 +200,13 @@ def run_tracker(preds, **params):
     initiator  = distance_initiator(dist_threshold=params['initiator_thres'], update_count_threshold=params['update_count_thres'])
     #associator = matching_associator(distance_threshold=params['associator_thres']) #2.5
     associator = map_associator(distance_threshold=params['associator_thres']) #2.5
-    sleep_associator = map_associator(distance_threshold=params['sleep_associator_thres']) #2.5
+    ssociator = map_associator(distance_threshold=params['sleep_associator_thres']) #2.5
     deleter = staleness_deleter(staleness_threshold=params['staleness_thres'])
     sleep_deleter = staleness_deleter(staleness_threshold=params['sleep_staleness_thres'])
     #tracker = MultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter)
-    tracker = SleepingMultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter, sleep_associator=sleep_associator, sleep_deleter=sleep_deleter)
+    #tracker = SleepingMultiObjectKalmanTracker(std_acc=params['std_acc'],initiator=initiator,associator=associator, deleter=deleter, sleep_associator=sleep_associator, sleep_deleter=sleep_deleter)
+    mm = steerable_model(std_accl=0.1, std_accy=0.1)
+    tracker = MultiObjectKalmanTracker(mm=mm, initiator=initiator,associator=associator, sleep_threshold=30,kill_threshold=5,update_count_threshold=0)
 
     track_results, det_results = [], []
     for i in range(0, num_frames):
@@ -224,7 +228,12 @@ def run_tracker(preds, **params):
             covs = params['cov_scale'] * covs + params['I_scale'] * torch.eye(2,2)
             #covs = covs / 100
             for j in range(len(means)):
-                p = point(t, pos=means[j].unsqueeze(1), cov=covs[j], source=key)
+                covj = covs[j]
+                #covj[0, 1] = covj[1, 0] = 0
+                # covj[0,1] = 0
+                # covj[1,0] = 0
+                # covj = torch.eye(2) * 30
+                p = point(t, pos=means[j].unsqueeze(1), cov=covj, source=key)
                 dets[key].append(p)
         det_results.append(dets)
         out = tracker.update(t, dets)
@@ -264,9 +273,9 @@ def run_tracker(preds, **params):
     outputs.update({'track_means': [], 'track_covs': [], 'track_ids': []})
     for i, tr in enumerate(track_results):
         frame_means, frame_covs, frame_ids = [], [], []
-        for tid, p in tr.items():
-            mean = p.pos[0:2].squeeze().detach()
-            cov = p.cov[0:2, 0:2].squeeze().detach()
+        for tid, tpoint in tr.items():
+            mean = tpoint.x[0:2].squeeze().detach()
+            cov = tpoint.cov[0:2, 0:2].squeeze().detach()
             frame_means.append(mean) #* 100)
             frame_covs.append(cov) #* 100)
             #frame_ids.append(int(tid[-1]))
@@ -275,83 +284,3 @@ def run_tracker(preds, **params):
         outputs['track_covs'].append(frame_covs)
         outputs['track_ids'].append(torch.tensor(frame_ids))
     return outputs
-
-def run_tracker_old(preds, **params):
-    for key, val in preds.items():
-        num_frames = len(val)
-
-    initiator  = distance_initiator(dist_threshold=params['initiator_thres']) # 1 5
-    associator = matching_associator(distance_threshold=params['associator_thres']) #2.5
-    tracker = MultiObjectKalmanTracker(dt=params['dt'],std_acc=params['std_acc'],initiator=initiator,associator=associator)
-
-    track_results, det_results = [], []
-    for i in range(0, num_frames):
-        dets = defaultdict(list)
-        for key, val in preds.items():
-            d = val[i]
-            if params['weights_mode'] == 'softmax':
-                weights = d['weights'].flatten()
-                weights = torch.softmax(weights, dim=0)
-            elif params['weights_mode'] == 'binary':
-                logits = d['binary_logits']
-                weights = logits.sigmoid()
-            else:
-                raise ValueError('weights_mode must be softmax or binary')
-            mask = weights >= params['weights_thres']
-            means = d['mean'].reshape(-1, 2)[mask] / 100
-            covs = d['cov'].reshape(-1, 2, 2)[mask]
-            covs = params['cov_scale'] * covs + params['I_scale'] * torch.eye(2,2)
-            covs = covs / 100
-            for j in range(len(means)):
-                p = point(means[j].unsqueeze(1), covs[j], key)
-                dets[key].append(p)
-        det_results.append(dets)
-        out = tracker.update(params['dt']*i, dets)
-        track_results.append(out)
-    
-    outputs = {}
-    filtered_dets =  {k: [] for k in preds.keys()}
-    for i, dr in enumerate(det_results):
-        #for did, points in dr.items():
-        for did in preds.keys():
-            frame_means, frame_covs = [], []
-            points = dr[did]
-            for p in points:
-                mean = p.pos[0:2].squeeze().detach() * 100
-                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
-                frame_means.append(mean)
-                frame_covs.append(cov)
-            filtered_dets[did].append({'mean': frame_means, 'cov': frame_covs})
-        #outputs['det_means'].append(frame_means)
-        #outputs['det_covs'].append(frame_covs)
-    outputs['filtered_dets'] = filtered_dets
-  
-    outputs['det_means'] = []
-    outputs['det_covs'] = []
-    for i, dr in enumerate(det_results):
-        frame_means, frame_covs = [], []
-        for did, points in dr.items():
-            for p in points:
-                mean = p.pos[0:2].squeeze().detach() * 100
-                cov = p.cov[0:2, 0:2].squeeze().detach() * 100
-                frame_means.append(mean)
-                frame_covs.append(cov)
-        outputs['det_means'].append(frame_means)
-        outputs['det_covs'].append(frame_covs)
-        
-    outputs.update({'track_means': [], 'track_covs': [], 'track_ids': []})
-    for i, tr in enumerate(track_results):
-        frame_means, frame_covs, frame_ids = [], [], []
-        for tid, p in tr.items():
-            mean = p.pos[0:2].squeeze().detach()
-            cov = p.cov[0:2, 0:2].squeeze().detach()
-            frame_means.append(mean * 100)
-            frame_covs.append(cov * 100)
-            frame_ids.append(int(tid[-1]))
-        outputs['track_means'].append(frame_means)
-        outputs['track_covs'].append(frame_covs)
-        outputs['track_ids'].append(torch.tensor(frame_ids))
-    return outputs
-
-    
-    
